@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.sqlite3
+.env
+*.egg-info/
+qdrant/
+qdrant.tar.gz
+*.tar.gz

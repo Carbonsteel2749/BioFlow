@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Article Repository</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(15, 23, 42, 0.92);
+      --card: rgba(30, 41, 59, 0.85);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent2: #22c55e;
+      --border: rgba(148, 163, 184, 0.22);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at top left, #123059, transparent 35%), linear-gradient(180deg, #020617, #0f172a 55%, #111827);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 20px;
+    }
+    .panel, .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      backdrop-filter: blur(10px);
+    }
+    .panel { padding: 24px; }
+    .card { padding: 18px; }
+    h1 { margin: 0 0 10px; font-size: clamp(32px, 5vw, 56px); line-height: 1.05; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    p { color: var(--muted); line-height: 1.7; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0; }
+    .stat { padding: 16px; border-radius: 16px; background: rgba(15, 23, 42, .72); border: 1px solid var(--border); }
+    .stat .k { font-size: 13px; color: var(--muted); }
+    .stat .v { font-size: 28px; font-weight: 700; margin-top: 6px; }
+    .toolbar { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 10px; margin: 18px 0; }
+    input, button {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      background: rgba(15, 23, 42, .75);
+      color: var(--text);
+      font-size: 14px;
+    }
+    button { cursor: pointer; background: linear-gradient(135deg, var(--accent), #7c3aed); border: none; font-weight: 700; }
+    button.secondary { background: linear-gradient(135deg, #0f766e, #16a34a); }
+    .table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    .table th, .table td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .table th { color: #cbd5e1; font-size: 13px; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(56, 189, 248, .14); color: #7dd3fc; font-size: 12px; margin-right: 6px; margin-bottom: 6px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #cbd5e1; }
+    .section { margin-top: 18px; }
+    @media (max-width: 960px) {
+      .hero, .grid, .toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div class="panel">
+        <h1>Article Repository</h1>
+        <p>用于查看 PubMed 抓取结果、打标覆盖率和文献检索结果的轻量前端。当前页面直接连接后端 API，可用于快速验收数据是否已入库。</p>
+        <div class="grid" id="stats"></div>
+      </div>
+      <div class="panel">
+        <h2>快速操作</h2>
+        <p>输入关键词后直接检索数据库；也可以查看标签质量和触发 PubMed 再同步。</p>
+        <div class="section">
+          <button id="reloadBtn">刷新统计</button>
+          <button id="syncBtn" class="secondary">同步 PubMed</button>
+        </div>
+        <p id="syncResult" class="mono"></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>检索文献</h2>
+      <div class="toolbar">
+        <input id="keyword" placeholder="关键词，例如：双歧杆菌 / microbiota" />
+        <input id="tagFilter" placeholder="标签过滤，例如：bacterial_species=Bifidobacterium" />
+        <button id="searchBtn">检索</button>
+        <button id="qualityBtn" class="secondary">看标签质量</button>
+      </div>
+      <div id="quality" class="mono"></div>
+      <div class="section">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>标题</th>
+              <th>来源 / DOI</th>
+              <th>标签</th>
+            </tr>
+          </thead>
+          <tbody id="results"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const statsEl = document.getElementById('stats');
+    const resultsEl = document.getElementById('results');
+    const qualityEl = document.getElementById('quality');
+    const syncResultEl = document.getElementById('syncResult');
+
+    function card(label, value) {
+      return `<div class="stat"><div class="k">${label}</div><div class="v">${value}</div></div>`;
+    }
+
+    async function loadStats() {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      const lastSync = data.last_sync_date
+        ? new Date(data.last_sync_date).toLocaleString('zh-CN')
+        : '从未同步';
+      statsEl.innerHTML = [
+        card('总文献数', data.total ?? 0),
+        card('已打标', data.tagged ?? 0),
+        card('覆盖率', ((data.coverage ?? 0) * 100).toFixed(1) + '%'),
+        card('上次同步', lastSync),
+      ].join('');
+    }
+
+    function buildArticleLink(item) {
+      const doi = item.doi || '';
+      if (!doi) return '<span class="mono">无 DOI</span>';
+      if (doi.startsWith('pubmed:')) {
+        const pmid = doi.replace('pubmed:', '');
+        return `<a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/" target="_blank" rel="noreferrer">${doi}</a>`;
+      }
+      return `<a href="https://doi.org/${doi}" target="_blank" rel="noreferrer">${doi}</a>`;
+    }
+
+    function renderResults(items) {
+      resultsEl.innerHTML = items.map(item => {
+        const tags = item.llm_tags || {};
+        const badgeHtml = Object.entries(tags).filter(([, v]) => v).map(([k, v]) => `<span class="badge">${k}: ${v}</span>`).join('');
+        const doiHtml = buildArticleLink(item);
+        return `<tr>
+          <td><strong>${item.title || ''}</strong><div class="mono">${item.publish_time || ''}</div></td>
+          <td>${item.journal || item.source || 'PubMed'}<br><span class="mono">${item.source || 'PubMed'}</span><br>${doiHtml}</td>
+          <td>${badgeHtml || '<span class="mono">无标签</span>'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function search() {
+      const keyword = document.getElementById('keyword').value.trim();
+      const tagFilter = document.getElementById('tagFilter').value.trim();
+      const url = new URL('/api/articles', window.location.origin);
+      if (keyword) url.searchParams.set('keyword', keyword);
+      if (tagFilter.includes('=')) {
+        const [tagKey, tagValue] = tagFilter.split('=');
+        url.searchParams.set('tag_key', tagKey.trim());
+        url.searchParams.set('tag_value', tagValue.trim());
+      }
+      const res = await fetch(url);
+      const data = await res.json();
+      renderResults(data.items || []);
+    }
+
+    async function loadQuality() {
+      const res = await fetch('/api/eval/tag-quality');
+      const data = await res.json();
+      qualityEl.textContent = JSON.stringify(data, null, 2);
+    }
+
+    async function syncPubmed() {
+      syncResultEl.textContent = '⏳ 正在同步 PubMed（增量拉取新文献）...';
+      try {
+        const res = await fetch('/api/sync/pubmed', { method: 'POST' });
+        const data = await res.json();
+        if (data.fetched === 0) {
+          syncResultEl.textContent = '✅ 同步完成：没有新文献，数据库已是最新状态';
+        } else {
+          syncResultEl.textContent = `✅ 同步完成：本次新增/更新 ${data.saved} 篇文献`;
+        }
+        await loadStats();
+        await search();
+      } catch (err) {
+        syncResultEl.textContent = '❌ 同步失败，请检查网络连接后重试';
+        console.error(err);
+      }
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', loadStats);
+    document.getElementById('searchBtn').addEventListener('click', search);
+    document.getElementById('qualityBtn').addEventListener('click', loadQuality);
+    document.getElementById('syncBtn').addEventListener('click', syncPubmed);
+
+    loadStats();
+    search();
+  </script>
+</body>
+</html>

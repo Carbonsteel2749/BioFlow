@@ -1,0 +1,153 @@
+# 生物医学「自闭症 + 肠道菌群」中→英检索式词表
+#
+# 格式：中文 <TAB> 英文 <TAB> 阶段
+#   pre  ：术语补充（默认）。机翻仍用纯中文输入，命中这些中文词时把对应英文术语
+#          追加到英文检索式末尾，保证专业术语准确。
+#          注意：不要把英文预替换进中文再机翻，OPUS-MT 遇到中英混输会输出乱码。
+#   post ：机翻结果的后处理纠错，把已知的误译替换成正确术语。
+# 长词优先匹配，因此「自闭症谱系障碍」会先于「自闭症」被命中。
+# 修改本文件后重启 mt_service.py 生效。
+
+# ── 疾病与表型 ───────────────────────────────────────────────────────────────
+自闭症谱系障碍	autism spectrum disorder	pre
+自闭症	autism	pre
+孤独症	autism	pre
+自闭症儿童	children with autism	pre
+神经发育障碍	neurodevelopmental disorder	pre
+注意力缺陷多动障碍	attention deficit hyperactivity disorder	pre
+多动症	ADHD	pre
+社交行为	social behavior	pre
+社交互动	social interaction	pre
+社交沟通	social communication	pre
+重复刻板行为	repetitive stereotyped behavior	pre
+刻板行为	stereotyped behavior	pre
+类自闭症行为	autism-like behavior	pre
+认知功能	cognitive function	pre
+语言发育	language development	pre
+睡眠障碍	sleep disorder	pre
+焦虑	anxiety	pre
+抑郁	depression	pre
+胃肠道症状	gastrointestinal symptoms	pre
+胃肠功能	gastrointestinal function	pre
+便秘	constipation	pre
+腹泻	diarrhea	pre
+腹痛	abdominal pain	pre
+
+# ── 微生物与菌群 ─────────────────────────────────────────────────────────────
+肠道菌群	gut microbiota	pre
+肠道微生物组	gut microbiome	pre
+肠道微生物	gut microbiome	pre
+肠道菌群组成	gut microbiota composition	pre
+菌群失调	dysbiosis	pre
+肠道菌群失调	gut dysbiosis	pre
+菌群多样性	microbial diversity	pre
+相对丰度	relative abundance	pre
+丰度	abundance	pre
+益生菌	probiotics	pre
+益生元	prebiotics	pre
+合生元	synbiotics	pre
+双歧杆菌	Bifidobacterium	pre
+乳酸杆菌	Lactobacillus	pre
+乳杆菌	Lactobacillus	pre
+罗伊氏乳杆菌	Limosilactobacillus reuteri	pre
+阿克曼菌	Akkermansia muciniphila	pre
+普雷沃氏菌	Prevotella	pre
+拟杆菌属	Bacteroides	pre
+粪杆菌	Faecalibacterium	pre
+梭菌	Clostridium	pre
+链球菌	Streptococcus	pre
+肠球菌	Enterococcus	pre
+大肠杆菌	Escherichia coli	pre
+拟杆菌门	Bacteroidetes	pre
+厚壁菌门	Firmicutes	pre
+变形菌门	Proteobacteria	pre
+放线菌门	Actinobacteria	pre
+真菌	fungi	pre
+病毒组	virome	pre
+菌群移植	microbiota transplantation	pre
+粪菌移植	fecal microbiota transplantation	pre
+
+# ── 肠脑轴与分子机制 ─────────────────────────────────────────────────────────
+微生物-肠-脑轴	microbiota-gut-brain axis	pre
+肠脑轴	gut-brain axis	pre
+肠-脑轴	gut-brain axis	pre
+迷走神经	vagus nerve	pre
+中枢神经系统	central nervous system	pre
+血脑屏障	blood-brain barrier	pre
+肠内分泌细胞	enteroendocrine cells	pre
+短链脂肪酸	short-chain fatty acids	pre
+丁酸盐	butyrate	pre
+丙酸盐	propionate	pre
+乙酸盐	acetate	pre
+胆汁酸	bile acids	pre
+色氨酸	tryptophan	pre
+吲哚衍生物	indole derivatives	pre
+脂多糖	lipopolysaccharide	pre
+神经递质	neurotransmitters	pre
+血清素	serotonin	pre
+多巴胺	dopamine	pre
+催产素	oxytocin	pre
+氨基丁酸	GABA	pre
+神经炎症	neuroinflammation	pre
+炎症因子	inflammatory cytokines	pre
+白细胞介素	interleukin	pre
+肿瘤坏死因子	tumor necrosis factor	pre
+氧化应激	oxidative stress	pre
+免疫调节	immune regulation	pre
+肠道通透性	intestinal permeability	pre
+母体免疫激活	maternal immune activation	pre
+信号通路	signaling pathway	pre
+通路	pathway	pre
+受体	receptor	pre
+拮抗剂	antagonist	pre
+抑制剂	inhibitor	pre
+基因表达	gene expression	pre
+转录组	transcriptome	pre
+蛋白质组	proteome	pre
+代谢组学	metabolomics	pre
+宏基因组	metagenomics	pre
+
+# ── 研究方法 ─────────────────────────────────────────────────────────────────
+十六S核糖体RNA测序	16S rRNA sequencing	pre
+16S rRNA测序	16S rRNA sequencing	pre
+扩增子测序	amplicon sequencing	pre
+随机对照试验	randomized controlled trial	pre
+双盲	double-blind	pre
+安慰剂对照	placebo-controlled	pre
+安慰剂	placebo	pre
+队列研究	cohort study	pre
+系统综述	systematic review	pre
+荟萃分析	meta-analysis	pre
+社交反应量表	Social Responsiveness Scale	pre
+儿童孤独症评定量表	Childhood Autism Rating Scale	pre
+生物标志物	biomarker	pre
+长期随访	long-term follow-up	pre
+早期干预	early intervention	pre
+饮食干预	dietary intervention	pre
+生酮饮食	ketogenic diet	pre
+无麸质饮食	gluten-free diet	pre
+抗生素	antibiotics	pre
+动物模型	animal model	pre
+小鼠模型	mouse model	pre
+辅助治疗	adjunctive therapy	pre
+干预	intervention	pre
+机制	mechanism	pre
+相关性	correlation	pre
+因果关系	causal relationship	pre
+
+# ── 机翻结果纠错（post）─────────────────────────────────────────────────────
+autism children	children with autism	post
+children autism	children with autism	post
+intestinal bacteria	gut microbiota	post
+intestinal flora	gut microbiota	post
+bowel brain axis	gut-brain axis	post
+gut brain axis	gut-brain axis	post
+brain-gut axis	gut-brain axis	post
+repeat stereotypes	repetitive stereotyped behavior	post
+repeated stereotyped behavior	repetitive stereotyped behavior	post
+prosthesis interventions	probiotic interventions	post
+biblism	Bifidobacterium	post
+manure transplants	fecal microbiota transplantation	post
+manure transplant	fecal microbiota transplantation	post
+autism spectrum disorders	autism spectrum disorder	post
+social behaviour	social behavior	post

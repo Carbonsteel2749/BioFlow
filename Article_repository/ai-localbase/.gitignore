@@ -1,0 +1,142 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Go
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Compiled Go executable
+backend/main
+backend/cmd
+backend/eval/cmd/eval_main
+backend/ai-localbase
+ai-localbase-server
+
+# Node.js / npm
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Backend embed dist (keep .gitkeep placeholder)
+backend/dist/*
+!backend/dist/.gitkeep
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+yarn.lock
+.parcel-cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+Thumbs.db
+*.sublime-workspace
+*.sublime-project
+
+# Environment variables
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# Local vector store data
+qdrant_storage/
+
+# Local application data and uploaded files
+backend/data/*
+!backend/data/.gitkeep
+backend/data/*.json
+backend/internal/router/data/
+
+# Local database files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+*.duckdb
+*.duckdb.*
+
+# Local credentials and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Evaluation artifacts (generated locally, do not commit)
+backend/eval/results/
+!backend/eval/results/.gitkeep
+backend/eval/data/
+!backend/eval/data/.gitkeep
+
+# Evaluation fix documents (temporary analysis files)
+EVALUATION_FIX.md
+EVALUATION_FIX_SUMMARY.md
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swap
+
+# Docker
+docker-compose.override.yml
+
+---
+
+# Build outputs
+
+build/
+/dist/
+out/
+
+---
+
+# Miscellaneous
+
+Session.vim
+.exrc
+
+# Local planning notes
+plans/
+
+# data
+data/*
+
+# Test artifacts and local test data
+coverage/
+coverage.*
+*.lcov
+junit*.xml
+test-results/
+playwright-report/
+test-*.sh

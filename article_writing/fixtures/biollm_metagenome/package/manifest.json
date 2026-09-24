@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "task_id": "task-fixture-001",
+  "checksum_algorithm": "sha256",
+  "checksum_file": "SHA256SUMS",
+  "artifacts": []
+}

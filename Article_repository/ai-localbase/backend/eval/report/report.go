@@ -1,0 +1,137 @@
+package report
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"ai-localbase/eval/offline"
+)
+
+// Report 完整评估报告
+type Report struct {
+	RunID       string    `json:"run_id"`
+	RunAt       time.Time `json:"run_at"`
+	DatasetPath string    `json:"dataset_path"`
+	Metrics     Metrics   `json:"metrics"`
+	Cases       []CaseReport `json:"cases"`
+}
+
+// Metrics 报告中的聚合指标
+type Metrics struct {
+	TotalCases           int     `json:"total_cases"`
+	HitRate              float64 `json:"hit_rate"`
+	MRR                  float64 `json:"mrr"`
+	RetrievalLatencyP50Ms  float64 `json:"retrieval_latency_p50_ms"`
+	RetrievalLatencyP95Ms  float64 `json:"retrieval_latency_p95_ms"`
+	GenerationLatencyP50Ms float64 `json:"generation_latency_p50_ms"`
+	GenerationLatencyP95Ms float64 `json:"generation_latency_p95_ms"`
+}
+
+// CaseReport 单个用例在报告中的摘要
+type CaseReport struct {
+	CaseID       string  `json:"case_id"`
+	Question     string  `json:"question"`
+	Hit          bool    `json:"hit"`
+	HitRank      int     `json:"hit_rank"`
+	LLMAnswer    string  `json:"llm_answer,omitempty"`
+	Error        string  `json:"error,omitempty"`
+}
+
+// BuildReport 从 CaseResult 列表和 Dataset 构建报告
+func BuildReport(runID string, datasetPath string, results []offline.CaseResult, dataset *offline.Dataset) *Report {
+	aggMetrics := offline.Aggregate(results, dataset.Cases)
+
+	caseReports := make([]CaseReport, len(results))
+	for i, res := range results {
+		hit := res.HitRank != -1
+		caseReports[i] = CaseReport{
+			CaseID:    res.CaseID,
+			Question:  res.Question,
+			Hit:       hit,
+			HitRank:   res.HitRank,
+			LLMAnswer: res.LLMAnswer,
+			Error:     res.Error,
+		}
+	}
+
+	return &Report{
+		RunID:       runID,
+		RunAt:       time.Now(),
+		DatasetPath: datasetPath,
+		Metrics: Metrics{
+			TotalCases:           aggMetrics.TotalCases,
+			HitRate:              aggMetrics.HitRate,
+			MRR:                  aggMetrics.MRR,
+			RetrievalLatencyP50Ms:  float64(aggMetrics.LatencyRetrievalP50.Milliseconds()),
+			RetrievalLatencyP95Ms:  float64(aggMetrics.LatencyRetrievalP95.Milliseconds()),
+			GenerationLatencyP50Ms: float64(aggMetrics.LatencyGenerationP50.Milliseconds()),
+			GenerationLatencyP95Ms: float64(aggMetrics.LatencyGenerationP95.Milliseconds()),
+		},
+		Cases:       caseReports,
+	}
+}
+
+// WriteJSON 将报告写入 JSON 文件
+func (r *Report) WriteJSON(path string) error {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal report to JSON: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %w", dir, err)
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// WriteMarkdown 将报告写入 Markdown 文件
+func (r *Report) WriteMarkdown(path string) error {
+	var md strings.Builder
+	md.WriteString("# RAG 评估报告\n")
+	md.WriteString(fmt.Sprintf("运行时间: %s\n", r.RunAt.Format("2006-01-02 15:04:05")))
+	md.WriteString(fmt.Sprintf("数据集: %s\n\n", r.DatasetPath))
+
+	md.WriteString("## 聚合指标\n")
+	md.WriteString("| 指标 | 值 |\n")
+	md.WriteString("|------|----| \n")
+	md.WriteString(fmt.Sprintf("| 总用例数 | %d |\n", r.Metrics.TotalCases))
+	md.WriteString(fmt.Sprintf("| 命中率 (Hit Rate) | %.2f%% |\n", r.Metrics.HitRate*100))
+	md.WriteString(fmt.Sprintf("| MRR | %.4f |\n", r.Metrics.MRR))
+	md.WriteString(fmt.Sprintf("| 检索时延 P50 | %.0fms |\n", r.Metrics.RetrievalLatencyP50Ms))
+	md.WriteString(fmt.Sprintf("| 检索时延 P95 | %.0fms |\n", r.Metrics.RetrievalLatencyP95Ms))
+	md.WriteString(fmt.Sprintf("| 生成时延 P50 | %.0fms |\n", r.Metrics.GenerationLatencyP50Ms))
+	md.WriteString(fmt.Sprintf("| 生成时延 P95 | %.0fms |\n\n", r.Metrics.GenerationLatencyP95Ms))
+
+	failedCases := make([]CaseReport, 0)
+	for _, c := range r.Cases {
+		if !c.Hit || c.Error != "" {
+			failedCases = append(failedCases, c)
+		}
+	}
+
+	if len(failedCases) > 0 {
+		md.WriteString("## 失败用例\n")
+		md.WriteString("| ID | 问题 | 错误 |\n")
+		md.WriteString("|----|----|-----|\n")
+		for _, c := range failedCases {
+			errorMsg := c.Error
+			if !c.Hit && c.Error == "" {
+				errorMsg = "未命中"
+			}
+			md.WriteString(fmt.Sprintf("| %s | %s | %s |\n", c.CaseID, c.Question, errorMsg))
+		}
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %w", dir, err)
+	}
+
+	return os.WriteFile(path, []byte(md.String()), 0644)
+}

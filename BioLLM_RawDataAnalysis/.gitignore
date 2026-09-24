@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Frontend dependencies and generated build output
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Nextflow caches, work directories, and generated reports
+.nextflow/
+**/.nextflow/
+work/
+workflow/work/
+.nextflow.log*
+**/.nextflow.log*
+trace-*.txt
+timeline-*.html
+report-*.html
+
+# Generated analysis results and runtime state
+results/
+runtime/
+graphify-out/
+workflow/graphify-out/
+*.sqlite3
+*.db
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+config/database-registry.local.json
+
+# Raw and intermediate biological data
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.fasta
+*.fna
+*.bam
+*.sam
+*.cram
+*.tar.gz
+workflow/tests/data/public/

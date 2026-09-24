@@ -1,0 +1,15 @@
+{
+  "title": "Shotgun metagenomic profiling of a three-sample gut microbiome cohort",
+  "research_question": "What taxonomic and functional features characterize this shotgun metagenomic dataset after host depletion and standardized annotation?",
+  "organism_or_system": "human gut microbiome",
+  "data_modality": "shotgun_metagenomics",
+  "keywords": [
+    "metagenomics",
+    "gut microbiota",
+    "HUMAnN",
+    "Kraken2"
+  ],
+  "notes": [
+    "Fixture brief paired with fixtures/biollm_metagenome/package for live analysis adapter tests."
+  ]
+}

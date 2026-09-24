@@ -1,0 +1,3 @@
+section	database_name	release	taxonomy_system	manifest_sha256
+taxonomy_reads.kraken2	kraken	k2_standard_202401	NCBI	abc
+function_reads.humann_nucleotide	chocophlan	v201901	NCBI	def

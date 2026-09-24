@@ -1,0 +1,54 @@
+app:
+  run_id: "writing-demo-001"
+  output_dir: "outputs"
+
+# Recommended for BioFLow demos: local Ollama (data stays on machine).
+# Enable with CLI: --llm  or set enabled: true
+# NOTE: model must be one that `ollama list` actually shows; this workspace has qwen:7b.
+llm:
+  enabled: true
+  provider: "ollama"          # ollama | openai | openai_compat | deepseek | vllm | fake
+  url: "http://127.0.0.1:11434"
+  model: "qwen:7b"
+  timeout: 180
+  temperature: 0.2
+  language: "en+zh"           # bilingual manuscript polish
+  # Optional extra author requirements (appended to DEFAULT_WRITING_REQUIREMENTS)
+  instructions: ""
+  # For cloud providers, set OPENAI_API_KEY or pass --llm-api-key
+  # openai example: provider=openai model=gpt-4o-mini url=https://api.openai.com/v1
+  # deepseek example: provider=deepseek model=deepseek-chat
+
+writing:
+  language: "en"
+  sections:
+    - abstract
+    - introduction
+    - methods
+    - results
+    - discussion
+    - conclusion
+    - back_matter
+  react:
+    enabled: true
+    max_steps: 8
+    search_top_k: 3
+  evidence:
+    mode: "warn"  # warn | strict
+  consistency:
+    mode: "warn"  # warn | strict
+  skills:
+    # nature-writing / polishing / reviewer; response only if comments are passed
+    enabled: false
+
+adapters:
+  mode: "mock"  # mock | live
+  fixtures_dir: "fixtures"
+  # live literature: empty url => in-process Article_repository SQLite
+  literature_url: ""
+  literature_timeout: 30.0
+  # default if unset: ../Article_repository/article_literature.sqlite3
+  literature_db: ""
+  analysis_bundle_path: ""
+  analysis_run_dir: ""
+  brief_path: ""

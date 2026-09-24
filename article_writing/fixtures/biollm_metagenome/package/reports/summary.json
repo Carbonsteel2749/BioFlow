@@ -1,0 +1,22 @@
+{
+  "counts": {
+    "ec_abundance_files": 0,
+    "gene_family_rows": 3,
+    "ko_abundance_files": 0,
+    "pathway_coverage_files": 0,
+    "pathway_rows": 2,
+    "qc_files": 3,
+    "read_count_rows": 3,
+    "redacted_log_files": 0,
+    "species_rows": 4
+  },
+  "entrypoints": {
+    "artifact_manifest": "manifest.json",
+    "checksums": "SHA256SUMS",
+    "multiqc_report": "reports/multiqc_report.html",
+    "summary": "reports/summary.txt"
+  },
+  "sample_count": 3,
+  "schema_version": 1,
+  "task_id": "task-fixture-001"
+}

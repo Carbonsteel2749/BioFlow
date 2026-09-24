@@ -1,0 +1,2 @@
+PCA placeholder figure path for Phase-1 writing fixtures.
+Replace with real plot path from analysis/visualization plates later.

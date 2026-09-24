@@ -1,0 +1,32 @@
+.result-tools { margin: 18px 0; padding: 22px; }
+.result-tools > header { display:flex; justify-content:space-between; align-items:center; gap:14px; margin-bottom:16px; }
+.result-tools h2 { margin:0 0 6px; font-size:20px; }
+.result-tools p { line-height:1.8; font-size:13px; color:#48616b; overflow-wrap:anywhere; }
+.result-tools header p { margin:0; color:#657c86; }
+.insight-boundary { padding:10px 14px; background:#fff8e8; border-radius:8px; }
+.insight-section { padding:16px 0; border-bottom:1px solid #e4ecef; }
+.insight-section h3 { font-size:15px; margin:0; color:#176f72; }
+.insight-subsection { margin-top:16px; }
+.insight-subsection h4 { margin:0 0 5px; font-size:13px; color:#234953; }
+.insight-subsection p { margin:0; white-space:pre-line; }
+.insight-common { padding:12px; background:#f5f8fa; border-radius:8px; }
+.insight-reasoning { margin:16px 0; border-left:3px solid #55aaa4; padding:0 14px; }
+.insight-reasoning > div { margin:12px 0; }
+.insight-reasoning dt { font-weight:600; font-size:13px; color:#176f72; }
+.insight-reasoning dd { margin:5px 0 0; font-size:13px; line-height:1.8; color:#48616b; overflow-wrap:anywhere; }
+.insight-ai-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.insight-ai-controls p { flex-basis:100%; margin:0; }
+.insight-ai { margin-top:16px; padding:16px; background:#f1f8f7; border:1px solid #d3e8e4; border-radius:10px; }
+.result-tools summary { cursor:pointer; color:#286f79; font-size:13px; }
+.insight-source { font-family:monospace; font-size:11px!important; background:#f5f8fa; padding:9px; }
+.insight-limitations { margin-top:18px; }
+.insight-limitations li { font-size:13px; color:#65747a; line-height:1.8; }
+.result-tools footer { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:16px; }
+.log-table { overflow-x:auto; margin:14px 0; }
+.log-table table { width:100%; border-collapse:collapse; min-width:560px; font-size:12px; text-align:left; }
+.log-table th,.log-table td { padding:10px; border-bottom:1px solid #e4ecef; }
+.log-table small { display:block; color:#7b8990; margin-top:5px; }
+.managed-log-preview { max-height:300px; overflow:auto; padding:14px; background:#142832; color:#d4e7ed; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.log-delete-confirm { padding:16px; background:#fff4f2; border:1px solid #e4b6ae; border-radius:9px; font-size:13px; }
+.log-delete-confirm button { margin:6px; }
+@media(max-width:600px){.result-tools{padding:16px}.result-tools>header{align-items:flex-start;flex-wrap:wrap}}

@@ -1,0 +1,27 @@
+app:
+  run_id: "run-0001"
+  workspace: "runs"
+
+runners:
+  mode: "mock"  # mock | nextflow
+  nextflow:
+    binary: "nextflow"
+    pipeline: ""
+  mock:
+    fixture: "data/mock/mock_result.json"
+
+models:
+  default_provider: "ollama"
+  allow_external: false
+  ollama:
+    url: "http://localhost:11434/api/generate"
+    model: "qwen3:14b"
+
+sanitization:
+  allow_external: false
+  banned_terms: []
+  allowlist_fields:
+    - "summary"
+    - "metrics"
+    - "tables"
+    - "figures"

@@ -1,0 +1,3 @@
+fastapi>=0.110
+uvicorn>=0.27
+# Word/PDF 导出依赖本机 LibreOffice（html→docx/pdf），无需 python-docx

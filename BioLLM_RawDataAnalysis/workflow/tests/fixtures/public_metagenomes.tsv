@@ -1,0 +1,4 @@
+sample_id\trun_accession\tstudy_accession\tscientific_name\tr1_url\tr2_url
+soil_drr001456\tDRR001456\tPRJDB2729\tsoil metagenome\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001456/DRR001456_1.fastq.gz\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001456/DRR001456_2.fastq.gz
+soil_drr001462\tDRR001462\tPRJDB2729\tsoil metagenome\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001462/DRR001462_1.fastq.gz\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001462/DRR001462_2.fastq.gz
+soil_drr001463\tDRR001463\tPRJDB2729\tsoil metagenome\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001463/DRR001463_1.fastq.gz\thttps://ftp.sra.ebi.ac.uk/vol1/fastq/DRR001/DRR001463/DRR001463_2.fastq.gz

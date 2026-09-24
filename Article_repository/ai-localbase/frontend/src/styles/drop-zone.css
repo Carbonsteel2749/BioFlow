@@ -1,0 +1,35 @@
+/* 拖放上传区域 - 适配设计代币系统 */
+.upload-drop-zone {
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.upload-drop-zone.dragging {
+  border-color: var(--color-primary);
+}
+
+.upload-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--color-primary-soft);
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.upload-drop-hint {
+  padding: 16px 24px;
+  background: var(--color-primary);
+  color: var(--text-inverse);
+  border-radius: var(--radius-md);
+  font-size: 16px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}

@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>星膳智搜 —— 面向自闭症儿童的智能营养服务平台</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #e8f5e9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 32px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #2e7d32, #4caf50);
+            color: white;
+            padding: 28px 24px;
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+        .tabs {
+            display: flex;
+            gap: 4px;
+            padding: 16px 20px 0 20px;
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .tab {
+            padding: 12px 24px;
+            border: none;
+            background: none;
+            font-size: 1rem;
+            cursor: pointer;
+            color: #666;
+            font-weight: 500;
+            border-radius: 24px 24px 0 0;
+            transition: all 0.2s;
+        }
+        .tab.active {
+            color: #2e7d32;
+            background: #e8f5e9;
+            border-bottom: 3px solid #4caf50;
+        }
+        .content {
+            padding: 24px;
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        .content.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px);}
+            to { opacity: 1; transform: translateY(0);}
+        }
+        .input-area {
+            margin-bottom: 20px;
+        }
+        .input-area label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #2e5c2e;
+        }
+        textarea, input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 20px;
+            font-size: 1rem;
+            font-family: inherit;
+            transition: all 0.2s;
+            background: #fefefe;
+        }
+        textarea:focus, input:focus {
+            outline: none;
+            border-color: #4caf50;
+            box-shadow: 0 0 0 3px rgba(76,175,80,0.1);
+        }
+        button {
+            background: #4caf50;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 40px;
+            font-size: 1rem;
+            cursor: pointer;
+            width: 100%;
+            font-weight: 600;
+            transition: all 0.2s;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        button:hover {
+            background: #2e7d32;
+            transform: translateY(-1px);
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        .output {
+            background: #f8fdf7;
+            border-radius: 24px;
+            padding: 20px;
+            margin-top: 20px;
+            border-left: 5px solid #4caf50;
+            line-height: 1.65;
+            font-size: 0.95rem;
+            color: #1e2a1e;
+            word-break: break-word;
+        }
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3 {
+            margin: 14px 0 8px;
+            color: #1f4d2b;
+        }
+        .markdown-body p {
+            margin: 10px 0;
+        }
+        .markdown-body ul,
+        .markdown-body ol {
+            padding-left: 22px;
+            margin: 8px 0;
+        }
+        .markdown-body li {
+            margin: 6px 0;
+        }
+        .markdown-body blockquote {
+            border-left: 3px solid #a5d6a7;
+            padding-left: 12px;
+            color: #3d5f45;
+            margin: 10px 0;
+        }
+        .markdown-body code {
+            background: #eef7ee;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+        .markdown-body pre {
+            background: #eef7ee;
+            padding: 12px;
+            border-radius: 12px;
+            overflow-x: auto;
+        }
+        .markdown-body pre code {
+            padding: 0;
+            background: transparent;
+        }
+        .article-section + .article-section {
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px dashed #d7ebd7;
+        }
+        .article-heading {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 6px;
+            color: #1f4d2b;
+        }
+        .citation-group {
+            display: inline-flex;
+            gap: 4px;
+            vertical-align: super;
+            font-size: 0.72em;
+            line-height: 1;
+        }
+        .citation-marker {
+            color: #1565c0;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .citation-marker:hover {
+            text-decoration: underline;
+        }
+        .reference-panel {
+            margin-top: 14px;
+            border-top: 1px dashed #c8e6c9;
+            padding-top: 12px;
+        }
+        .reference-panel summary {
+            cursor: pointer;
+            color: #2e7d32;
+            font-weight: 600;
+            list-style: none;
+        }
+        .reference-panel summary::-webkit-details-marker {
+            display: none;
+        }
+        .reference-panel[open] summary {
+            margin-bottom: 10px;
+        }
+        .loading {
+            color: #7b9c73;
+            font-style: italic;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .writing-progress {
+            display: grid;
+            gap: 12px;
+        }
+        .progress-card {
+            background: #ffffff;
+            border: 1px solid #d7ebd7;
+            border-radius: 18px;
+            padding: 14px 16px;
+        }
+        .progress-card.is-live {
+            box-shadow: 0 10px 24px rgba(76,175,80,0.08);
+        }
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-weight: 600;
+            color: #285c2f;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .progress-header-main {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .progress-percent {
+            color: #1f4d2b;
+            letter-spacing: 0.02em;
+        }
+        .progress-stage {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: #edf7ee;
+            color: #2e7d32;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid #d7ebd7;
+        }
+        .progress-stage.is-live {
+            background: #e7f5ea;
+        }
+        .progress-stage-emoji {
+            display: inline-block;
+            transform-origin: center;
+            animation: stageFloat 1.8s ease-in-out infinite;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e8f5e9;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            position: relative;
+            height: 100%;
+            background: linear-gradient(90deg, #66bb6a, #2e7d32);
+            border-radius: 999px;
+            transition: width 0.25s ease;
+        }
+        .progress-bar-fill.is-live::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -35%;
+            width: 35%;
+            height: 100%;
+            background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.55), rgba(255,255,255,0));
+            animation: progressShimmer 1.7s linear infinite;
+        }
+        .progress-message {
+            margin-top: 10px;
+            color: #496b4c;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .progress-message-icon {
+            font-size: 1rem;
+        }
+        .message-dots {
+            display: inline-flex;
+            gap: 4px;
+            align-items: center;
+        }
+        .message-dots span {
+            width: 5px;
+            height: 5px;
+            border-radius: 999px;
+            background: #7cad7a;
+            animation: dotPulse 1.4s ease-in-out infinite;
+        }
+        .message-dots span:nth-child(2) {
+            animation-delay: 0.18s;
+        }
+        .message-dots span:nth-child(3) {
+            animation-delay: 0.36s;
+        }
+        .outline-list,
+        .section-progress-list,
+        .reference-list {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .outline-list li,
+        .section-progress-list li,
+        .reference-list li {
+            margin: 6px 0;
+        }
+        .section-done {
+            color: #2e7d32;
+        }
+        .section-active {
+            color: #1565c0;
+            font-weight: 600;
+        }
+        .section-pending {
+            color: #78909c;
+        }
+        .section-status-icon {
+            display: inline-block;
+            width: 1.35rem;
+            margin-right: 4px;
+            text-align: center;
+        }
+        .section-active .section-status-icon {
+            animation: stageFloat 1.4s ease-in-out infinite;
+        }
+        .pubmed-check-list {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .pubmed-check-item {
+            margin: 8px 0;
+            color: #3f5e44;
+        }
+        .pubmed-check-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .pubmed-check-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 0.76rem;
+            font-weight: 600;
+            border: 1px solid #d7ebd7;
+            background: #f3faf4;
+            color: #2e7d32;
+        }
+        .pubmed-check-checking .pubmed-check-badge {
+            color: #1565c0;
+            background: #eef5ff;
+            border-color: #cfe0ff;
+        }
+        .pubmed-check-called_empty .pubmed-check-badge {
+            color: #8a6d1f;
+            background: #fff8e6;
+            border-color: #f3dfaa;
+        }
+        .pubmed-check-meta {
+            margin-left: 1.95rem;
+            margin-top: 4px;
+            font-size: 0.82rem;
+            color: #6c7f6e;
+            line-height: 1.45;
+        }
+        .article-block {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px dashed #c8e6c9;
+        }
+        @keyframes progressShimmer {
+            from { transform: translateX(0); }
+            to { transform: translateX(380%); }
+        }
+        @keyframes dotPulse {
+            0%, 80%, 100% { transform: scale(0.7); opacity: 0.45; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes stageFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-1.5px); }
+        }
+        .error {
+            color: #d32f2f;
+            background: #ffebee;
+            padding: 16px;
+            border-radius: 16px;
+            border-left-color: #d32f2f;
+        }
+        .source {
+            font-size: 0.8rem;
+            color: #6b8c6b;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px dashed #c8e6c9;
+        }
+        .badge {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin-left: 10px;
+        }
+        footer {
+            text-align: center;
+            padding: 16px;
+            font-size: 0.7rem;
+            color: #8bc34a;
+            background: #f9fdf8;
+            border-top: 1px solid #e8f5e9;
+        }
+        @media (max-width: 560px) {
+            body { padding: 12px; }
+            .tab { padding: 8px 16px; font-size: 0.9rem; }
+            .header h1 { font-size: 1.4rem; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .progress-stage-emoji,
+            .progress-bar-fill.is-live::after,
+            .message-dots span,
+            .section-active .section-status-icon {
+                animation: none !important;
+            }
+            .progress-bar-fill {
+                transition: none;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🌱 星膳智搜 —— 面向自闭症儿童的智能营养服务平台</h1>
+        <p>基于 RAG 智能问答 · 科学饮食指导 · 文献综述生成</p>
+    </div>
+    
+    <div class="tabs">
+        <button class="tab active" data-tab="qa">💬 权威专家建议</button>
+        <button class="tab" data-tab="writing">📄 前沿研究报告</button>
+    </div>
+    
+    <!-- 问答模块 -->
+    <div id="qa" class="content active">
+        <div class="input-area">
+            <label>📝 输入你的问题</label>
+            <textarea id="question" rows="3" placeholder="例如：&#10;• 饮食干预对自闭症症状改善有什么效果？&#10;• 粪菌移植对自闭症治疗有效果吗？"></textarea>
+        </div>
+        <button id="askBtn">🔍 向大模型提问</button>
+        <div id="qa-output" class="output">💡 等待你的提问，模型将基于专业文献回答...</div>
+    </div>
+    
+    <!-- 文献编写模块 -->
+    <div id="writing" class="content">
+        <div class="input-area">
+            <label>📚 文献主题 / 关键词</label>
+            <input type="text" id="topic" placeholder="例如：无麸质饮食对自闭症行为的影响">
+        </div>
+        <div class="input-area">
+            <label>✏️ 补充要求（可选）</label>
+            <textarea id="extra" rows="2" placeholder="例如：侧重2020年后的研究，需要包含临床数据"></textarea>
+        </div>
+        <button id="writeBtn">📖 生成文献综述</button>
+        <div id="writing-output" class="output">📌 输入主题，一键生成学术文献综述...</div>
+    </div>
+    <footer>🍃 基于混合检索 RAG + 大模型生成 | 引用来源可追溯</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script>
+    // ============================================================
+    // ✅ 已修正：后端 RAG 服务地址（你的服务器 IP + 端口）
+    // ============================================================
+    const RAG_API_URL = "/rag/query";
+    const RAG_STREAM_API_URL = "/rag/query/stream";
+    const WRITE_STREAM_API_URL = "/api/write/stream";
+    const WRITE_API_URL = "/api/write";
+
+    function escapeHtml(value) {
+        return String(value || "")
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escapeRegExp(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function normalizeGeneratedText(text) {
+        let raw = String(text || '');
+        raw = raw.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '    ');
+        raw = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        raw = raw.replace(/\n{3,}/g, '\n\n');
+        return raw.trim();
+    }
+
+    function applyQaMarkdownBullets(text) {
+        const raw = normalizeGeneratedText(text);
+        if (!raw) {
+            return raw;
+        }
+
+        const hasMarkdownStructure = /(^|\n)\s*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+)/.test(raw);
+        if (hasMarkdownStructure) {
+            return raw;
+        }
+
+        const paragraphs = raw.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean);
+        let items = paragraphs;
+
+        if (paragraphs.length <= 1) {
+            const splitByPunctuation = raw
+                .replace(/([。！？!?；;])\s*/g, '$1\n')
+                .split('\n')
+                .map((item) => item.trim())
+                .filter(Boolean);
+            if (splitByPunctuation.length > 1) {
+                items = splitByPunctuation;
+            }
+        }
+
+        return items.map((item) => `1. ${item}`).join('\n');
+    }
+
+    function normalizeMarkdownHeadings(text) {
+        const raw = normalizeGeneratedText(text);
+        if (!raw) {
+            return raw;
+        }
+
+        const lines = raw.split('\n');
+        const headingLevels = [];
+        const headingRegex = /^(#{1,6})\s+(.+)$/;
+
+        for (const line of lines) {
+            const match = line.match(headingRegex);
+            if (match) {
+                headingLevels.push(match[1].length);
+            }
+        }
+
+        if (!headingLevels.length) {
+            return raw;
+        }
+
+        const minLevel = Math.min(...headingLevels);
+        return lines.map((line) => {
+            const match = line.match(headingRegex);
+            if (!match) {
+                return line;
+            }
+            const currentLevel = match[1].length;
+            const title = stripHeadingNumberPrefix(match[2].trim());
+            const normalizedLevel = currentLevel === minLevel ? 1 : 2;
+            return `${'#'.repeat(normalizedLevel)} ${title}`;
+        }).join('\n');
+    }
+
+    function normalizeMarkdownOrderedLists(text) {
+        const raw = normalizeGeneratedText(text);
+        if (!raw) {
+            return raw;
+        }
+
+        const lines = raw.split('\n');
+        const normalized = lines.map((line) => {
+            if (/^\s*[-*+]\s+/.test(line)) {
+                return line.replace(/^(\s*)[-*+]\s+/, '$11. ');
+            }
+            if (/^\s*\d+[\.)]\s+/.test(line)) {
+                return line.replace(/^(\s*)\d+[\.)]\s+/, '$11. ');
+            }
+            return line;
+        });
+
+        return normalized.join('\n');
+    }
+
+    function stripInlineReferenceNoise(text, heading = '') {
+        let raw = normalizeGeneratedText(text);
+        raw = raw.replace(/[（(]\s*来源[:：][^）)]*[）)]/g, '');
+        raw = raw.replace(/[（(]\s*(?:PubMed|AsdKB)\s*\d*\s*[）)]/g, '');
+        raw = raw.replace(/\[(?:PubMed|AsdKB)[^\]]*\]/g, '');
+        raw = raw.replace(/\b(?:PubMed|AsdKB)\s*\d+\b/g, '');
+        if (heading) {
+            const escapedHeading = escapeRegExp(heading.trim());
+            raw = raw.replace(new RegExp(`^#{1,6}\\s*${escapedHeading}\\s*\\n+`, 'i'), '');
+            raw = raw.replace(new RegExp(`^${escapedHeading}[：:]?\\s*\\n+`, 'i'), '');
+        }
+        raw = raw.replace(/\n{3,}/g, '\n\n');
+        return raw.trim();
+    }
+
+    function normalizeReferenceText(reference) {
+        return String(reference || '').replace(/^\s*\d+\.\s*/, '').trim();
+    }
+
+    function stripHeadingNumberPrefix(value) {
+        const raw = String(value || '').trim();
+        const stripped = raw.replace(/^\s*(?:\d+[\.)、．。]|\d+\s+)\s*/, '').trim();
+        if (/^研究背景(?:[：:].*)?$/.test(stripped)) {
+            return stripped;
+        }
+        return raw;
+    }
+
+    function renderMarkdown(text) {
+        let raw = normalizeGeneratedText(text);
+        raw = normalizeMarkdownHeadings(raw);
+        raw = normalizeMarkdownOrderedLists(raw);
+        raw = raw.replace(/^(#{1,6}[^\n]+)\n(?!\n)/gm, '$1\n\n');
+        if (window.marked && window.DOMPurify) {
+            if (marked.setOptions) {
+                marked.setOptions({ breaks: true });
+            }
+            return DOMPurify.sanitize(marked.parse(raw));
+        }
+        return escapeHtml(raw).replace(/\n/g, '<br>');
+    }
+
+    function buildReferenceIndex(references) {
+        const index = new Map();
+        (references || []).map(normalizeReferenceText).forEach((reference, offset) => {
+            if (reference && !index.has(reference)) {
+                index.set(reference, offset + 1);
+            }
+        });
+        return index;
+    }
+
+    function renderReferenceMarkers(referenceItems, referenceIndex) {
+        const numbers = [];
+        for (const item of referenceItems || []) {
+            const normalized = normalizeReferenceText(item);
+            const number = referenceIndex.get(normalized);
+            if (number && !numbers.includes(number)) {
+                numbers.push(number);
+            }
+        }
+        if (!numbers.length) {
+            return '';
+        }
+        return `<sup class="citation-group">${numbers.map((number) => `<a class="citation-marker" href="#ref-${number}">[${number}]</a>`).join('')}</sup>`;
+    }
+
+    function findSentenceInsertOffset(text) {
+        if (!text) {
+            return -1;
+        }
+
+        let end = text.length;
+        while (end > 0 && /\s/.test(text[end - 1])) {
+            end -= 1;
+        }
+        if (end <= 0) {
+            return -1;
+        }
+
+        const quoteChars = new Set(['"', "'", '”', '’', ')', ']', '】', '）']);
+        let cursor = end;
+        while (cursor > 0 && quoteChars.has(text[cursor - 1])) {
+            cursor -= 1;
+        }
+
+        const punctuation = /[。！？!?；;\.]/g;
+        let match;
+        let lastIndex = -1;
+        while ((match = punctuation.exec(text.slice(0, cursor))) !== null) {
+            lastIndex = match.index;
+        }
+
+        if (lastIndex >= 0) {
+            return lastIndex + 1;
+        }
+        return end;
+    }
+
+    function insertMarkersIntoElementSentenceEnd(element, markers) {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        let current = walker.nextNode();
+        while (current) {
+            const parent = current.parentElement;
+            if (parent && !parent.closest('.citation-group')) {
+                textNodes.push(current);
+            }
+            current = walker.nextNode();
+        }
+
+        for (let idx = textNodes.length - 1; idx >= 0; idx -= 1) {
+            const node = textNodes[idx];
+            const text = node.nodeValue || '';
+            if (!text.trim()) {
+                continue;
+            }
+
+            const insertOffset = findSentenceInsertOffset(text);
+            if (insertOffset < 0) {
+                continue;
+            }
+
+            const range = document.createRange();
+            range.setStart(node, Math.min(insertOffset, text.length));
+            range.collapse(true);
+            range.insertNode(range.createContextualFragment(markers));
+            return true;
+        }
+
+        return false;
+    }
+
+    function attachMarkersToContent(html, markers) {
+        if (!markers) {
+            return html;
+        }
+
+        const container = document.createElement('div');
+        container.innerHTML = html;
+
+        const candidates = Array.from(container.querySelectorAll('p, li, blockquote')).filter((el) => {
+            return !!(el.textContent || '').trim();
+        });
+
+        for (let i = candidates.length - 1; i >= 0; i -= 1) {
+            if (insertMarkersIntoElementSentenceEnd(candidates[i], markers)) {
+                return container.innerHTML;
+            }
+        }
+
+        if (candidates.length) {
+            candidates[candidates.length - 1].insertAdjacentHTML('beforeend', markers);
+            return container.innerHTML;
+        }
+
+        if (/<\/p>/i.test(html)) {
+            return html.replace(/<\/p>(?![\s\S]*<\/p>)/i, `${markers}</p>`);
+        }
+        return `${html}${markers}`;
+    }
+
+    function renderReferencePanel(references) {
+        const normalized = (references || []).map(normalizeReferenceText).filter(Boolean);
+        if (!normalized.length) {
+            return '';
+        }
+        return `
+            <details class="reference-panel">
+                <summary>查看参考文献</summary>
+                <ol class="reference-list">
+                    ${normalized.map((reference, index) => `<li id="ref-${index + 1}">${escapeHtml(reference)}</li>`).join('')}
+                </ol>
+            </details>
+        `;
+    }
+
+    function renderArticleView(result) {
+        const references = result.references || [];
+        const referenceIndex = buildReferenceIndex(references);
+        const sections = result.sections || [];
+
+        if (sections.length) {
+            const sectionHtml = sections.map((section) => {
+                const heading = stripHeadingNumberPrefix(section.heading || '');
+                const draft = stripInlineReferenceNoise(section.draft || '', heading);
+                const markers = renderReferenceMarkers(section.references || [], referenceIndex);
+                const headingMarkdown = heading ? `# ${heading}\n\n` : '';
+                const renderedDraft = attachMarkersToContent(renderMarkdown(`${headingMarkdown}${draft}`.trim()), markers);
+                return `
+                    <section class="article-section">
+                        <div class="markdown-body">${renderedDraft}</div>
+                    </section>
+                `;
+            }).join('');
+
+            return `${sectionHtml}${renderReferencePanel(references)}`;
+        }
+
+        return `
+            <div class="markdown-body">${renderMarkdown(stripInlineReferenceNoise(result.article || ''))}</div>
+            ${renderReferencePanel(references)}
+        `;
+    }
+
+    function getProgressStageMeta(stage) {
+        const stageMap = {
+            preparing: { emoji: '🌿', label: '准备中' },
+            outline_ready: { emoji: '🧭', label: '大纲已就绪' },
+            section_writing: { emoji: '✍️', label: '分块写作中' },
+            section_done: { emoji: '🍃', label: '小节已完成' },
+            synthesizing: { emoji: '✨', label: '整合成稿中' },
+            completed: { emoji: '✅', label: '已完成' }
+        };
+        return stageMap[stage] || { emoji: '🌱', label: '处理中' };
+    }
+
+    function getPubmedDecisionMeta(status) {
+        const statusMap = {
+            pending: { emoji: '·', label: '待判定' },
+            checking: { emoji: '🔎', label: '判定中' },
+            skipped: { emoji: '🌿', label: '无需调用' },
+            called: { emoji: '📡', label: '已调用 PubMed' },
+            called_empty: { emoji: '📭', label: '已调用但未补充到结果' }
+        };
+        return statusMap[status] || { emoji: '·', label: '待判定' };
+    }
+
+    function renderWriteProgress(state) {
+        const stageMeta = getProgressStageMeta(state.stage);
+        const isLive = state.stage && state.stage !== 'completed';
+        const messageDots = isLive
+            ? '<span class="message-dots" aria-hidden="true"><span></span><span></span><span></span></span>'
+            : '';
+        const outlineItems = (state.outline || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+        const pubmedItems = (state.pubmedChecks || []).map((item, index) => {
+            const decisionMeta = getPubmedDecisionMeta(item.status);
+            const headingText = stripHeadingNumberPrefix(item.heading);
+            let detail = '';
+            if (item.status === 'called' && item.articleCount) {
+                detail = `补充到 ${item.articleCount} 篇 PubMed 文献`;
+            } else if (item.status === 'called_empty') {
+                detail = '已尝试联网检索，但当前没有补充到可用结果';
+            } else if (item.status === 'skipped') {
+                detail = '当前小节直接使用本地检索结果';
+            } else if (item.status === 'checking') {
+                detail = '正在根据本地检索结果判断是否需要联网';
+            }
+            const metaText = [detail].filter(Boolean).join(' · ');
+            return `
+                <li class="pubmed-check-item pubmed-check-${item.status || 'pending'}">
+                    <div class="pubmed-check-top">
+                        <span class="section-status-icon" aria-hidden="true">${decisionMeta.emoji}</span>
+                        <span>${escapeHtml(headingText)}</span>
+                        <span class="pubmed-check-badge">${decisionMeta.label}</span>
+                    </div>
+                    ${metaText ? `<div class="pubmed-check-meta">${metaText}</div>` : ''}
+                </li>
+            `;
+        }).join('');
+        const sectionItems = (state.sections || []).map((section, index) => {
+            const headingText = stripHeadingNumberPrefix(section.heading);
+            let className = 'section-pending';
+            let prefix = '待开始';
+            let icon = '🌱';
+            if (section.status === 'done') {
+                className = 'section-done';
+                prefix = '已完成';
+                icon = '✓';
+            } else if (section.status === 'active') {
+                className = 'section-active';
+                prefix = '进行中';
+                icon = '✍️';
+            }
+            const sourceText = section.sources && section.sources.length
+                ? ` · 来源：${escapeHtml(section.sources.join('、'))}`
+                : '';
+            return `<li class="${className}"><span class="section-status-icon" aria-hidden="true">${icon}</span>${prefix} ${escapeHtml(headingText)}${sourceText}</li>`;
+        }).join('');
+
+        let resultHtml = '';
+        if (state.result) {
+            resultHtml = `
+                <div class="progress-card article-block">
+                    ${renderArticleView(state.result)}
+                </div>
+            `;
+        }
+
+        return `
+            <div class="writing-progress">
+                <div class="progress-card ${isLive ? 'is-live' : ''}">
+                    <div class="progress-header">
+                        <div class="progress-header-main">
+                            <span>文献编写进度</span>
+                            <span class="progress-stage ${isLive ? 'is-live' : ''}"><span class="progress-stage-emoji" aria-hidden="true">${stageMeta.emoji}</span>${stageMeta.label}</span>
+                        </div>
+                        <span class="progress-percent">${state.progress}%</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-bar-fill ${isLive ? 'is-live' : ''}" style="width: ${state.progress}%;"></div></div>
+                    <div class="progress-message"><span class="progress-message-icon" aria-hidden="true">${stageMeta.emoji}</span>${escapeHtml(state.message || '正在处理中')}${messageDots}</div>
+                </div>
+                ${outlineItems ? `
+                <div class="progress-card">
+                    <div class="progress-header"><span>综述大纲</span><span>${state.outline.length} 节</span></div>
+                    <ol class="outline-list">${outlineItems}</ol>
+                </div>` : ''}
+                ${pubmedItems ? `
+                <div class="progress-card">
+                    <div class="progress-header"><span>PubMed 判定</span><span>${state.pubmedChecks.filter((item) => item.status && item.status !== 'pending').length}/${state.pubmedChecks.length}</span></div>
+                    <ol class="pubmed-check-list">${pubmedItems}</ol>
+                </div>` : ''}
+                ${sectionItems ? `
+                <div class="progress-card">
+                    <div class="progress-header"><span>分块执行</span><span>${state.completedSections || 0}/${state.totalSections || 0}</span></div>
+                    <ol class="section-progress-list">${sectionItems}</ol>
+                </div>` : ''}
+                ${resultHtml}
+            </div>
+        `;
+    }
+
+    function buildWritingExtra(extra) {
+        const styleGuide = '请用 Markdown 输出，标题层级统一为一级标题和二级标题；分点统一使用有序列表（1. 2. 3.），不要使用无序列表。';
+        return [extra, styleGuide].filter(Boolean).join('\n\n');
+    }
+
+    async function callWriteApi(topic, extra) {
+        const response = await fetch(WRITE_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic,
+                extra: buildWritingExtra(extra),
+                top_k: 8,
+                temperature: 0.2,
+                outline_count: 6
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return response.json();
+    }
+    
+    // 通用调用 RAG 接口
+    async function callRAG(query, topK = 10, temperature = 0.3) {
+        const response = await fetch(RAG_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                query: query,
+                top_k: topK,
+                temperature: temperature
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        return {
+            answer: data.answer || "未获取到回答",
+            sources: data.sources || [],
+            references: data.references || []
+        };
+    }
+    
+    // 知识问答
+    async function askQuestion() {
+        const question = document.getElementById("question").value.trim();
+        if (!question) {
+            alert("请输入问题");
+            return;
+        }
+        
+        const outputDiv = document.getElementById("qa-output");
+        outputDiv.innerHTML = '<div class="loading">🌿 RAG 正在检索知识库并生成答案...</div>';
+        
+        try {
+            const response = await fetch(RAG_STREAM_API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    query: question,
+                    top_k: 10,
+                    temperature: 0.3
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            if (!response.body || !window.TextDecoder) {
+                const result = await callRAG(question, 10, 0.3);
+                const markdownAnswer = applyQaMarkdownBullets(result.answer);
+                let html = `<div class="markdown-body">${renderMarkdown(markdownAnswer)}</div>`;
+
+                const allSources = [...result.sources, ...(result.references || [])];
+                if (allSources.length > 0) {
+                    const uniqueSources = [...new Set(allSources)];
+                    html += '<div class="source">📚 参考来源：' + uniqueSources.join('、') + '</div>';
+                }
+
+                if (result.answer.includes("未能找到") || result.answer.includes("未提及")) {
+                    html += '<div class="source">💡 提示：当前知识库可能未覆盖该问题，可尝试更换关键词或补充相关文献。</div>';
+                }
+
+                outputDiv.innerHTML = html;
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let streamedAnswer = '';
+            let finalResult = null;
+
+            const renderStreamedAnswer = () => {
+                const markdownAnswer = applyQaMarkdownBullets(streamedAnswer);
+                outputDiv.innerHTML = `<div class="markdown-body">${renderMarkdown(markdownAnswer)}</div>`;
+            };
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) {
+                        continue;
+                    }
+
+                    const event = JSON.parse(trimmed);
+                    if (event.type === 'chunk') {
+                        streamedAnswer += event.content || '';
+                        renderStreamedAnswer();
+                    } else if (event.type === 'completed') {
+                        finalResult = event.response || null;
+                    } else if (event.type === 'error') {
+                        throw new Error(event.message || '流式接口返回错误');
+                    }
+                }
+            }
+
+            if (buffer.trim()) {
+                const event = JSON.parse(buffer.trim());
+                if (event.type === 'completed') {
+                    finalResult = event.response || null;
+                }
+            }
+
+            if (finalResult) {
+                const markdownAnswer = applyQaMarkdownBullets(finalResult.answer || streamedAnswer);
+                let html = `<div class="markdown-body">${renderMarkdown(markdownAnswer)}</div>`;
+
+                const allSources = [...(finalResult.sources || []), ...(finalResult.references || [])];
+                if (allSources.length > 0) {
+                    const uniqueSources = [...new Set(allSources)];
+                    html += '<div class="source">📚 参考来源：' + uniqueSources.join('、') + '</div>';
+                }
+
+                if ((finalResult.answer || '').includes("未能找到") || (finalResult.answer || '').includes("未提及")) {
+                    html += '<div class="source">💡 提示：当前知识库可能未覆盖该问题，可尝试更换关键词或补充相关文献。</div>';
+                }
+
+                outputDiv.innerHTML = html;
+            }
+        } catch (error) {
+            console.error("RAG 调用失败:", error);
+            outputDiv.innerHTML = `<div class="error">❌ 请求失败：${error.message}<br><br>请检查：<br>1. 后端服务是否运行（服务器执行 python3 rag_http.py）<br>2. 网络能否访问 ${RAG_API_URL}</div>`;
+        }
+    }
+    
+    // 文献编写（复用 RAG，但使用更学术的 prompt）
+    async function generateLiterature() {
+        const topic = document.getElementById("topic").value.trim();
+        if (!topic) {
+            alert("请输入文献主题");
+            return;
+        }
+        
+        const extra = document.getElementById("extra").value.trim();
+        const outputDiv = document.getElementById("writing-output");
+        const writeBtn = document.getElementById("writeBtn");
+        const progressState = {
+            stage: 'preparing',
+            progress: 0,
+            message: '准备开始文献编写',
+            outline: [],
+            pubmedChecks: [],
+            sections: [],
+            totalSections: 0,
+            completedSections: 0,
+            result: null
+        };
+
+        const updateProgress = () => {
+            outputDiv.innerHTML = renderWriteProgress(progressState);
+        };
+
+        writeBtn.disabled = true;
+        writeBtn.textContent = '⏳ 正在生成中...';
+        updateProgress();
+        
+        try {
+            const response = await fetch(WRITE_STREAM_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    topic,
+                    extra: buildWritingExtra(extra),
+                    top_k: 8,
+                    temperature: 0.2,
+                    outline_count: 6
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            if (!response.body || !window.TextDecoder) {
+                const result = await callWriteApi(topic, extra);
+                progressState.stage = 'completed';
+                progressState.progress = 100;
+                progressState.message = '浏览器不支持流式读取，已回退到整篇返回模式';
+                progressState.outline = result.outline || [];
+                progressState.sections = (result.sections || []).map((section) => ({
+                    heading: section.heading,
+                    status: 'done',
+                    sources: section.sources || []
+                }));
+                progressState.totalSections = progressState.sections.length;
+                progressState.completedSections = progressState.sections.length;
+                progressState.result = result;
+                updateProgress();
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) {
+                        continue;
+                    }
+
+                    const event = JSON.parse(trimmed);
+                    if (event.stage) {
+                        progressState.stage = event.stage;
+                    }
+                    if (typeof event.progress === 'number') {
+                        progressState.progress = event.progress;
+                    }
+                    if (event.message) {
+                        progressState.message = event.message;
+                    }
+
+                    if (event.type === 'outline') {
+                        progressState.outline = event.outline || [];
+                        progressState.pubmedChecks = progressState.outline.map((heading) => ({
+                            heading,
+                            status: 'pending',
+                            reason: '',
+                            articleCount: 0
+                        }));
+                        progressState.sections = progressState.outline.map((heading) => ({
+                            heading,
+                            status: 'pending',
+                            sources: []
+                        }));
+                        progressState.totalSections = progressState.sections.length;
+                    } else if (event.type === 'pubmed_check') {
+                        const pubmedItem = progressState.pubmedChecks[event.index - 1];
+                        if (pubmedItem) {
+                            pubmedItem.heading = event.heading || pubmedItem.heading;
+                            pubmedItem.status = event.status || pubmedItem.status;
+                            pubmedItem.reason = event.reason || '';
+                            pubmedItem.articleCount = event.article_count || 0;
+                        }
+                    } else if (event.type === 'section_start') {
+                        progressState.totalSections = event.total || progressState.totalSections;
+                        if (progressState.sections[event.index - 1]) {
+                            progressState.sections[event.index - 1].status = 'active';
+                        }
+                    } else if (event.type === 'section_done') {
+                        progressState.completedSections = event.index || progressState.completedSections;
+                        if (progressState.sections[event.index - 1]) {
+                            progressState.sections[event.index - 1].status = 'done';
+                            progressState.sections[event.index - 1].sources = event.sources || [];
+                        }
+                    } else if (event.type === 'completed') {
+                        progressState.stage = 'completed';
+                        progressState.progress = 100;
+                        progressState.result = event.response || null;
+                    } else if (event.type === 'error') {
+                        throw new Error(event.message || '写作流式接口返回错误');
+                    }
+
+                    updateProgress();
+                }
+            }
+
+            if (buffer.trim()) {
+                const event = JSON.parse(buffer.trim());
+                if (event.type === 'completed') {
+                    progressState.progress = 100;
+                    progressState.message = event.message || '文献综述生成完成';
+                    progressState.result = event.response || null;
+                    updateProgress();
+                }
+            }
+        } catch (error) {
+            outputDiv.innerHTML = `<div class="error">❌ 生成失败：${error.message}</div>`;
+        } finally {
+            writeBtn.disabled = false;
+            writeBtn.textContent = '📖 生成文献综述';
+        }
+    }
+    
+    // Tab 切换
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab').forEach(btn => {
+            const id = btn.getAttribute('data-tab');
+            if (id === tabId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        document.getElementById('qa').classList.toggle('active', tabId === 'qa');
+        document.getElementById('writing').classList.toggle('active', tabId === 'writing');
+    }
+    
+    // 绑定事件
+    document.getElementById("askBtn").addEventListener("click", askQuestion);
+    document.getElementById("writeBtn").addEventListener("click", generateLiterature);
+    
+    document.querySelectorAll('.tab').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const tabId = btn.getAttribute('data-tab');
+            switchTab(tabId);
+        });
+    });
+    
+    // 快捷提交（Ctrl+Enter）
+    const questionInput = document.getElementById("question");
+    if (questionInput) {
+        questionInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                askQuestion();
+            }
+        });
+    }
+    
+    console.log("✅ 前端已启动，RAG 接口地址:", RAG_API_URL);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "assembler": "megahit",
+  "bin_completeness": 70,
+  "bin_contamination": 5,
+  "enable_mags": true,
+  "fastp_cut_mean_quality": 20,
+  "fastp_length_required": 50,
+  "fastp_qualified_quality_phred": 20,
+  "fastp_unqualified_percent_limit": 40,
+  "host_bowtie2_preset": "very-sensitive",
+  "host_filter_mode": "strict_both_unmapped",
+  "read_length": 150,
+  "threads": 8
+}

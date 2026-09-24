@@ -1,0 +1,4 @@
+sample_id	raw_reads	post_fastp_reads	post_fastp_pairs	post_host_pairs	host_removed_pairs
+S01	10000	8200	4100	3900	200
+S02	12000	9600	4800	4500	300
+S03	8000	6400	3200	3000	200

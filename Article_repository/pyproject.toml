@@ -1,0 +1,16 @@
+[project]
+name = "article-repository"
+version = "0.1.0"
+description = "Structured article repository scaffold for literature ingestion, tagging, search, and RAG"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["article_repository*"]

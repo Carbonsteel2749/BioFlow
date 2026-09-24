@@ -1,0 +1,2 @@
+DEG top table placeholder for Phase-1 writing fixtures.
+Replace with real differential_expression.csv path later.

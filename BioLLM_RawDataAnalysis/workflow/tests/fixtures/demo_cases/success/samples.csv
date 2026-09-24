@@ -1,0 +1,2 @@
+sample_id,read1,read2
+GUT_DEMO_001,/home/xh/BioLLM_RawDataAnalysis/runtime/incoming/tutorial_srr33675950/GUT_DEMO_001_R1.fastq.gz,/home/xh/BioLLM_RawDataAnalysis/runtime/incoming/tutorial_srr33675950/GUT_DEMO_001_R2.fastq.gz

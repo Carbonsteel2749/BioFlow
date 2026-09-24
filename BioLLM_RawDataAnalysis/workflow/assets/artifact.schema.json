@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biollm.local/schemas/artifact-manifest.schema.json",
+  "title": "BioLLM shared analysis artifact manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "artifacts"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "task_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/artifact"}
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "artifact_type", "path", "media_type", "sha256", "size_bytes"],
+      "properties": {
+        "producer": {"type": "string", "minLength": 1, "maxLength": 128},
+        "node_id": {"type": ["string", "null"]},
+        "artifact_type": {
+          "enum": [
+            "reads.raw", "reads.clean", "reads.host_removed",
+            "qc.read_counts",
+            "taxonomy.species_abundance", "taxonomy.kraken_report", "taxonomy.bracken_abundance",
+            "functional.gene_families", "functional.ko_abundance", "functional.ec_abundance", "functional.pathway_abundance",
+            "mag.fasta", "mag.annotation", "mag.function_annotation", "mag.sample_abundance", "mag.sample_function_abundance",
+            "figure.qc", "figure.taxonomy", "figure.functional", "figure.mag", "figure.data", "figure.catalog",
+            "report.multiqc", "report.summary", "provenance.run"
+          ]
+        },
+        "schema_version": {"type": "string", "const": "1.0"},
+        "sample_scope": {"enum": ["global", "sample", "cohort"]},
+        "sample_id": {"type": ["string", "null"]},
+        "cohort_id": {"type": ["string", "null"]},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "metadata": {"type": "object"},
+        "parent_artifact_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"sample_scope": {"const": "sample"}}, "required": ["sample_scope"]},
+          "then": {"required": ["sample_id"]}
+        },
+        {
+          "if": {"properties": {"sample_scope": {"const": "cohort"}}, "required": ["sample_scope"]},
+          "then": {"required": ["cohort_id"]}
+        }
+      ]
+    }
+  }
+}

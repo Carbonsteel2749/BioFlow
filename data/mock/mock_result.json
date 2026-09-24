@@ -1,0 +1,12 @@
+{
+  "pipeline": "expression_matrix_qc",
+  "metrics": {
+    "runner": "mock",
+    "status": "success"
+  },
+  "tables": [],
+  "figures": [],
+  "notes": [
+    "Mock runner executed — real metrics provided by Pipeline and Parser."
+  ]
+}

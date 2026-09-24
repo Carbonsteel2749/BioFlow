@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BioFLow · 论文撰写</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=skills" />
+</head>
+<body>
+  <div class="bg-wash" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <p class="brand-kicker">BioFLow · Writing</p>
+        <h1 id="top-title">论文撰写工作台</h1>
+      </div>
+    </div>
+    <div class="top-meta">
+      <p class="session-chip" id="session-chip">尚未打开稿件</p>
+      <p class="top-sub" id="top-sub">按流程分步：接入素材 → 生成初稿 → 分章确认 → 导出</p>
+    </div>
+    <div class="top-pills" id="conn-pills"></div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <p class="nav-kicker">流程</p>
+      <nav class="side-nav" aria-label="撰写流程">
+        <button type="button" data-view="overview" class="nav-item active">
+          <span class="nav-idx">01</span>
+          <span>
+            <b>工作台</b>
+            <small>总览与连接</small>
+          </span>
+        </button>
+        <button type="button" data-view="sources" class="nav-item">
+          <span class="nav-idx">02</span>
+          <span>
+            <b>素材接入</b>
+            <small>分析 · 文献 · 简介</small>
+          </span>
+        </button>
+        <button type="button" data-view="draft" class="nav-item">
+          <span class="nav-idx">03</span>
+          <span>
+            <b>分章撰写</b>
+            <small>编辑 · 润色 · 确认</small>
+          </span>
+        </button>
+        <button type="button" data-view="export" class="nav-item">
+          <span class="nav-idx">04</span>
+          <span>
+            <b>排版导出</b>
+            <small>Markdown · Word · PDF</small>
+          </span>
+        </button>
+      </nav>
+      <div class="chapter-block" id="chapter-block" hidden>
+        <p class="nav-kicker">章节</p>
+        <nav id="section-nav" class="chapter-nav" aria-label="论文章节"></nav>
+        <div class="side-foot" id="progress">尚未生成 · 7 章</div>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <section class="view" id="view-overview">
+        <div class="bento">
+          <article class="tile hero glass">
+            <p class="kicker">写作流水线</p>
+            <h2>把分析包和文献证据收成可审阅的 IMRaD 初稿</h2>
+            <p class="lede">不在同一屏堆所有按钮。先看连接，再接入 BioLLM 与文献库，然后分章改、确认后导出。</p>
+            <div class="hero-actions">
+              <button type="button" class="btn primary" data-go="sources">去接入素材</button>
+              <button type="button" class="btn ghost" id="btn-demo">用夹具生成样例稿</button>
+            </div>
+          </article>
+          <article class="tile glass">
+            <p class="kicker">当前稿件</p>
+            <h3 id="ov-title">还没有会话</h3>
+            <p class="muted" id="ov-question">在「素材接入」填 BioLLM 任务或结果目录，也可先用内置夹具。</p>
+            <dl class="stat-row" id="ov-stats">
+              <div><dt>已确认</dt><dd>0/7</dd></div>
+              <div><dt>模式</dt><dd>—</dd></div>
+            </dl>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">上游连接</p>
+            <div class="conn-grid" id="ov-conns"></div>
+          </article>
+          <article class="tile glass">
+            <p class="kicker">下一步</p>
+            <ol class="steps">
+              <li>检查分析 / 文献 / Qwen 是否在线</li>
+              <li>接入结果包或任务 ID，预览文献</li>
+              <li>生成七章后逐章确认</li>
+              <li>全部确认再导出 Word / PDF</li>
+            </ol>
+          </article>
+          <article class="tile glass span-all">
+            <p class="kicker">最近会话</p>
+            <div id="ov-sessions" class="session-list muted">暂无本地会话</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-sources" hidden>
+        <div class="bento sources">
+          <article class="tile glass">
+            <p class="kicker">课题简介</p>
+            <h3>Paper brief</h3>
+            <label>简介 JSON 路径
+              <input id="opt-brief-path" type="text" placeholder="/path/to/paper_brief.json" />
+            </label>
+            <p class="hint">题目、伦理、入排仍以 JSON 为准。留空则用 fixtures 样例简介。</p>
+            <button type="button" class="btn soft compact" id="btn-fill-brief">填入宏基因组夹具简介</button>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">BioLLM 分析</p>
+            <h3>结果包 / 已完成任务</h3>
+            <div class="field-grid">
+              <label>API 地址<input id="opt-analysis-url" type="text" placeholder="http://127.0.0.1:8000" /></label>
+              <label>任务 ID<input id="opt-analysis-task" type="text" placeholder="completed-task-id" /></label>
+              <label>解包目录<input id="opt-analysis-dir" type="text" placeholder="/path/to/extracted-package" /></label>
+              <label>tar.gz / JSON<input id="opt-analysis-bundle" type="text" placeholder="/path/to/task.tar.gz" /></label>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn soft compact" id="btn-load-tasks">拉取任务列表</button>
+              <button type="button" class="btn ghost compact" id="btn-fill-package">填入夹具结果包</button>
+              <button type="button" class="btn ghost compact" id="btn-preview-task">预览任务结果</button>
+            </div>
+            <div id="task-list" class="mini-list"></div>
+            <pre class="preview" id="analysis-preview" hidden></pre>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">文献仓库</p>
+            <h3>检索词与命中预览</h3>
+            <div class="field-grid">
+              <label class="span-2">检索词<input id="opt-query" type="text" placeholder="gut microbiota autism" /></label>
+              <label>文献 HTTP<input id="opt-literature-url" type="text" placeholder="http://127.0.0.1:8001（可选）" /></label>
+              <label>SQLite 路径<input id="opt-literature-db" type="text" placeholder="默认 Article_repository 库" /></label>
+            </div>
+            <label class="check">
+              <input type="checkbox" id="opt-live-lit" />
+              使用真实文献库（否则预览 fixtures）
+            </label>
+            <div class="inline-actions">
+              <button type="button" class="btn soft compact" id="btn-preview-lit">预览文献命中</button>
+            </div>
+            <div id="lit-hits" class="mini-list"></div>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">bioflow_skills</p>
+            <h3>本次写作接入哪些 Skill</h3>
+            <p class="hint">只对这一次点「生成各章初稿」生效。不勾选则不调用。</p>
+            <label class="check"><input type="checkbox" id="opt-skill-writing" /> nature-writing · 方法 / 结果 / 讨论的起草规则</label>
+            <label class="check"><input type="checkbox" id="opt-skill-polishing" /> nature-polishing · 润色与中英对照</label>
+            <label class="check"><input type="checkbox" id="opt-skill-reviewer" /> nature-reviewer · 投稿前自查，生成 review.md</label>
+            <label class="check"><input type="checkbox" id="opt-skill-response" /> nature-response · 有审稿意见时写回复</label>
+            <div id="skill-response-fields" hidden>
+              <label>编辑信
+                <textarea id="opt-editor-letter" rows="3" placeholder="可留空"></textarea>
+              </label>
+              <label>审稿意见
+                <textarea id="opt-reviewer-comments" rows="4" placeholder="勾选 nature-response 时贴上审稿意见"></textarea>
+              </label>
+            </div>
+          </article>
+          <article class="tile glass">
+            <p class="kicker">模型</p>
+            <h3>LLM 设置</h3>
+            <p class="hint" id="llm-status">检查中…</p>
+            <label>服务
+              <select id="llm-provider">
+                <option value="ollama">ollama</option>
+                <option value="openai">openai</option>
+                <option value="openai_compat">openai_compat</option>
+                <option value="deepseek">deepseek</option>
+                <option value="vllm">vllm</option>
+                <option value="fake">fake</option>
+              </select>
+            </label>
+            <label>模型
+              <input id="llm-model" list="llm-model-options" placeholder="qwen:7b" />
+              <datalist id="llm-model-options"></datalist>
+            </label>
+            <label>服务地址
+              <input id="llm-url" placeholder="http://127.0.0.1:11434" />
+            </label>
+            <label>超时（秒）
+              <input id="llm-timeout" type="number" min="5" max="3600" step="10" />
+            </label>
+            <button type="button" class="btn soft wide" id="btn-llm-save">保存模型设置</button>
+          </article>
+          <article class="tile glass">
+            <p class="kicker">生成</p>
+            <h3>启动写作流水线</h3>
+            <label class="check"><input type="checkbox" id="opt-llm-start" />生成时用大模型润色</label>
+            <label class="check"><input type="checkbox" id="opt-react" checked />Introduction / Discussion 走文献 ReAct</label>
+            <button type="button" class="btn primary wide" id="btn-start">生成各章初稿</button>
+            <p class="hint" id="gen-status">分析、文献、简介都可留空；空则回退夹具。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-draft" hidden>
+        <div class="draft-grid">
+          <article class="tile glass editor-pane">
+            <div class="pane-head">
+              <div>
+                <p class="kicker" id="paper-title">请先生成初稿</p>
+                <h2 id="section-heading">选择左侧章节</h2>
+              </div>
+              <div class="pane-actions">
+                <button type="button" class="btn soft compact" id="btn-save" disabled>保存</button>
+                <button type="button" class="btn primary compact" id="btn-confirm" disabled>确认本章</button>
+                <button type="button" class="btn ghost compact" id="btn-unconfirm" hidden>取消确认</button>
+              </div>
+            </div>
+            <p class="hint" id="section-hint">生成后在此改 Markdown。数字与图路径由上游锁定，润色不得编造。</p>
+            <textarea id="editor" spellcheck="false" placeholder="本章正文…" disabled></textarea>
+            <p class="status" id="editor-status"></p>
+          </article>
+          <aside class="tile glass chat-pane">
+            <div class="pane-head compact">
+              <div>
+                <p class="kicker">本章润色</p>
+                <h3 id="chat-llm-label">本地 Qwen</h3>
+              </div>
+              <label class="check small">
+                <input type="checkbox" id="opt-llm-chat" checked />
+                启用
+              </label>
+            </div>
+            <div id="chat-log" class="chat-log"></div>
+            <form id="chat-form" class="chat-form">
+              <textarea id="chat-input" rows="3" placeholder="例如：把 Methods 写得更短；中文摘要更正式…" disabled></textarea>
+              <button type="submit" class="btn primary wide compact" id="btn-chat" disabled>发送并改写</button>
+            </form>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-export" hidden>
+        <div class="bento">
+          <article class="tile glass">
+            <p class="kicker">确认清单</p>
+            <h3>全部章节确认后才能排版</h3>
+            <div id="export-checklist" class="mini-list muted">尚未生成</div>
+          </article>
+          <article class="tile glass">
+            <p class="kicker">导出</p>
+            <h3>统一排版</h3>
+            <p class="hint">会生成 Markdown，并尽量转 Word / PDF（需本机 LibreOffice）。</p>
+            <button type="button" class="btn primary" id="btn-export" disabled>全部确认后导出</button>
+            <p class="path" id="export-path"></p>
+            <p class="hint" id="export-hint"></p>
+            <div class="download-row" id="download-row">
+              <a class="btn soft compact" id="dl-md" href="#" download>Markdown</a>
+              <a class="btn primary compact" id="dl-docx" href="#" download>Word</a>
+              <a class="btn ghost compact" id="dl-pdf" href="#" download>PDF</a>
+            </div>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">稿件预览</p>
+            <pre id="export-preview" class="preview tall">导出后显示全文。</pre>
+          </article>
+          <article class="tile glass span-2">
+            <p class="kicker">流水线警告</p>
+            <ul id="export-warnings" class="warn-list muted"><li>生成后显示 evidence / 缺槽警告</li></ul>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="/static/app.js?v=skills"></script>
+</body>
+</html>

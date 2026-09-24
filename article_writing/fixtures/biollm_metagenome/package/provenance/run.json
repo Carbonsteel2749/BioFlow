@@ -1,0 +1,7 @@
+{
+  "created_at": "2026-09-01T00:00:00+00:00",
+  "final_status": "completed",
+  "nextflow_run_name": "fixture-run",
+  "sample_count": 3,
+  "task_id": "task-fixture-001"
+}

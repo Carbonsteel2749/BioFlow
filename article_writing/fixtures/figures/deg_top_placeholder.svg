@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320">
+  <rect width="640" height="320" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="24" y="36" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#0f172a">Top DEG table (fixture placeholder)</text>
+  <rect x="40" y="60" width="560" height="220" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="56" y="92" font-family="monospace" font-size="14" fill="#0f172a">gene          log2FC   padj</text>
+  <text x="56" y="124" font-family="monospace" font-size="14" fill="#0f172a">gene_SET_A      2.40   &lt;0.05</text>
+  <text x="56" y="156" font-family="monospace" font-size="14" fill="#0f172a">gene_SET_B      1.80   &lt;0.05</text>
+  <text x="56" y="188" font-family="monospace" font-size="14" fill="#0f172a">gene_SET_C     -1.50   &lt;0.05</text>
+  <text x="56" y="220" font-family="monospace" font-size="14" fill="#0f172a">&             &      &</text>
+</svg>

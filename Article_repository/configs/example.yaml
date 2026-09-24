@@ -1,0 +1,34 @@
+app:
+  name: article-repository
+  environment: development
+
+ingestion:
+  full_sync_enabled: true
+  incremental_sync_enabled: true
+  sync_interval: monthly
+
+sources:
+  primary:
+    - pubmed
+  secondary:
+    - openalex
+    - semantic_scholar
+    - crossref
+
+classification:
+  enabled: true
+  tag_dimensions:
+    - core_microbe
+    - experimental_model
+    - intervention
+    - data_type
+    - analysis_method
+
+search:
+  keyword_enabled: true
+  tag_enabled: true
+  deep_search_enabled: true
+
+rag:
+  faq_enabled: true
+  review_enabled: true

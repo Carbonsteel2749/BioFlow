@@ -1,0 +1,23 @@
+.task-cleanup-action { display: inline-flex; align-items: center; gap: 8px; }
+.cleanup-trigger { color: #a24747; }
+.cleanup-trigger:disabled { opacity: .4; cursor: not-allowed; }
+.cleanup-done { font-size: 12px; color: #28756c; white-space: normal; }
+.cleanup-dialog { width: min(610px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid #dce5e9; border-radius: 18px; padding: 26px; color: #203845; box-shadow: 0 18px 80px #183c4938; text-align: left; white-space: normal; }
+.cleanup-dialog::backdrop { background: #102f4866; }
+.cleanup-dialog h2 { margin: 0 0 12px; font-size: 21px; }
+.cleanup-task-id { overflow-wrap: anywhere; color: #6d7e88; font-size: 13px; }
+.cleanup-choices { border: 0; padding: 0; margin: 20px 0 12px; }
+.cleanup-choices legend { font-weight: 600; margin-bottom: 10px; }
+.cleanup-choices label { display: flex; gap: 12px; align-items: start; padding: 14px; border: 1px solid #dce5e9; border-radius: 10px; margin: 8px 0; cursor: pointer; }
+.cleanup-choices input { margin-top: 5px; accent-color: #378b82; }
+.cleanup-choices small, .cleanup-preview small { display: block; margin-top: 5px; line-height: 1.65; color: #6d7e88; }
+.cleanup-preserved { padding: 12px; background: #eff7f6; border-radius: 8px; font-size: 13px; line-height: 1.7; }
+.cleanup-preview { font-size: 14px; margin: 18px 0 8px; }
+.cleanup-preview ul { padding-left: 20px; font-size: 12px; overflow-wrap: anywhere; }
+.cleanup-error { background: #fff1ee; padding: 12px; border-radius: 8px; color: #a63e36; font-size: 14px; line-height: 1.6; }
+.cleanup-recheck { border: 0; background: none; color: #28756c; padding: 8px 0; text-decoration: underline; }
+.cleanup-id-input { display: grid; gap: 8px; margin-top: 12px; font-size: 13px; }
+.cleanup-id-input input { width: 100%; padding: 10px; border: 1px solid #cdd9de; border-radius: 8px; box-sizing: border-box; }
+.cleanup-confirm { display: flex; align-items: start; gap: 8px; margin: 18px 0; font-size: 13px; }
+.cleanup-buttons { display: flex; justify-content: flex-end; gap: 12px; }
+@media (max-width: 600px) { .cleanup-dialog { padding: 18px; } .cleanup-buttons { flex-wrap: wrap; } }

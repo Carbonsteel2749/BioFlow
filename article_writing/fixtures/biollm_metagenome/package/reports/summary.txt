@@ -1,0 +1,8 @@
+BioLLM metagenomics V1 result package
+Research use only; this file does not contain model-generated scientific conclusions.
+Task: task-fixture-001
+Samples: 3
+Read-count records: 3
+Species rows: 4
+Gene-family rows: 3
+Pathway rows: 2

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <rect width="640" height="400" fill="#f7fafc" stroke="#cbd5e1"/>
+  <text x="24" y="36" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#0f172a">PCA (fixture placeholder)</text>
+  <line x1="80" y1="340" x2="580" y2="340" stroke="#64748b" stroke-width="2"/>
+  <line x1="80" y1="340" x2="80" y2="60" stroke="#64748b" stroke-width="2"/>
+  <circle cx="220" cy="210" r="10" fill="#2563eb"/>
+  <circle cx="280" cy="160" r="10" fill="#2563eb"/>
+  <circle cx="250" cy="240" r="10" fill="#2563eb"/>
+  <circle cx="420" cy="180" r="10" fill="#dc2626"/>
+  <circle cx="470" cy="140" r="10" fill="#dc2626"/>
+  <circle cx="450" cy="220" r="10" fill="#dc2626"/>
+  <text x="200" y="370" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#334155">PC1</text>
+  <text x="20" y="200" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#334155" transform="rotate(-90 20,200)">PC2</text>
+  <text x="200" y="80" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#2563eb">NHEK</text>
+  <text x="430" y="80" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#dc2626">cSCC</text>
+</svg>

@@ -1,0 +1,73 @@
+/* 确认对话框样式 - 适配设计代币系统 */
+.confirm-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--text-primary) 50%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-nested);
+}
+
+.confirm-dialog {
+  background: var(--surface-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  min-width: 320px;
+  max-width: 480px;
+  overflow: hidden;
+}
+
+.confirm-header {
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.confirm-body {
+  padding: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.confirm-footer {
+  padding: 16px 20px;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-color);
+}
+
+.confirm-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+}
+
+.confirm-btn--cancel {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.confirm-btn--cancel:hover {
+  background: var(--border-color);
+}
+
+.confirm-btn--confirm {
+  background: var(--color-error);
+  color: var(--text-inverse);
+}
+
+.confirm-btn--confirm:hover {
+  background: var(--color-error);
+  filter: brightness(0.9);
+}

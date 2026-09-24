@@ -1,0 +1,1 @@
+"""Crossref adapter placeholder."""

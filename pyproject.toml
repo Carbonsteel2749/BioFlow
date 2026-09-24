@@ -1,0 +1,31 @@
+[project]
+name = "bioflow"
+version = "0.1.0"
+description = "Modular bioinformatics writing workflow"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "typer>=0.12",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "requests>=2.31",
+  "pyyaml>=6.0",
+  "pandas>=2.0",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+llm = [
+  "langgraph>=0.0.40",
+  "langsmith>=0.1.0",
+]
+
+[project.scripts]
+bioflow = "bioflow.cli.main:app"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["bioflow*"]

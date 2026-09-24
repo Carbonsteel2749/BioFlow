@@ -1,0 +1,53 @@
+{
+  "summary": "After QC and normalization, differential expression identified 128 significant genes (72 up, 56 down) between group A (cSCC) and group B (NHEK).",
+  "methods": {
+    "qc": "low-detection and low-mean gene filters; outlier samples removed by correlation",
+    "normalization": "log1p on pre-normalized microarray-like matrix",
+    "differential_analysis": {
+      "method": "welch_t_with_bh",
+      "group_a": "cSCC",
+      "group_b": "NHEK",
+      "log2fc_threshold": 1.0,
+      "padj_threshold": 0.05
+    }
+  },
+  "key_findings": [
+    "128 genes passed |log2FC| >= 1 and FDR < 0.05",
+    "Top up-regulated marker gene_SET_A shows log2FC=2.4",
+    "Pathway-level enrichment is not yet available in this fixture"
+  ],
+  "metrics": {
+    "n_genes_tested": 12000,
+    "n_significant": 128,
+    "n_up": 72,
+    "n_down": 56,
+    "agreement_score_vs_literature": 0.62
+  },
+  "limitations": [
+    "Enrichment analysis not included in Phase-1 fixture",
+    "Sample size is modest; effect sizes should be interpreted cautiously"
+  ],
+  "figure_refs": [
+    {
+      "figure_id": "fig_pca",
+      "path": "fixtures/figures/pca_placeholder.svg",
+      "caption": "PCA of samples after normalization",
+      "kind": "figure"
+    },
+    {
+      "figure_id": "tbl_deg",
+      "path": "fixtures/figures/deg_top_placeholder.svg",
+      "caption": "Top differentially expressed genes",
+      "kind": "table"
+    }
+  ],
+  "evidence_ids": [
+    "ev_deg_summary",
+    "ev_metric_n_sig",
+    "ev_fig_pca"
+  ],
+  "raw": {
+    "source": "fixture",
+    "note": "Replace via AnalysisPort live adapter when plate 4 is ready"
+  }
+}

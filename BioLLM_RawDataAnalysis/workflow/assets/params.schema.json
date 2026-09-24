@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "input_manifest": {
+      "type": "string"
+    },
+    "outdir": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "enable_mags": {
+      "type": "boolean",
+      "default": false
+    },
+    "enable_reassembly": {
+      "type": "boolean",
+      "default": true
+    },
+    "threads": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 256,
+      "default": 4
+    },
+    "fastp_qualified_quality_phred": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 93,
+      "default": 20
+    },
+    "fastp_unqualified_percent_limit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 40
+    },
+    "fastp_n_base_limit": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 5
+    },
+    "fastp_length_required": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 50
+    },
+    "fastp_cut_front": {
+      "type": "boolean",
+      "default": true
+    },
+    "fastp_cut_tail": {
+      "type": "boolean",
+      "default": true
+    },
+    "fastp_cut_window_size": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 4
+    },
+    "fastp_cut_mean_quality": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 93,
+      "default": 20
+    },
+    "fastp_trim_poly_g": {
+      "type": "boolean",
+      "default": true
+    },
+    "fastp_correction": {
+      "type": "boolean",
+      "default": false
+    },
+    "fastp_detect_adapter_for_pe": {
+      "type": "boolean",
+      "default": true
+    },
+    "mag_threads": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 8
+    },
+    "mag_memory_gb": {
+      "type": "integer",
+      "minimum": 4,
+      "default": 32
+    },
+    "host_index": {
+      "type": "string"
+    },
+    "host_filter_mode": {
+      "enum": [
+        "strict_both_unmapped",
+        "concordant_unmapped"
+      ],
+      "default": "strict_both_unmapped"
+    },
+    "host_min_retained_pairs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "host_max_removed_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 100
+    },
+    "host_bowtie2_preset": {
+      "enum": [
+        "very-fast",
+        "fast",
+        "sensitive",
+        "very-sensitive"
+      ],
+      "default": "very-sensitive"
+    },
+    "read_length": {
+      "type": "integer",
+      "enum": [
+        50,
+        75,
+        100,
+        150,
+        200,
+        250,
+        300
+      ],
+      "default": 150
+    },
+    "assembler": {
+      "enum": [
+        "megahit",
+        "metaspades"
+      ],
+      "default": "megahit"
+    },
+    "bin_completeness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 70
+    },
+    "bin_contamination": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 5
+    },
+    "database_registry": {
+      "type": "string",
+      "minLength": 1,
+      "description": "External database registry JSON path"
+    },
+    "database_profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Profile selected from database_registry"
+    },
+    "database_manifest": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Validated resolved database manifest path"
+    }
+  },
+  "required": [
+    "database_manifest",
+    "input_manifest",
+    "outdir"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BioLLM external database registry",
+  "type": "object",
+  "required": ["schema_version", "profiles"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profiles": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/profile"}}
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["database_name", "purpose", "path", "release", "taxonomy_system", "manifest_sha256", "manifest_basis", "tool_compatibility_version", "required_sentinel_files"],
+      "properties": {
+        "database_name": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "release": {"type": "string", "minLength": 1}, "taxonomy_system": {"type": "string", "minLength": 1}, "manifest_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}, "manifest_basis": {"const": "SHA256 of the sorted top-level file-name and byte-size inventory"}, "tool_compatibility_version": {"type": "string", "minLength": 1}, "required_sentinel_files": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }, "additionalProperties": true
+    },
+    "profile": {
+      "type": "object", "required": ["taxonomy_reads", "function_reads", "mag_annotation"],
+      "properties": {
+        "taxonomy_reads": {"type": "object", "required": ["kraken2", "bracken"], "properties": {"kraken2": {"$ref": "#/$defs/entry"}, "bracken": {"$ref": "#/$defs/entry"}}},
+        "function_reads": {"type": "object", "required": ["humann_nucleotide", "humann_protein", "humann_utility", "metaphlan", "ko_mapping", "ec_mapping"], "properties": {"humann_nucleotide": {"$ref": "#/$defs/entry"}, "humann_protein": {"$ref": "#/$defs/entry"}, "humann_utility": {"$ref": "#/$defs/entry"}, "metaphlan": {"$ref": "#/$defs/entry"}, "ko_mapping": {"$ref": "#/$defs/entry"}, "ec_mapping": {"$ref": "#/$defs/entry"}}},
+        "mag_annotation": {"type": "object", "properties": {"classification": {"$ref": "#/$defs/entry"}, "function": {"$ref": "#/$defs/entry"}}}
+      }
+    }
+  }
+}

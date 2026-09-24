@@ -1,0 +1,114 @@
+/* 上传预览组件 - 适配设计代币系统 */
+.upload-preview {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-primary);
+  overflow: hidden;
+}
+
+.upload-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-secondary);
+}
+
+.upload-preview-count {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.upload-preview-size {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.upload-preview-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.upload-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
+}
+
+.upload-preview-item:last-child {
+  border-bottom: 0;
+}
+
+.upload-preview-item:hover {
+  background: var(--surface-secondary);
+}
+
+.upload-preview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--color-primary);
+}
+
+.upload-preview-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.upload-preview-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.upload-preview-name {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-preview-meta {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.upload-preview-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.upload-preview-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.upload-preview-remove:hover {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
