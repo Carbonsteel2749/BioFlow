@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "url": "http://127.0.0.1:11434",
+  "timeout": 300,
+  "language": "en+zh"
+}

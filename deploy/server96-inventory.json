@@ -1,0 +1,28 @@
+{
+  "verified_at": "2026-10-20 22:53 Asia/Shanghai",
+  "host": "219.224.3.96",
+  "user": "xh",
+  "analysis_root": "/home/xh/BioLLM_RawDataAnalysis",
+  "python": "/home/xh/BioLLM_RawDataAnalysis/.venv/bin/python",
+  "python_version": "3.10.12",
+  "fastapi": "0.135.3",
+  "pydantic": "2.13.0",
+  "httpx": "0.28.1",
+  "mamba_envs": [
+    "biollm-tools",
+    "biollm-humann",
+    "biollm-report"
+  ],
+  "database_root": "/home/xh/databases",
+  "analysis_url": "http://127.0.0.1:8000",
+  "literature_url": "http://127.0.0.1:8080",
+  "qdrant_url": "http://127.0.0.1:6333",
+  "model_url": "http://127.0.0.1:11434",
+  "model": "qwen3:14b",
+  "archives_bytes": {
+    "ce68009d-7502-48b1-b545-c9c0328989a4": 1261793883,
+    "007b6077-0e1d-441a-9cee-e2ff11773204": 8179669416,
+    "978ec447-5787-4337-9bc9-3478b68ca8e2": 55123854
+  },
+  "inspection": "read-only SSH, package and dependency presence, model metadata, existing service HTTP health"
+}

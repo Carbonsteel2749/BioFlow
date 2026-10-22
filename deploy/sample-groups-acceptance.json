@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-21T08:38:53.511555",
+  "features": [
+    "S01",
+    "S02",
+    "S03"
+  ],
+  "tests": 41,
+  "browser_checks": [
+    "custom group and batch saved",
+    "CSV custom column mapping preview and import",
+    "concurrent group and batch changes compared",
+    "local group and server batch merged and saved"
+  ],
+  "batch_scope": "durable project metadata; no statistical batch correction",
+  "remote_revalidation": "not performed; prior SSH timeout"
+}

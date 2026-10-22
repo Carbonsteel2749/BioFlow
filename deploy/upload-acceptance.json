@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-21",
+  "approved_features": [
+    "U01",
+    "U02",
+    "U03",
+    "U04"
+  ],
+  "ready_files": 4,
+  "download_hashes_match": true,
+  "browser_resume": "8 B retained, original file reselected, completed and downloaded",
+  "confirmed_pairs": 1,
+  "cancel": "cancelled",
+  "tests": 39,
+  "http_sha256_fallback_vectors": 10,
+  "server96_reverification": "SSH direct and configured jump connection timed out; no remote production changes",
+  "verified_at": "2026-10-21 08:23 Asia/Shanghai",
+  "manual_pair_analysis_binding": "confirmed dataset reused even when original filenames are nonstandard"
+}

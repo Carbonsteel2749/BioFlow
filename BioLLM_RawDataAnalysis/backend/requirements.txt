@@ -1,0 +1,12 @@
+fastapi==0.135.3
+uvicorn==0.44.0
+pydantic==2.13.0
+httpx==0.28.1
+python-multipart==0.0.26
+pytest==9.0.3
+# Task-local numeric figure rendering runs with the backend interpreter.
+matplotlib==3.10.9
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.15.3
+Pillow==11.3.0

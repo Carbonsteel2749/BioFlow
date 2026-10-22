@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "server-v1": {
+      "taxonomy_reads": {
+        "kraken2": {
+          "database_name": "Kraken2 Standard 8 GB",
+          "purpose": "Read-level taxonomic classification",
+          "path": "/home/xh/databases/kraken2/standard_8gb_20260626/index",
+          "release": "2026-06-26",
+          "taxonomy_system": "NCBI taxonomy",
+          "manifest_sha256": "904c53643b7d5d84cde100310e6a37b8e0eb8767dd7ae01ffd24c6835d85ea7a",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "Kraken2 2.17.1; Bracken 3.0.1",
+          "required_sentinel_files": [
+            "hash.k2d",
+            "opts.k2d",
+            "taxo.k2d",
+            "database150mers.kmer_distrib"
+          ]
+        },
+        "bracken": {
+          "database_name": "Kraken2 Standard 8 GB",
+          "purpose": "Species abundance re-estimation from Kraken2 classifications",
+          "path": "/home/xh/databases/kraken2/standard_8gb_20260626/index",
+          "release": "2026-06-26",
+          "taxonomy_system": "NCBI taxonomy",
+          "manifest_sha256": "904c53643b7d5d84cde100310e6a37b8e0eb8767dd7ae01ffd24c6835d85ea7a",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "Kraken2 2.17.1; Bracken 3.0.1",
+          "required_sentinel_files": [
+            "hash.k2d",
+            "opts.k2d",
+            "taxo.k2d",
+            "database150mers.kmer_distrib"
+          ]
+        }
+      },
+      "function_reads": {
+        "humann_nucleotide": {
+          "database_name": "ChocoPhlAn",
+          "purpose": "HUMAnN nucleotide-level gene-family search",
+          "path": "/home/xh/databases/humann/chocophlan",
+          "release": "v201901_v31",
+          "taxonomy_system": "ChocoPhlAn species pangenomes",
+          "manifest_sha256": "beccb7f0edd61d5bbc44325a77c493c6304b4c47f973ced96fa6916534da24d1",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "HUMAnN 3.9",
+          "required_sentinel_files": [
+            "alaS.centroids.v201901_v31.ffn.gz"
+          ]
+        },
+        "humann_protein": {
+          "database_name": "UniRef90",
+          "purpose": "HUMAnN translated protein search",
+          "path": "/home/xh/databases/humann/uniref",
+          "release": "201901b",
+          "taxonomy_system": "UniRef90",
+          "manifest_sha256": "7e603c32dba6301fcfc4fda8a6a94c45e0c207d1570c9b6130614ed7e55a0230",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "HUMAnN 3.9; DIAMOND",
+          "required_sentinel_files": [
+            "uniref90_201901b_full.dmnd"
+          ]
+        },
+        "humann_utility": {
+          "database_name": "HUMAnN utility mappings",
+          "purpose": "HUMAnN identifier and pathway name mappings",
+          "path": "/home/xh/.local/share/mamba/envs/biollm-humann/lib/python3.12/site-packages/humann/data/misc",
+          "release": "HUMAnN-3.9-bundled",
+          "taxonomy_system": "not applicable",
+          "manifest_sha256": "646fba595cab2240f483839bc9ff2fef7a83c5b5581efcbb53549cc14ab1e1e2",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "HUMAnN 3.9",
+          "required_sentinel_files": [
+            "README.txt",
+            "map_metacyc-pwy_name.txt.gz",
+            "map_ko_name.txt.gz"
+          ]
+        },
+        "ko_mapping": {
+          "database_name": "HUMAnN UniRef90 to KO mapping",
+          "purpose": "Convert HUMAnN UniRef90 gene-family abundance to KEGG Orthology abundance",
+          "path": "/home/xh/databases/humann/utility_mapping_v201901b/index",
+          "release": "v201901b",
+          "taxonomy_system": "not applicable",
+          "manifest_sha256": "002f3f6f92716512cb42049970fbde6f11f811b1c4d276536b54c105bebe7f00",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "HUMAnN 3.9",
+          "required_sentinel_files": [
+            "map_ko_uniref90.txt.gz"
+          ]
+        },
+        "ec_mapping": {
+          "database_name": "HUMAnN UniRef90 to EC mapping",
+          "purpose": "Convert HUMAnN UniRef90 gene-family abundance to EC abundance",
+          "path": "/home/xh/databases/humann/utility_mapping_v201901b/index",
+          "release": "v201901b",
+          "taxonomy_system": "not applicable",
+          "manifest_sha256": "002f3f6f92716512cb42049970fbde6f11f811b1c4d276536b54c105bebe7f00",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "HUMAnN 3.9",
+          "required_sentinel_files": [
+            "map_level4ec_uniref90.txt.gz"
+          ]
+        },
+        "metaphlan": {
+          "database_name": "MetaPhlAn CHOCOPhlAn SGB",
+          "purpose": "HUMAnN taxonomic prescreen",
+          "path": "/home/xh/databases/metaphlan/mpa_vJun23_CHOCOPhlAnSGB_202403/index",
+          "release": "mpa_vJun23_CHOCOPhlAnSGB_202403",
+          "taxonomy_system": "MetaPhlAn SGB taxonomy",
+          "manifest_sha256": "1cec574f4df039a11d06acc32df4c30a8afc30b271d4f7afe18e575db123b0ef",
+          "manifest_basis": "SHA256 of the sorted top-level file-name and byte-size inventory",
+          "tool_compatibility_version": "MetaPhlAn 4.1.1; HUMAnN 3.9",
+          "required_sentinel_files": [
+            "mpa_vJun23_CHOCOPhlAnSGB_202403.pkl",
+            "mpa_vJun23_CHOCOPhlAnSGB_202403.1.bt2l",
+            "mpa_vJun23_CHOCOPhlAnSGB_202403.rev.2.bt2l"
+          ]
+        }
+      },
+      "mag_annotation": {}
+    }
+  }
+}

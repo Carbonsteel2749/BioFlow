@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-10-21T09:12:47.319471",
+  "approved": [
+    "A01",
+    "A02",
+    "A03"
+  ],
+  "regression_tests": 46,
+  "backend_checks": [
+    "actual parameter schema used",
+    "QC and host parameters forwarded unchanged",
+    "registered reference paths required",
+    "missing and changed files block creation",
+    "Bracken read-length reference checked",
+    "project ownership and dataset-manifest match checked",
+    "configuration version rechecked before creation"
+  ],
+  "browser_checks": [
+    "real parameter form rendered",
+    "advanced QC and host settings expanded",
+    "host strategy explanation updates",
+    "missing local server references prevent submission"
+  ],
+  "real_analysis_started": false,
+  "reference_selection": "only active server-managed registry configuration",
+  "remote_verification": "SSH 219.224.3.96 timeout; updated package not revalidated remotely"
+}

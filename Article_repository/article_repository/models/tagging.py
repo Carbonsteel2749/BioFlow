@@ -1,0 +1,1 @@
+"""Tagging schema model placeholder."""

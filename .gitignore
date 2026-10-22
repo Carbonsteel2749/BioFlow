@@ -1,0 +1,31 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local configuration and credentials
+.env
+.env.*
+*.secret
+*.secrets
+*.key
+*API key*
+*api_key*
+
+# Runtime state, logs, databases, and generated artifacts
+runtime/
+BioLLM_RawDataAnalysis/runtime/
+BioLLM_RawDataAnalysis/backend/__pycache__/
+BioLLM_RawDataAnalysis/workflow/graphify-out/
+*.sqlite
+*.sqlite3
+*.log
+*.lock
+*.pid
+
+# Generated build and distribution files
+build/
+dist/
+*.egg-info/

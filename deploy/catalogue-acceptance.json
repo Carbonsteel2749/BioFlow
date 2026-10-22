@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-21T10:46:19.127346",
+  "regression_tests": 50,
+  "metadata_list_no_binary_reads": true,
+  "path_storage": "root identifier + relative path; legacy absolute paths supported",
+  "pagination": 24,
+  "before_catalogue_seconds": 6.39,
+  "first_new_index_seconds": 0.527,
+  "measurements": [
+    {
+      "name": "sequencing",
+      "status": 200,
+      "seconds": 0.058,
+      "bytes": 11332,
+      "items": 18,
+      "datasets": 3,
+      "counts": {
+        "literature": 0,
+        "data": 18,
+        "results": 417,
+        "charts": 207,
+        "drafts": 0
+      }
+    },
+    {
+      "name": "charts",
+      "status": 200,
+      "seconds": 0.054,
+      "bytes": 16471
+    },
+    {
+      "name": "tasks",
+      "status": 200,
+      "seconds": 0.342,
+      "bytes": 11041
+    },
+    {
+      "name": "models",
+      "status": 200,
+      "seconds": 2.173,
+      "bytes": 277
+    }
+  ],
+  "remote_reverification": "not performed; previous SSH timeout"
+}

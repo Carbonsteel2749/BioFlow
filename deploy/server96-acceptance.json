@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-10-20 23:01 Asia/Shanghai",
+  "target": "xh@219.224.3.96",
+  "test_location": "/home/xh/.cache/bioflow-package-check/20261020-2258/BioFlow-server96",
+  "test_bind": "127.0.0.1:18880",
+  "test_writing_bind": "127.0.0.1:18765",
+  "installation_required": false,
+  "startup": "passed",
+  "developer_login": "passed",
+  "project_dataset_count": 3,
+  "result_files_ready": 417,
+  "chart_files_ready": 207,
+  "paired_read_files_ready": 18,
+  "png_preview": "HTTP 200 image/png",
+  "download": "HTTP 200 attachment",
+  "writing_model": {
+    "model": "qwen3:14b",
+    "url": "http://127.0.0.1:11434"
+  },
+  "qwen_command": {
+    "status": "waiting_input",
+    "mode": "analysis",
+    "meaning": "真实模型识别为分析任务，正确要求完整双端文件，未启动生信计算"
+  },
+  "local_regression_tests": 32,
+  "new_feature_approvals": "none; 59 proposals pending; U01-U04 now illustrated for review"
+}

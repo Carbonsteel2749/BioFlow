@@ -1,0 +1,45 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>BioFlow · 科研工作台</title><link rel="stylesheet" href="/static/layout.css"><link rel="stylesheet" href="/static/theme.css"></head><body><div id="ai4s-prototype">
+
+<div class="shell">
+ <nav class="rail" aria-label="功能导航">
+  <button class="brand" data-page="home" aria-label="BioFlow 首页"><svg viewBox="0 0 32 40" fill="none" aria-hidden="true"><path d="M8 3c0 9 16 9 16 17S8 29 8 37M24 3c0 9-16 9-16 17s16 9 16 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M10 8h12M12 13h8M9 20h14M12 27h8M10 32h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg></button>
+  <button class="navitem cursor-interaction" data-page="models"><span class="symbol">◈</span>模型</button>
+  <button class="navitem cursor-interaction" data-page="assets"><span class="symbol">▤</span>资料</button>
+  <button class="navitem cursor-interaction" data-page="analysis"><span class="symbol">⌘</span>分析</button>
+  <button class="navitem cursor-interaction" data-page="charts"><span class="symbol">▥</span>图表</button>
+  <button class="navitem cursor-interaction" data-page="writing"><span class="symbol">✎</span>写作</button>
+  <div class="spacer"></div><button class="avatar" data-action="account" aria-label="登录或注册">↗</button>
+ </nav>
+ <aside class="projects" aria-label="项目列表">
+  <div><div class="appname">BioFlow</div></div>
+  <button data-action="newproject">＋ 新建项目</button>
+  <input class="search" aria-label="搜索项目" placeholder="⌕  搜索项目">
+  <div class="project-head"><span class="caption">我的项目</span><span class="caption">⌄</span></div>
+  <div class="project-list"></div>
+  <div class="project-foot"><span class="tag">本地工作空间</span><p class="caption">按项目关联任务与稿件<br>通过资料页选择文献知识库</p></div>
+ </aside>
+ <main class="main">
+  <header class="topbar"><div class="crumb"></div><div class="top-actions"><button data-action="settings">服务设置</button><button data-action="history">◷ 历史</button></div></header>
+  <div class="demo-bar"><span>文献 · 宏基因组分析 · 图表 · 写作</span><span>统一工作台 · 项目关联保存</span></div>
+  <div class="notice" hidden aria-live="polite"></div>
+  <section class="content" aria-label="项目工作区"></section>
+  <footer class="footer"><span class="scope"></span><span>BioFlow · Research in flow</span></footer>
+ </main>
+</div><div class="overlay" hidden></div>
+<script src="/static/auth.js" defer></script>
+<script src="/static/app.js" defer></script>
+<script src="/static/workflows.js" defer></script>
+<script src="/static/enhancements.js" defer></script>
+<script src="/static/library.js" defer></script>
+<script src="/static/home.js" defer></script>
+<script src="/static/uploads.js" defer></script>
+<script src="/static/sample-groups.js" defer></script>
+<script src="/static/analysis-setup.js" defer></script>
+<script src="/static/catalogue.js" defer></script>
+</div>
+<link rel="stylesheet" href="/static/studio.css">
+<link rel="stylesheet" href="/static/readability.css">
+<link rel="stylesheet" href="/static/uploads.css">
+<link rel="stylesheet" href="/static/sample-groups.css">
+<link rel="stylesheet" href="/static/analysis-setup.css">
+</body></html>
