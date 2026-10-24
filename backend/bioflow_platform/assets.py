@@ -26,7 +26,8 @@ def analysis_root():
     return (value if value.is_absolute() else ROOT/value).resolve()
 
 
-def classify(name,sample=b''):
+def classify(name,sample=b'',purpose='auto'):
+    if purpose in {'literature','data','results','charts','drafts'}:return purpose
     suffix=Path(name).suffix.lower()
     if suffix in LITERATURE:return 'literature'
     if suffix=='.txt':
@@ -189,7 +190,7 @@ class AssetService:
         except httpx.HTTPError as exc:
             raise HTTPException(503,f'{service} 服务未连接，文件已保存在项目资料中') from exc
 
-    async def upload(self,pid,user,file,headers=None):
+    async def upload(self,pid,user,file,headers=None,purpose='auto',details=None):
         store=self.get_store();name=(file.filename or 'upload').replace('\\','/').split('/')[-1]
         if not name or len(name)>240:raise HTTPException(422,'文件名无效')
         identifier=uuid.uuid4().hex
@@ -209,33 +210,45 @@ class AssetService:
             path.unlink(missing_ok=True);raise
         finally:
             await file.close()
-        return await self.adopt(pid,user,identifier,name,path,digest.hexdigest(),size,sample,headers)
+        return await self.adopt(pid,user,identifier,name,path,digest.hexdigest(),size,sample,headers,purpose=purpose,details=details)
 
-    async def adopt(self,pid,user,identifier,name,path,sha256,size,sample=b'',headers=None,analysis_upload=None):
+    async def adopt(self,pid,user,identifier,name,path,sha256,size,sample=b'',headers=None,analysis_upload=None,purpose='auto',details=None):
         store=self.get_store()
         with store.connect() as db:
             existing=db.execute('SELECT * FROM assets WHERE id=? AND project_id=? AND user_id=?',(identifier,pid,user['id'])).fetchone()
         if existing:
             return {**{k:existing[k] for k in ('id','name','kind','size_bytes','status')},'metadata':json.loads(existing['metadata'])}
-        kind=classify(name,sample)
+        kind=classify(name,sample,purpose)
+        if re.search(r'\.(fastq|fq)(\.gz)?$',name,re.I) and kind!='data':raise HTTPException(422,'FASTQ 请归入测序数据')
+        if kind=='literature':
+            with store.connect() as db:duplicate=db.execute("SELECT * FROM assets WHERE project_id=? AND user_id=? AND kind='literature' AND sha256=? AND status!='archived' LIMIT 1",(pid,user['id'],sha256)).fetchone()
+            if duplicate:
+                if path.resolve()!=uploaded_path(dict(duplicate),pid,user['id']).resolve():path.unlink(missing_ok=True)
+                return {**{k:duplicate[k] for k in ('id','name','kind','size_bytes','status')},'metadata':json.loads(duplicate['metadata']),'already_linked':True}
         initial_status='stored' if kind=='literature' else 'ready'
         with store.connect() as db:
             db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status) VALUES(?,?,?,?,?,?,?,?,?)',
                 (identifier,pid,user['id'],name,kind,str(path),size,sha256,initial_status))
-        metadata={};status='ready'
+        metadata={'origin':'external_import','purpose':kind,**(details or {})};status='ready'
+        if kind=='literature':
+            metadata.setdefault('title',Path(name).stem)
+            from .personal_library import remember
+            metadata['personal_document_id']=remember(store,user['id'],name,path,sha256,size,metadata)
         try:
             if kind=='literature':
+                from .ability_management import enabled
+                if not enabled(store,'models','literature-embedding'):raise HTTPException(409,'文献向量模型已停用，原文已保存，启用后可重试索引')
                 kb=await self.ensure_kb(pid,user,headers)
                 document=await self.send_file('literature','/api/knowledge-bases/'+kb+'/documents',path,name,headers)
                 uploaded=document.get('uploaded',document.get('document',document))
-                metadata={'knowledge_base_id':kb,'document_id':uploaded.get('id'),'index_status':uploaded.get('status','processing')}
+                metadata.update(knowledge_base_id=kb,document_id=uploaded.get('id'),index_status=uploaded.get('status','processing'))
                 status='ready' if uploaded.get('status') in {'ready','indexed','completed'} else 'indexing'
             elif analysis_upload:
-                metadata={'analysis_upload_id':analysis_upload,'storage':'analysis'}
+                metadata.update(analysis_upload_id=analysis_upload,storage='analysis')
                 store.claim('upload',analysis_upload,user['id'])
             elif re.search(r'\.(fastq|fq)(\.gz)?$',name,re.I):
                 result=await self.send_file('analysis','/api/uploads/files',path,name)
-                metadata={'analysis_upload_id':result['id']}
+                metadata.update(analysis_upload_id=result['id'])
                 store.claim('upload',result['id'],user['id'])
         except HTTPException as exc:
             metadata['upstream_error']=exc.detail;status='stored'

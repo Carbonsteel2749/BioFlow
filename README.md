@@ -1,16 +1,33 @@
 # BioFlow
 
+统一入口为 `ai4s-interface.html`，深绿导航与浅绿工作区。浏览器通过统一服务访问现有四个模块。
+
 工作台已提供统一登录与注册，游客点击功能按钮会打开账户窗口。项目和资源归属当前账户；开发者账户可以维护服务配置。开发者项目保留全部含 SRR 或 ERR 编号的 3 条历史任务，其他历史分析记录与旧稿件已归档。
 
-## 启动方法
+## 图表与资料管理更新（2026-10-24）
+
+当前源代码已加入十种常用生信图型、标题/坐标轴/图例参数编辑与版本导出，资料按用途确认上传，个人文献可跨项目关联，模型和 Skills 提供开发者管理。已有服务器部署使用 `dist/BioFlow-research-update-20261024.tar.gz` 小型代码更新包，操作步骤见 [更新与使用说明](docs/RESEARCH_WORKSPACE.md)。`dist/BioFlow.tar.gz` 是此前的完整数据基础包；已有基础包应用上述更新即可，无需重复上传数据。
+
+## 上传服务器后的启动方法
 
 本包用于现有服务器 `219.224.3.96`，使用 `xh` 账户。代码、项目数据库、原始测序文件、图表和结果归档均在 `BioFlow/` 内，通过相对路径定位。Python、Nextflow、参考数据库、文献服务和 Qwen3-14B 复用服务器已有环境。
+
+上传整个 `BioFlow` 文件夹到 `/home/xh/BioFlow` 后执行：
 
 ```bash
 cd /home/xh/BioFlow
 bash Start-BioFlow.sh check
 bash Start-BioFlow.sh start
 bash Start-BioFlow.sh status
+```
+
+如果上传的是 `dist/BioFlow.tar.gz`，在上传位置解压后进入包内目录：
+
+```bash
+tar -xzf BioFlow.tar.gz
+cd BioFlow
+bash Start-BioFlow.sh check
+bash Start-BioFlow.sh start
 ```
 
 浏览器打开 `http://219.224.3.96:8800/`。用户名：`developer`；密码：`developer`。关闭 SSH 窗口后服务继续运行。包内分析服务监听 `127.0.0.1:8803`，读取本包的 `BioLLM_RawDataAnalysis/runtime/`；统一入口监听 `8800`。原服务器的分析服务可以继续独立运行。
@@ -24,7 +41,7 @@ bash Start-BioFlow.sh stop
 
 `check` 会显示 Python、包内数据、模型和文献服务的检查结果。页面访问需要服务器开放 TCP 8800。文件夹可以放在其他目录，启动脚本自动识别当前根目录。更新时请保留已有的项目状态和数据。
 
-数据目录对应关系：`http://219.224.3.96:8800/http://219.224.3.96:8800/`
+数据目录对应关系：
 
 ```text
 BioFlow/runtime/bioflow.sqlite3                         账户、项目、资源关联

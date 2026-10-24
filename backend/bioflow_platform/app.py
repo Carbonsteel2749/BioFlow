@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -139,6 +139,8 @@ class ProjectBody(BaseModel):
 
 from .workspace import install as install_workspace
 install_workspace(app,lambda:store,project,upstream,SERVICES)
+from .ability_management import install as install_abilities
+install_abilities(app,lambda:store)
 
 
 @app.get('/api/projects')
@@ -151,6 +153,26 @@ def create_project(body: ProjectBody,request: Request):
     if not body.name.strip():
         raise HTTPException(422,'项目名称不能为空')
     return store.create(body.name.strip(),body.description,request.state.user['id'])
+
+
+@app.patch('/api/projects/{pid}')
+def edit_project(pid: str, body: ProjectBody, request: Request):
+    project(pid,request)
+    if not body.name.strip():
+        raise HTTPException(422,'项目名称不能为空')
+    with store.connect() as db:
+        db.execute('UPDATE projects SET name=?,description=? WHERE id=?',(body.name.strip(),body.description.strip(),pid))
+    store.event(pid,'编辑项目',body.name.strip())
+    return project(pid,request)
+
+
+@app.delete('/api/projects/{pid}')
+def delete_project(pid: str, request: Request):
+    item=project(pid,request)
+    with store.connect() as db:
+        db.execute('UPDATE projects SET archived=1 WHERE id=?',(pid,))
+    store.event(pid,'删除项目',item['name'])
+    return {'deleted':True,'id':pid}
 
 
 @app.get('/api/projects/{pid}/history')
@@ -208,7 +230,8 @@ async def status():
 @app.get('/api/skills')
 def skills():
     from bioflow_skills import list_catalog
-    return [entry.to_dict() for entry in list_catalog()]
+    from .ability_management import augment,chart_skills
+    return augment(store,'skills',[entry.to_dict() for entry in list_catalog()]+chart_skills())
 
 
 @app.get('/api/models')
@@ -243,7 +266,8 @@ async def models():
                     'description':label,'available':None,'configured':True})
     except HTTPException:
         errors.append('文献模型配置暂不可读取')
-    return {'items':entries,'notes':errors}
+    from .ability_management import augment
+    return {'items':augment(store,'models',entries),'notes':errors}
 
 
 class SkillBody(BaseModel):
@@ -252,12 +276,29 @@ class SkillBody(BaseModel):
 
 
 @app.post('/api/projects/{pid}/skills/{name}')
-def run(pid: str,name: str,body: SkillBody,request: Request):
+async def run(pid: str,name: str,body: SkillBody,request: Request,background:BackgroundTasks):
     project(pid,request)
+    from .ability_management import enabled
+    if not enabled(store,'skills',name):raise HTTPException(409,'该能力已停用')
+    if name.startswith('chart:'):
+        from .charts.registry import VERSION
+        if body.version and body.version!=VERSION:raise HTTPException(409,'绘图能力版本已更新，请刷新能力目录')
+        identifier=name.split(':',1)[1]
+        if identifier=='metagenome':
+            payload=dict(body.payload);tid=payload.pop('task_id','')
+            if tid not in store.ids(pid,'task') or not store.owns('task',tid,request.state.user['id']):raise HTTPException(404,'分析任务不属于当前项目')
+            return await upstream('analysis','/api/tasks/'+tid+'/figures/jobs','POST',payload)
+        from .chart_contracts import FigureBody
+        from pydantic import ValidationError
+        try:payload=FigureBody.model_validate({**body.payload,'chart':identifier})
+        except ValidationError as exc:raise HTTPException(422,'绘图能力参数不完整或不合法') from exc
+        result=await app.state.create_project_figure(pid,payload,request,background)
+        store.event(pid,'调用绘图能力',{'skill':name,'figure_id':result['id']})
+        return {'skill':name,'status':'queued','result':result}
     if name=='file_profile' and request.state.user['role']!='developer':
         raise HTTPException(403,'服务器文件检查由开发者管理')
     from bioflow_skills import run_skill
-    result=run_skill(name,body.payload,version=body.version).to_dict()
+    result=(await asyncio.to_thread(run_skill,name,body.payload,version=body.version)).to_dict()
     store.event(pid,'执行 Skill',result)
     return result
 
@@ -270,6 +311,15 @@ async def proxy(service: str,path: str,request: Request):
     if any(part in {'.','..'} for part in path.split('/')) or '\\' in path:
         raise HTTPException(400,'无效路径')
     await access.authorize(store,service,path,request,{'call':upstream,'urls':SERVICES})
+    from .ability_management import enabled
+    if request.method=='POST':
+        if service=='analysis' and path.endswith('/figures/jobs') and not enabled(store,'skills','chart:metagenome'):raise HTTPException(409,'宏基因组绘图能力已停用')
+        if service=='writing' and (path=='api/sessions' or path.endswith(('/revise','/chat'))) and not enabled(store,'models','writing-model'):raise HTTPException(409,'写作模型已停用')
+        if service=='literature':
+            if any(key in path for key in ('/chat','/ask','/query','/search')):
+                if not enabled(store,'models','literature-chat'):raise HTTPException(409,'文献问答模型已停用')
+                if not enabled(store,'models','literature-embedding'):raise HTTPException(409,'文献向量模型已停用')
+            if path.endswith(('/documents','/reindex','/batch-index')) and not enabled(store,'models','literature-embedding'):raise HTTPException(409,'文献向量模型已停用')
     if service=='analysis' and request.method=='GET' and path.startswith('api/tasks/') and path.endswith('/results'):
         tid=path.split('/')[2]
         with store.connect() as db:

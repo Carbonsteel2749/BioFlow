@@ -97,7 +97,7 @@ def run_redraw(service,task_id,job_id):
             if primary is None:
                 raise ValueError('缺少主图')
             service._finish(task_id,job_id,'succeeded',result={'artifact_ids':artifact_ids,
-                'primary_artifact_id':primary,'figure_plan':manifest['figure_plan']},release_reference=False)
+                'primary_artifact_id':primary,'figure_plan':manifest['figure_plan'],'display':manifest.get('display',[])},release_reference=False)
     except Exception as exc:
         with service._lock:
             if service.get(task_id,job_id)['status']!='cancelled':

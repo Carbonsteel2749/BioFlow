@@ -37,6 +37,12 @@ CHARTS = {'taxonomy': TAXONOMY_CHARTS, **{key: FUNCTIONAL_CHARTS for key in SOUR
 
 class FigureParameters(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    title:str|None=Field(default=None,max_length=300)
+    x_label:str|None=Field(default=None,max_length=200)
+    y_label:str|None=Field(default=None,max_length=200)
+    legend_labels:dict[str,str]=Field(default_factory=dict,max_length=80)
+    legend_order:list[str]=Field(default_factory=list,max_length=80)
+    legend_position:Literal['best','upper right','upper left','lower right','lower left','outside_right','outside_bottom']='best'
     top_n: int = Field(default=20, ge=1, le=100, strict=True, description='展示排名靠前的条目数量；不改变多样性计算矩阵')
     low_abundance_threshold: float = Field(default=.01, ge=0, le=1, allow_inf_nan=False, description='物种组成图筛选的平均比例阈值；0 表示不额外过滤')
     alpha_style: Literal['auto', 'points', 'box', 'violin'] = Field(default='auto', description='α 多样性展示方式；单样本固定显示数值摘要，分组重复不足时保留真实样本点并说明原因')

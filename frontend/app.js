@@ -34,7 +34,7 @@ function modal(title,body){$('.overlay').hidden=false;$('.overlay').innerHTML=`<
 async function loadProjects(){state.projects=await api('/api/projects');if(!current())state.project=state.projects[0]?.id||'';await render();}
 async function boot(){const result=await api('/api/auth/me');bioflowUser=result.user;bioflowCsrf=result.user?.csrf||'';updateAccount();if(bioflowUser)await loadProjects();else{state.projects=[];await render();}}
 function chrome(){
-  $('.project-list').innerHTML=state.projects.map(p=>`<div class="project ${p.id===state.project?'chosen':''}"><button data-project="${p.id}">${esc(p.name)}</button><span class="caption">${esc(p.description||'研究工作空间')}</span></div>`).join('')||'<p class="caption">创建项目后开始研究</p>';
+  $('.project-list').innerHTML=state.projects.map(p=>`<div class="project ${p.id===state.project?'chosen':''}"><button data-project="${p.id}">${esc(p.name)}</button><div class="project-manage">${button('编辑','project-edit',`data-id="${p.id}"`)}${button('删除','project-delete',`data-id="${p.id}"`)}</div><span class="caption">${esc(p.description||'研究工作空间')}</span></div>`).join('')||'<p class="caption">创建项目后开始研究</p>';
   $('.crumb').innerHTML=`<button data-page="overview" class="breadcrumb-project">${esc(current()?.name||'BioFlow')}</button> / ${esc(names[state.page])}`;
   $('.scope').textContent=current()?`当前项目：${current().name}`:'尚未创建项目';
   root.querySelectorAll('[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===state.page));

@@ -69,6 +69,13 @@ async def refresh(service,pid,user,key):
             try:
                 result=await fetch('literature','/api/knowledge-bases/'+kb+'/documents')
                 docs=result if isinstance(result,list) else result.get('items',[])
+                indexed={d['id']:d for d in docs}
+                with store.connect() as db:
+                    for item in db.execute("SELECT id,metadata FROM assets WHERE project_id=? AND user_id=? AND kind='literature'",(pid,uid)).fetchall():
+                        metadata=json.loads(item['metadata']);doc=indexed.get(metadata.get('document_id'))
+                        if doc:
+                            status=doc.get('status','processing');metadata['index_status']=status
+                            db.execute('UPDATE assets SET status=?,metadata=? WHERE id=?',('ready' if status in {'ready','indexed','completed'} else 'failed' if status=='failed' else 'indexing',json.dumps(metadata,ensure_ascii=False),item['id']))
                 put(store,pid,uid,'documents',[{'id':'document:'+d['id'],'document_id':d['id'],'name':d.get('name','文献'),
                     'kind':'literature','status':d.get('status','indexing'),'size_bytes':d.get('size',0),'source':'文献知识库','url':None} for d in docs])
             except Exception:errors.append('文献目录暂未同步')
@@ -98,15 +105,24 @@ async def catalogue(service,pid,user):
     if (state is None or time.time()-state['updated_at']>60) and key not in JOBS:
         JOBS[key]=asyncio.create_task(refresh(service,pid,dict(user),key))
     with store.connect() as db:
-        uploaded=[dict(r) for r in db.execute('SELECT * FROM assets WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,uid))]
+        uploaded=[dict(r) for r in db.execute("SELECT * FROM assets WHERE project_id=? AND user_id=? AND status!='archived' ORDER BY created_at DESC",(pid,uid))]
         cached=[json.loads(r[0]) for r in db.execute('SELECT payload FROM catalogue_entries WHERE project_id=? AND user_id=?',(pid,uid))]
+        figures=[dict(r) for r in db.execute("SELECT * FROM project_figures WHERE project_id=? AND user_id=? AND saved=1 AND status='completed' ORDER BY rowid DESC",(pid,uid))]
+        papers={r['id']:json.loads(r['metadata']) for r in db.execute('SELECT id,metadata FROM personal_documents WHERE user_id=?',(uid,))}
     rows=[];document_ids=set()
     for item in uploaded:
         metadata=json.loads(item['metadata']);document_ids.add(metadata.get('document_id'))
+        if metadata.get('personal_document_id') in papers:metadata={**metadata,**papers[metadata['personal_document_id']]}
         value={k:item[k] for k in ('id','name','kind','size_bytes','status','created_at')}
         value.update(metadata=metadata,source='项目上传',relative_path=assets.relative_reference(item['path'],'/runtime/incoming/uploads/' if metadata.get('storage')=='analysis' else '/runtime/assets/'),
                      storage_root='analysis_uploads' if metadata.get('storage')=='analysis' else 'project_assets',url=f'/api/projects/{pid}/assets/{item["id"]}/download')
         rows.append(value)
+    from .charts.registry import get as chart_template
+    for row in figures:
+        result=json.loads(row['result']);params=json.loads(row['parameters']);template=chart_template(row['chart'])
+        rows.append({'id':'figure:'+row['id'],'figure_id':row['id'],'name':params.get('title') or (template or {}).get('name',row['chart']),
+            'kind':'charts','status':'ready','size_bytes':result.get('outputs',{}).get('png',{}).get('size_bytes',0),'source':'BioFlow 绘图 · 已保存版本',
+            'url':f'/api/projects/{pid}/figures/{row["id"]}/file/svg?download=true','media_type':'image/svg+xml','created_at':row['created_at']})
     tids=set(store.ids(pid,'task'))&store.owned_ids('task',uid)
     dids=set(store.ids(pid,'dataset'))&store.owned_ids('dataset',uid)
     sids=set(store.ids(pid,'session'))&store.owned_ids('session',uid)

@@ -47,6 +47,16 @@ class Store:
                     PRIMARY KEY(project_id,user_id,id));
                 CREATE TABLE IF NOT EXISTS catalogue_sync(project_id TEXT NOT NULL,user_id TEXT NOT NULL,
                     updated_at REAL NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',PRIMARY KEY(project_id,user_id));
+                CREATE TABLE IF NOT EXISTS ability_settings(kind TEXT NOT NULL,id TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,category TEXT NOT NULL DEFAULT '',description TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY(kind,id));
+                CREATE TABLE IF NOT EXISTS personal_documents(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,sha256 TEXT NOT NULL,
+                    name TEXT NOT NULL,path TEXT NOT NULL,size_bytes INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(user_id,sha256));
+                CREATE TABLE IF NOT EXISTS project_figures(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,user_id TEXT NOT NULL,
+                    chart TEXT NOT NULL,status TEXT NOT NULL,parameters TEXT NOT NULL,source_json TEXT NOT NULL,
+                    parent_id TEXT,result TEXT NOT NULL DEFAULT '{}',error TEXT NOT NULL DEFAULT '',saved INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP);
             ''')
             columns={r[1] for r in db.execute('PRAGMA table_info(projects)')}
             if 'owner_id' not in columns:
@@ -55,6 +65,9 @@ class Store:
                 db.execute('ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
             if 'metadata' not in {r[1] for r in db.execute('PRAGMA table_info(resources)')}:
                 db.execute("ALTER TABLE resources ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
+            for name,definition in [('purpose',"TEXT NOT NULL DEFAULT 'auto'"),('details',"TEXT NOT NULL DEFAULT '{}'")]:
+                if name not in {r[1] for r in db.execute('PRAGMA table_info(project_uploads)')}:
+                    db.execute(f'ALTER TABLE project_uploads ADD COLUMN {name} {definition}')
 
     def connect(self):
         db = sqlite3.connect(self.path)

@@ -20,6 +20,7 @@ class TableError(ValueError):
 PLOT_MODULE_VERSION = "scientific-plots-v4.0"
 FIGURE_SKILL: dict = {}
 RENDER_OPTIONS: dict = {}
+DISPLAY_METADATA: list = []
 OKABE_ITO = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#333333"]
 
 
@@ -123,6 +124,23 @@ def write_provenance(path: Path, payload: dict) -> None:
 
 def save_figure(figure, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    display={'output':path.name,'legend':[],'defaults':{}}
+    main_axes=[a for a in figure.axes if a.get_label()!='<colorbar>']
+    if main_axes:
+        axes=main_axes[0];display['defaults']={'title':axes.get_title(),'x_label':axes.get_xlabel(),'y_label':axes.get_ylabel()}
+        for key,setter in [('title',axes.set_title),('x_label',axes.set_xlabel),('y_label',axes.set_ylabel)]:
+            if RENDER_OPTIONS.get(key) is not None:setter(RENDER_OPTIONS[key])
+        handles,labels=axes.get_legend_handles_labels()
+        if labels:
+            keys=['label:'+label for label in labels];lookup=dict(zip(keys,zip(handles,labels)))
+            display['legend']=[{'id':k,'label':label} for k,label in zip(keys,labels)]
+            preferred=RENDER_OPTIONS.get('legend_order',[]);order=[k for k in preferred if k in lookup]+[k for k in keys if k not in preferred]
+            location=RENDER_OPTIONS.get('legend_position','best');kwargs={'loc':location}
+            if location=='outside_right':kwargs={'loc':'upper left','bbox_to_anchor':(1.01,1)}
+            elif location=='outside_bottom':kwargs={'loc':'upper center','bbox_to_anchor':(.5,-.15),'ncol':min(4,len(order))}
+            if any(RENDER_OPTIONS.get(k) for k in ('legend_labels','legend_order')) or location!='best':
+                axes.legend([lookup[k][0] for k in order],[RENDER_OPTIONS.get('legend_labels',{}).get(k,lookup[k][1]) for k in order],**kwargs)
+    DISPLAY_METADATA.append(display)
     if RENDER_OPTIONS:
         width, height = figure.get_size_inches()
         figure.set_size_inches(RENDER_OPTIONS.get('width_inches') or width,

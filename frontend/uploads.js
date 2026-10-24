@@ -124,13 +124,13 @@ function pumpUploads(){
  if(!bioflowUser)return;
  for(const job of uploadJobs.values())if(uploadActive<2&&job.user===bioflowUser.id&&job.phase==='queued'&&!job.running&&!job.stopped){uploadActive++;runUpload(job);}
 }
-async function addUploads(files,pid){
+async function addUploads(files,pid,options={}){
  const owner=activeUploadUser();let added=0,issue='';
  for(const file of files){
   if(activeUploadUser()!==owner)break;
   if(file.size===0){issue='空文件无法上传：'+file.name;continue;}
   try{
-   const row=await api(uploadPath(pid,'/drafts'),'POST',{name:file.name,size_bytes:file.size});if(activeUploadUser()!==owner)break;
+   const row=await api(uploadPath(pid,'/drafts'),'POST',{name:file.name,size_bytes:file.size,purpose:options.purpose||'auto',details:options.details||{}});if(activeUploadUser()!==owner)break;
    const key=uploadJobKey(pid,row.id);uploadJobs.set(key,{key,pid,id:row.id,user:owner,file,phase:'queued',running:false,stopped:false,bytes:0,accepted:0,speed:0});added++;
   }catch(e){issue=e.message;break;}
  }

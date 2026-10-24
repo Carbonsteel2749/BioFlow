@@ -7,6 +7,7 @@ import re
 import shutil
 import uuid
 from typing import Annotated
+from typing import Literal
 
 import httpx
 from fastapi import HTTPException,Request
@@ -16,6 +17,13 @@ from . import assets
 LOCKS={}
 RECEIVERS=asyncio.Semaphore(2)
 HEX=Annotated[str,Field(pattern=r'^[a-f0-9]{64}$')]
+Purpose=Literal['auto','literature','data','results','charts','drafts']
+
+class ImportDetails(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    result_type:str=Field(default='',max_length=120)
+    software:str=Field(default='',max_length=120)
+    task_id:str=Field(default='',max_length=128)
 
 
 class UploadBody(BaseModel):
@@ -26,11 +34,15 @@ class UploadBody(BaseModel):
     hashes:list[HEX]=Field(min_length=1,max_length=16384)
     fingerprint:HEX
     draft_id:str|None=Field(default=None,pattern=r'^[a-f0-9]{32}$')
+    purpose:Purpose='auto'
+    details:ImportDetails=Field(default_factory=ImportDetails)
 
 
 class DraftBody(BaseModel):
     name:str=Field(min_length=1,max_length=240)
     size_bytes:int=Field(ge=1,le=250*1024**3,strict=True)
+    purpose:Purpose='auto'
+    details:ImportDetails=Field(default_factory=ImportDetails)
 
 
 class Pair(BaseModel):
@@ -49,7 +61,7 @@ def fastq(name):return bool(re.search(r'\.(fastq|fq)(\.gz)?$',name,re.I))
 
 def public(row):
     received=json.loads(row['received'])
-    return {**{k:row[k] for k in ('id','project_id','name','size_bytes','chunk_bytes','fingerprint','status','asset_id','error','created_at')},
+    return {**{k:row[k] for k in ('id','project_id','name','size_bytes','chunk_bytes','fingerprint','status','asset_id','error','created_at','purpose')},'details':json.loads(row['details']),
         'received_chunks':received,'received_bytes':sum(min(row['chunk_bytes'],row['size_bytes']-i*row['chunk_bytes']) for i in received)}
 
 
@@ -103,6 +115,8 @@ def install_uploads(router,get_store,check_project,files,call,urls):
     @router.post('/uploads',status_code=201)
     async def create(pid:str,body:UploadBody,request:Request):
         check_project(pid,request);user=request.state.user
+        if fastq(body.name) and body.purpose not in {'auto','data'}:raise HTTPException(422,'FASTQ 请归入测序数据')
+        if body.details.task_id and (body.details.task_id not in get_store().ids(pid,'task') or not get_store().owns('task',body.details.task_id,user['id'])):raise HTTPException(404,'关联任务不属于当前项目')
         if '/' in body.name or '\\' in body.name or any(ord(c)<32 for c in body.name):raise HTTPException(422,'文件名无效')
         if (body.size_bytes+body.chunk_bytes-1)//body.chunk_bytes!=len(body.hashes):raise HTTPException(422,'文件分片数量不匹配')
         expected=hashlib.sha256(f"{body.size_bytes}:{body.chunk_bytes}:{':'.join(body.hashes)}".encode()).hexdigest()
@@ -112,7 +126,7 @@ def install_uploads(router,get_store,check_project,files,call,urls):
             if draft and (draft['name']!=body.name or draft['size_bytes']!=body.size_bytes):raise HTTPException(422,'请选择这条上传记录对应的原文件')
             if draft and draft['status']=='cancelled':raise HTTPException(409,'上传已取消')
             with get_store().connect() as db:
-                rows=db.execute("SELECT * FROM project_uploads WHERE project_id=? AND user_id=? AND fingerprint=? AND name=? AND status!='cancelled' ORDER BY rowid DESC",(pid,user['id'],body.fingerprint,body.name)).fetchall()
+                rows=db.execute("SELECT * FROM project_uploads WHERE project_id=? AND user_id=? AND fingerprint=? AND name=? AND purpose=? AND status!='cancelled' ORDER BY rowid DESC",(pid,user['id'],body.fingerprint,body.name,draft['purpose'] if draft else body.purpose)).fetchall()
                 if rows:
                     if draft and draft['id']!=rows[0]['id']:update(draft['id'],status='cancelled',error='已合并相同文件的上传记录')
                     return public(rows[0])
@@ -129,11 +143,14 @@ def install_uploads(router,get_store,check_project,files,call,urls):
             else:
                 with get_store().connect() as db:db.execute('INSERT INTO project_uploads(id,project_id,user_id,name,size_bytes,chunk_bytes,hashes,fingerprint,backend_id,backend_token) VALUES(?,?,?,?,?,?,?,?,?,?)',
                     (uid,pid,user['id'],body.name,body.size_bytes,body.chunk_bytes,json.dumps(body.hashes),body.fingerprint,backend_id,token))
+                update(uid,purpose=body.purpose,details=body.details.model_dump_json())
         return public(get(pid,uid,user))
 
     @router.post('/uploads/drafts',status_code=201)
     def draft(pid:str,body:DraftBody,request:Request):
         check_project(pid,request);user=request.state.user
+        if fastq(body.name) and body.purpose not in {'auto','data'}:raise HTTPException(422,'FASTQ 请归入测序数据')
+        if body.details.task_id and (body.details.task_id not in get_store().ids(pid,'task') or not get_store().owns('task',body.details.task_id,user['id'])):raise HTTPException(404,'关联任务不属于当前项目')
         if '/' in body.name or '\\' in body.name or any(ord(c)<32 for c in body.name):raise HTTPException(422,'文件名无效')
         uid=uuid.uuid4().hex
         with get_store().connect() as db:
@@ -141,6 +158,7 @@ def install_uploads(router,get_store,check_project,files,call,urls):
             count=db.execute("SELECT count(*) FROM project_uploads WHERE user_id=? AND status NOT IN ('completed','cancelled')",(user['id'],)).fetchone()[0]
             if count>=32:raise HTTPException(409,'请先完成或取消部分上传，最多保留 32 条未完成记录')
             db.execute("INSERT INTO project_uploads(id,project_id,user_id,name,size_bytes,chunk_bytes,hashes,fingerprint,status) VALUES(?,?,?,?,?,16777216,'[]','','preparing')",(uid,pid,user['id'],body.name,body.size_bytes))
+            db.execute('UPDATE project_uploads SET purpose=?,details=? WHERE id=?',(body.purpose,body.details.model_dump_json(),uid))
         return public(get(pid,uid,user))
 
     @router.get('/uploads/{uid}')
@@ -246,7 +264,7 @@ def install_uploads(router,get_store,check_project,files,call,urls):
                             temporary.replace(path);return digest.hexdigest(),sample
                         finally:temporary.unlink(missing_ok=True)
                     sha,sample=await asyncio.to_thread(assemble)
-                    asset=await files.adopt(pid,request.state.user,uid,row['name'],path,sha,row['size_bytes'],sample,headers)
+                    asset=await files.adopt(pid,request.state.user,uid,row['name'],path,sha,row['size_bytes'],sample,headers,purpose=row['purpose'],details=json.loads(row['details']))
                 update(uid,status='completed',asset_id=asset['id'],error='')
                 if not row['backend_id']:
                     for i in range(len(hashes)):(directory(row)/(str(i)+'.part')).unlink(missing_ok=True)

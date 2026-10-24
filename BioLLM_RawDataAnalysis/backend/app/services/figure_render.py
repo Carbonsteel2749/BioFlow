@@ -113,7 +113,7 @@ def main(directory):
         if request.chart=='pcoa':
             files.extend(['taxonomy_bray_curtis.distances.tsv','taxonomy_bray_curtis.eigenvalues.tsv'])
         files.append(analysis+'_plots.provenance.json')
-        manifest={'files':files,'primary':target.name,'figure_plan':plan,'parameters':params.model_dump()}
+        manifest={'files':files,'primary':target.name,'figure_plan':plan,'parameters':params.model_dump(),'display':plot_utils.DISPLAY_METADATA}
         (directory/'result.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     draw()
 
