@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const templates=JSON.parse(fs.readFileSync('runtime/chart-templates-test.json','utf8'));
 const context=vm.createContext({console,setTimeout,clearTimeout,templates});
 const bootstrap=`
-const names={},state={project:'p',assetKind:'literature'},actions={},forms={},views={assets:async()=>'<div class="row upload-entry"></div>',models:async()=>'<div class="library-summary"></div>'};
+const root={addEventListener(){}},names={},state={project:'p',assetKind:'literature'},actions={},forms={},views={assets:async()=>'<div class="row upload-entry"></div>',models:async()=>'<div class="library-summary"></div>'};
 const bioflowUser={id:'owner',role:'developer'};
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const id=encodeURIComponent,pa=x=>'/api/projects/p'+x,head=x=>'<h1>'+esc(x)+'</h1>';

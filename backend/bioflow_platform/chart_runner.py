@@ -35,7 +35,9 @@ def render(directory):
     for font in ('/mnt/c/Windows/Fonts/msyh.ttc','/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc','/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc','/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'):
         if Path(font).is_file():
             font_manager.fontManager.addfont(font);plt.rcParams['font.family']=font_manager.FontProperties(fname=font).get_name();break
-    fig,ax=plt.subplots(figsize=(9,6),layout='constrained')
+    params=spec['parameters']
+    plt.rcParams['font.size']=params.get('font_size',10)
+    fig,ax=plt.subplots(figsize=(params.get('width',9),params.get('height',6)),layout='constrained')
     params=spec['parameters'];module=importlib.import_module('.charts.'+entry['id'],package='backend.bioflow_platform')
     try:
         module.draw(rows,fig,ax,params)
@@ -53,11 +55,13 @@ def render(directory):
             ax.legend([r[2] for r in arranged],labels,**kwargs)
         for artist in fig.findobj():
             if hasattr(artist,'set_parse_math'):artist.set_parse_math(False)
+            if hasattr(artist,'set_fontsize'):artist.set_fontsize(params.get('font_size',10))
         outputs={}
         for extension in ('png','svg','pdf'):
             path=directory/('figure.'+extension);fig.savefig(path,dpi=180,bbox_inches='tight');outputs[extension]={'name':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size_bytes':path.stat().st_size}
         result={'outputs':outputs,'legend':[{'id':k,'label':label} for k,label,_ in series],'defaults':defaults,'template_version':VERSION,
-            'renderer_sha256':hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),'source_sha256':spec['source']['sha256'],'rows':len(rows)}
+            'renderer_sha256':hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),'source_sha256':spec['source']['sha256'],'rows':len(rows),
+            'data_mapping':getattr(ax,'_bioflow_mapping',{}),'canvas':{'width':fig.get_figwidth(),'height':fig.get_figheight(),'font_size':params.get('font_size',10)}}
         (directory/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     finally:plt.close(fig)
 

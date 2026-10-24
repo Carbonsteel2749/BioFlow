@@ -10,6 +10,11 @@ class DisplayParameters(BaseModel):
     legend_order:list[str]=Field(default_factory=list,max_length=80)
     legend_position:Literal['best','upper right','upper left','lower right','lower left','outside_right','outside_bottom']='best'
     standardize:bool=False
+    width:float=Field(default=9,ge=4,le=20)
+    height:float=Field(default=6,ge=3,le=16)
+    font_size:float=Field(default=10,ge=6,le=24)
+    enrichment_x:Literal['ratio','count']='ratio'
+    enrichment_size:Literal['count','ratio']='count'
     @field_validator('legend_labels')
     @classmethod
     def labels(cls,value):

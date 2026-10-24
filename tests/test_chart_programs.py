@@ -35,3 +35,30 @@ def test_matrix_column_mapping_and_legend_alias_preserve_raw_data(tmp_path):
     result=json.loads((tmp_path/'result.json').read_text());assert {r['id'] for r in result['legend']}=={'group:T','group:C'}
     svg=(tmp_path/'figure.svg').read_text();assert 'Treatment' in svg
     assert (tmp_path/'source.csv').read_bytes()==data
+
+def test_enrichment_mapping_changes_coordinates_and_size_not_just_labels():
+    pytest.importorskip('matplotlib')
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from backend.bioflow_platform.charts.enrichment import draw
+    rows=[{'term':'A','count':'10','ratio':'0.1','pvalue':'0.01'},{'term':'B','count':'20','ratio':'0.4','pvalue':'0.001'}]
+    fig,ax=plt.subplots();draw(rows,fig,ax,{'enrichment_x':'count','enrichment_size':'ratio'})
+    assert np.allclose(ax.collections[0].get_offsets()[:,0],[10,20])
+    assert np.allclose(ax.collections[0].get_sizes(),[95,320])
+    assert ax.get_xlabel()=='Count'
+    assert all('GeneRatio' in label for _,label,_ in ax._bioflow_series)
+    plt.close(fig)
+
+
+def test_common_canvas_and_font_are_applied_to_export(tmp_path):
+    pytest.importorskip('matplotlib')
+    from backend.bioflow_platform.chart_runner import render
+    data=b'term,ratio,pvalue,count\nA,0.1,0.01,10\nB,0.4,0.001,20\n'
+    (tmp_path/'source.csv').write_bytes(data)
+    (tmp_path/'request.json').write_text(json.dumps({'chart':'enrichment','source':{'sha256':hashlib.sha256(data).hexdigest()},'columns':{},'parameters':{'width':12,'height':4,'font_size':16,'enrichment_x':'count','enrichment_size':'ratio'}}))
+    render(tmp_path)
+    result=json.loads((tmp_path/'result.json').read_text())
+    assert result['canvas']=={'width':12,'height':4,'font_size':16}
+    assert result['data_mapping']['x']=='count' and result['data_mapping']['size']=='ratio'
+    svg=(tmp_path/'figure.svg').read_text()
+    assert 'Count' in svg and 'GeneRatio = ' in svg
