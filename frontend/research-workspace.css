@@ -7,3 +7,5 @@
 #ai4s-prototype .chart-type-card:disabled{opacity:.5;cursor:not-allowed}
 #ai4s-prototype .project-manage{display:flex;gap:12px;margin:4px 0}
 #ai4s-prototype .project-manage button{width:auto;font-size:13px;color:var(--muted);padding:3px 0}
+
+.research-column-row,.research-column-heading{display:grid!important;grid-template-columns:minmax(100px,1fr) minmax(100px,1fr);gap:12px;align-items:center}.research-column-row small{display:block;color:#627667;font-size:13px}.research-column-heading{font-size:13px;color:#627667;margin:12px 0}.research-preview-message{padding:28px;border:1px dashed #b9ccbf;border-radius:12px;min-height:220px;background:#f5f9f4;overflow-wrap:anywhere}.research-preview-message.error{background:#fff5f1;border:1px solid #e0b6a7;color:#813e2e}.research-preview-message p{white-space:pre-wrap}.research-preview{min-width:0}

@@ -64,7 +64,10 @@ def install_figures(router,get_store,check_project):
         if not r:raise HTTPException(404,'图表不存在')
         return dict(r)
     def public(row):
-        return {**{k:row[k] for k in ('id','chart','status','parent_id','error','saved','created_at')},'parameters':json.loads(row['parameters']),'source':json.loads(row['source_json']),'result':json.loads(row['result'])}
+        try:
+            columns=json.loads((folder(row['project_id'],row['user_id'],row['id'])/'request.json').read_text(encoding='utf-8')).get('columns',{})
+        except (OSError,ValueError):columns={}
+        return {**{k:row[k] for k in ('id','chart','status','parent_id','error','saved','created_at')},'columns':columns,'parameters':json.loads(row['parameters']),'source':json.loads(row['source_json']),'result':json.loads(row['result'])}
     async def execute(pid,uid,fid):
         async with SLOTS:
             from .ability_management import enabled
