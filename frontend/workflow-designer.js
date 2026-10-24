@@ -9,8 +9,8 @@
  const btn=(text,action,extra='')=>`<button type="button" data-wd-action="${action}" ${extra}>${text}</button>`;
  const selected=()=>get().graph?.nodes.find(n=>n.id===get().selected);
  function status(message){get().status=message;const el=$('.wd-status');if(el)el.textContent=message;}
- function save(){const s=get();if(!s.graph)return;try{localStorage.setItem(key(),M.exportJSON(s.graph,{portable:false}));status('已保存到此浏览器 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · 未提交计算');}catch{status('草稿保存失败，请导出 JSON 保留设计，勿关闭页面。');}}
- function checkpoint(){const s=get();if(s.graph){s.undo.push(JSON.stringify(s.graph));if(s.undo.length>60)s.undo.shift();s.redo=[];}}
+ function save(){const s=get();if(!s.graph)return;let json;try{json=M.exportJSON(s.graph,{portable:false});}catch(error){status('未保存：'+error.message+'。请修正后再保存。');return;}try{localStorage.setItem(key(),json);status('已保存到此浏览器 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · 未提交计算');}catch{status('浏览器存储不可用，请导出 JSON 保留设计，勿关闭页面。');}}
+ function checkpoint(){const s=get();if(s.graph){s.undo.push(JSON.stringify(s.graph));if(s.undo.length>60)s.undo.shift();s.redo=[];const u=$('[data-wd-action=undo]'),r=$('[data-wd-action=redo]');if(u)u.disabled=false;if(r)r.disabled=true;}}
  function mutate(fn){checkpoint();fn(get().graph);save();draw();}
  const oldChrome=chrome;chrome=function(){oldChrome();root.classList.toggle('wd-mode',state.page==='workflows');};
  names.workflows='Workflow 设计';
@@ -103,7 +103,7 @@
   if(action==='fit'){const vp=$('.wd-viewport'),d=dimensions(s.graph);s.zoom=Math.min(1,Math.max(.3,Math.min((vp.clientWidth-30)/d.width,(vp.clientHeight-30)/d.height)));s.scroll=[0,0];if(vp){vp.scrollLeft=0;vp.scrollTop=0;}draw();return;}
   if(action==='delete'&&n){openDialog('删除这个节点？',`<p>删除 ${esc(n.label)} 及其连接；可以撤销恢复。</p>`,()=>mutate(g=>{M.removeNode(g,n.id);s.selected=null;}));return;}
   if(action==='duplicate'&&n){mutate(g=>{const copy=M.addNode(g,n.type,s.catalog);copy.label=n.label+' 副本';copy.parameters=JSON.parse(JSON.stringify(n.parameters));copy.custom=JSON.parse(JSON.stringify(n.custom));copy.x=n.x+35;copy.y=n.y+190;s.selected=copy.id;});return;}
-  if(action==='add-custom'&&n){mutate(()=>{n.custom.push({name:'custom_'+(n.custom.length+1),type:'string',value:'',description:''});});return;}
+  if(action==='add-custom'&&n){mutate(()=>M.addCustom(n));return;}
   if(action==='remove-custom'&&n){mutate(()=>n.custom.splice(Number(el.dataset.index),1));return;}
   if(action==='delete-edge'){mutate(g=>{g.edges=g.edges.filter(e=>e.id!==el.dataset.edgeId);});return;}
  }
@@ -125,8 +125,8 @@
   if(el.matches('[data-wd-name]')){checkpoint();s.graph.name=el.value;save();return;}
   if(!n)return;
   if(el.matches('[data-wd-label]')){checkpoint();n.label=el.value||s.catalog[n.type].label;save();return;}
-  const k=el.dataset.wdParam;if(k){const schema=s.catalog[n.type].parameters[k];checkpoint();n.parameters[k]=schema.type==='boolean'?el.checked:['integer','number'].includes(schema.type)?(el.value===''?'':Number(el.value)):el.value;save();return;}
-  if(el.dataset.customField){const row=el.closest('[data-custom-index]'),p=n.custom[Number(row.dataset.customIndex)];checkpoint();const f=el.dataset.customField;if(f==='value')p.value=p.type==='boolean'?el.value==='true':['number','integer'].includes(p.type)?(el.value===''?'':Number(el.value)):el.value;else p[f]=el.value;if(f==='type')p.value=p.type==='boolean'?false:['number','integer'].includes(p.type)?0:'';save();if(f==='type')draw();}
+  const k=el.dataset.wdParam;if(k){const schema=s.catalog[n.type].parameters[k];checkpoint();n.parameters[k]=M.parameterValue(schema.type,schema.type==='boolean'?el.checked:el.value);save();return;}
+  if(el.dataset.customField){const row=el.closest('[data-custom-index]'),p=n.custom[Number(row.dataset.customIndex)];checkpoint();const f=el.dataset.customField;if(f==='value')p.value=M.parameterValue(p.type,el.value);else p[f]=el.value;if(f==='type')p.value=p.type==='boolean'?false:['number','integer'].includes(p.type)?0:'';save();if(f==='type')draw();}
  }
  root.addEventListener('input',e=>{if(state.page==='workflows'&&bioflowUser&&e.target.matches('input:not([type=checkbox]):not([type=file]),textarea'))updateValue(e.target);});
  root.addEventListener('change',async e=>{

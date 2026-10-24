@@ -81,3 +81,35 @@ test('exports refuse credentials in custom parameters instead of persisting them
  assert.throws(()=>m.exportJSON(g),/凭据/);
  assert.throws(()=>m.exportJSON(g,{portable:false}),/凭据/);
 });
+test('partially typed numeric custom parameters round-trip and stay invalid until corrected',()=>{
+ const m=model(),g=m.template('qc'),n=g.nodes.find(n=>n.type==='fastp');
+ assert.equal(m.parameterValue('integer','-'),'-');assert.equal(m.parameterValue('number','abc'),'abc');
+ n.custom=[{name:'limit',type:'number',value:m.parameterValue('number','abc'),description:''}];
+ const restored=m.importJSON(m.exportJSON(g,{portable:false}),{portable:false});
+ assert.equal(restored.nodes.find(x=>x.id===n.id).custom[0].value,'abc');
+ assert.ok(m.validate(restored).errors.some(x=>x.code==='custom_type'));
+ n.custom[0].value=NaN;assert.throws(()=>m.exportJSON(g),/有限|数值/);
+});
+test('custom parameter count cannot exceed the reload limit',()=>{
+ const m=model(),g=m.template('qc'),n=g.nodes.find(n=>n.type==='fastp');
+ for(let i=0;i<40;i++)m.addCustom(n);
+ assert.throws(()=>m.addCustom(n),/40/);assert.equal(n.custom.length,40);
+ assert.equal(m.importJSON(m.exportJSON(g)).nodes.find(x=>x.id===n.id).custom.length,40);
+});
+test('import blocks incompatible, duplicate, multiply-connected and cyclic edges',()=>{
+ const m=model(),g=m.template('metagenomics'),qc=g.nodes.find(n=>n.type==='fastqc'),p=g.nodes.find(n=>n.type==='fastp');
+ const bad=structuredClone(g);bad.edges=bad.edges.filter(e=>e.target!==p.id);bad.edges.push({id:'illegal',source:qc.id,sourcePort:'report',target:p.id,targetPort:'reads',kind:'policy'});
+ assert.throws(()=>m.importJSON(JSON.stringify(bad)),/不兼容/);
+ const duplicate=structuredClone(g);duplicate.edges.push({...duplicate.edges[0],id:'duplicate'});
+ assert.throws(()=>m.importJSON(JSON.stringify(duplicate)),/已存在/);
+ const many=structuredClone(g),input=g.nodes.find(n=>n.type==='fastq_input'),h=g.nodes.find(n=>n.type==='host_depletion');many.edges.push({id:'second',source:input.id,sourcePort:'reads',target:h.id,targetPort:'reads'});
+ assert.throws(()=>m.importJSON(JSON.stringify(many)),/一条/);
+ const cycle=structuredClone(g),report=g.nodes.find(n=>n.type==='report'),fig=g.nodes.find(n=>n.type==='figures');cycle.edges.push({id:'cycle',source:fig.id,sourcePort:'figures',target:report.id,targetPort:'artifacts'});
+ assert.throws(()=>m.importJSON(JSON.stringify(cycle)),/循环/);
+});
+test('import derives edge semantics and rejects unacknowledged risky links',()=>{
+ const m=model(),g=m.template('blank'),raw=g.nodes.find(n=>n.type==='fastq_input'),t=m.addNode(g,'taxonomy');
+ m.connect(g,raw.id,'reads',t.id,'reads',true);g.edges.at(-1).kind='policy';
+ assert.equal(m.importJSON(JSON.stringify(g)).edges.at(-1).kind,'data');
+ g.edges.at(-1).acknowledged=false;assert.throws(()=>m.importJSON(JSON.stringify(g)),/确认/);
+});

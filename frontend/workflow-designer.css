@@ -68,7 +68,7 @@
 #ai4s-prototype .wd-analysis-group>header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;font-size:14px;font-weight:600;color:#5a7748;border-bottom:1px solid #d6e2ce;background:#f7faf3;border-radius:16px 16px 0 0}
 #ai4s-prototype .wd-analysis-group header span{display:flex;align-items:center;gap:9px}
 #ai4s-prototype .wd-analysis-group header svg{width:20px;height:20px}
-#ai4s-prototype .wd-analysis-group header button{pointer-events:auto;background:#eff2fa;color:#79779b;border-color:#d5d6e6;padding:3px 9px;font-size:10px}
+#ai4s-prototype .wd-analysis-group header button{position:absolute;left:300px;top:12px;pointer-events:auto;background:#eff2fa;color:#79779b;border-color:#d5d6e6;padding:3px 9px;font-size:10px}
 #ai4s-prototype .wd-edges{position:absolute;top:0;left:0;z-index:1;pointer-events:none;overflow:visible}
 #ai4s-prototype .wd-edge-line{fill:none;stroke:#95b19b;stroke-width:2;pointer-events:none}
 #ai4s-prototype .wd-edge-hit{fill:none;stroke:transparent;stroke-width:15;pointer-events:stroke;cursor:pointer}
