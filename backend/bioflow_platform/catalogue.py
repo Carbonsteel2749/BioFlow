@@ -85,7 +85,9 @@ async def refresh(service,pid,user,key):
                 result=await fetch('writing','/api/sessions')
                 docs=result if isinstance(result,list) else result.get('sessions',result.get('items',[]))
                 put(store,pid,uid,'drafts',[{'id':'draft:'+d['session_id'],'session_id':d['session_id'],'name':d.get('title') or '研究稿件',
-                    'kind':'drafts','status':'draft','size_bytes':0,'source':'写作任务','url':None} for d in docs if d['session_id'] in sids])
+                    'kind':'drafts','status':'draft','size_bytes':0,'source':'写作任务','url':None,
+                    'task_id':d.get('source',{}).get('analysis_task_id'),
+                    'references':d.get('source',{}).get('references',[])} for d in docs if d['session_id'] in sids])
             except Exception:errors.append('稿件目录暂未同步')
         with store.connect() as db:db.execute('UPDATE catalogue_sync SET updated_at=?,error=? WHERE project_id=? AND user_id=?',(time.time(),'；'.join(sorted(set(errors))),pid,uid))
     finally:JOBS.pop(key,None)
@@ -122,6 +124,10 @@ async def catalogue(service,pid,user):
         result=json.loads(row['result']);params=json.loads(row['parameters']);template=chart_template(row['chart'])
         rows.append({'id':'figure:'+row['id'],'figure_id':row['id'],'name':params.get('title') or (template or {}).get('name',row['chart']),
             'kind':'charts','status':'ready','size_bytes':result.get('outputs',{}).get('png',{}).get('size_bytes',0),'source':'BioFlow 绘图 · 已保存版本',
+            'source_id':json.loads(row['source_json']).get('id'),
+            'source_record':json.loads(row['source_json']),
+            'processing':{'chart':row['chart'],'parameters':params,'template_version':result.get('template_version'),
+                          'source_sha256':result.get('source_sha256'),'renderer_sha256':result.get('renderer_sha256')},
             'url':f'/api/projects/{pid}/figures/{row["id"]}/file/svg?download=true','media_type':'image/svg+xml','created_at':row['created_at']})
     tids=set(store.ids(pid,'task'))&store.owned_ids('task',uid)
     dids=set(store.ids(pid,'dataset'))&store.owned_ids('dataset',uid)
@@ -136,4 +142,5 @@ async def catalogue(service,pid,user):
     metadata={m.get('dataset_id'):m for m in store.resource_metadata('dataset',uid)}
     for did in dids-listed:
         rows.append({'id':'dataset:'+did,'dataset_id':did,'kind':'datasets','name':metadata.get(did,{}).get('name') or '已关联数据集','sample_count':None,'status':'not_checked','source':'项目数据集'})
-    return rows
+    from .provenance import decorate
+    return decorate(store,pid,uid,rows)

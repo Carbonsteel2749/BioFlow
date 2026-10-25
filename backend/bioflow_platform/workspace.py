@@ -32,6 +32,8 @@ def install(app,get_store,check_project,call,urls):
     from .project_figures import install_figures
     create_figure=install_figures(router,get_store,check_project)
     app.state.create_project_figure=create_figure
+    from .provenance import install_provenance
+    install_provenance(router,get_store,check_project,files)
 
     async def recover_interrupted():
         with get_store().connect() as db:
@@ -55,9 +57,11 @@ def install(app,get_store,check_project,call,urls):
         return await files.upload(pid,request.state.user,file,headers,purpose=purpose)
 
     @router.get('/assets')
-    async def assets(pid:str,request:Request,kind:str|None=None,limit:int|None=Query(None,ge=1,le=100),offset:int=Query(0,ge=0),hide_unavailable:bool=False):
+    async def assets(pid:str,request:Request,kind:str|None=None,limit:int|None=Query(None,ge=1,le=100),offset:int=Query(0,ge=0),hide_unavailable:bool=False,task_id:str|None=None):
         check_project(pid,request)
         rows=await files.catalogue(pid,request.state.user)
+        if task_id:
+            rows=[r for r in rows if (not r.get('task_ids') if task_id=='unclassified' else task_id in r.get('task_ids',[]))]
         datasets=[r for r in rows if r['kind']=='datasets'];rows=[r for r in rows if r['kind']!='datasets']
         counts={k:sum(r['kind']==k for r in rows) for k in ('literature','data','results','charts','drafts')}
         selected=[r for r in rows if (not kind or r['kind']==kind) and (not hide_unavailable or r['status'] not in {'empty','missing','integrity_error'})]

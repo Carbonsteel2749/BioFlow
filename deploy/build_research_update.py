@@ -11,7 +11,7 @@ def build():
     files=set()
     for folder in ('backend','frontend'):
         files.update(p for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in {'.py','.js','.css','.png'} and '__pycache__' not in p.parts)
-    for name in ('ai4s-interface.html','README.md','docs/RESEARCH_WORKSPACE.md',
+    for name in ('ai4s-interface.html','README.md','docs/RESEARCH_WORKSPACE.md','article_writing/frontend/session_store.py',
         'docs/superpowers/specs/2026-10-24-research-workspace-design.md','docs/superpowers/plans/2026-10-24-research-workspace.md',
         'BioLLM_RawDataAnalysis/backend/app/services/figure_contracts.py',
         'BioLLM_RawDataAnalysis/backend/app/services/figure_render.py',

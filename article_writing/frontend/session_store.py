@@ -311,6 +311,7 @@ class SessionStore:
                 "analysis_bundle": analysis_bundle.strip(),
                 "analysis_url": analysis_url.strip(),
                 "analysis_task_id": analysis_task_id.strip(),
+                "references": [c.model_dump() for c in state.citations],
                 "brief_path": brief_path.strip(),
                 "brief_text": topic,
                 "skills": sorted(pipeline.selected_skills),

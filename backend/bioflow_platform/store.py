@@ -57,6 +57,11 @@ class Store:
                     chart TEXT NOT NULL,status TEXT NOT NULL,parameters TEXT NOT NULL,source_json TEXT NOT NULL,
                     parent_id TEXT,result TEXT NOT NULL DEFAULT '{}',error TEXT NOT NULL DEFAULT '',saved INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+                CREATE TABLE IF NOT EXISTS asset_task_links(project_id TEXT NOT NULL,user_id TEXT NOT NULL,
+                    asset_id TEXT NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(project_id,user_id,asset_id,task_id));
+                CREATE TABLE IF NOT EXISTS asset_relations(project_id TEXT NOT NULL,user_id TEXT NOT NULL,
+                    asset_id TEXT NOT NULL,source_id TEXT NOT NULL,relation TEXT NOT NULL,
+                    PRIMARY KEY(project_id,user_id,asset_id,source_id,relation));
             ''')
             columns={r[1] for r in db.execute('PRAGMA table_info(projects)')}
             if 'owner_id' not in columns:
