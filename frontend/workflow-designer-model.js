@@ -111,7 +111,7 @@
   if(!into.multiple&&edges.some(e=>e.target===target&&e.targetPort===targetPort))return fail('该输入只接受一条连接，请先移除旧连接');
   const seen=new Set();function reaches(n){if(n===source)return true;if(seen.has(n))return false;seen.add(n);return edges.filter(e=>e.source===n).some(e=>reaches(e.target));}
   if(reaches(target))return fail('此连接会产生循环；第一版不支持循环执行');
-  const warning=['taxonomy','functional_annotation'].includes(b.type)&&out.data_type==='paired_raw_reads'?{code:'raw_annotation',message:'直接使用原始 reads 进行注释，未经过清洗或去宿主。确认保留此分析风险连接？'}:null;
+  const warning=['taxonomy','functional_annotation'].includes(b.type)&&out.data_type!=='paired_host_removed_reads'?{code:'raw_annotation',message:'注释输入未经过宿主过滤。确认保留此分析风险连接？'}:b.type==='host_depletion'&&out.data_type==='paired_raw_reads'?{code:'host_without_qc',message:'直接对原始 reads 去宿主，未先经 fastp 清洗。确认保留此风险连接？'}:null;
   return {ok:true,warning,kind:out.data_type==='repair_policy'?'policy':out.data_type==='control'?'control':'data'};
  }
  function connect(g,source,sourcePort,target,targetPort,confirmed=false,c=defaultCatalog){

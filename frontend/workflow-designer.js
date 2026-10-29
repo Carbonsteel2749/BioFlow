@@ -17,15 +17,15 @@
  views.workflows=async()=>{
   const s=get(),k=key(),ticket=++sequence;
   if(!s.ready){
-   const result=await Promise.allSettled([service('analysis','/api/workflows/registry'),api('/api/models'),api(pa('/analysis/datasets')),service('analysis','/api/workflows/templates')]);
+   const result=await Promise.allSettled([service('analysis','/api/workflows/registry'),api('/api/models'),api(pa('/analysis/datasets')),api(pa('/analysis/workflows'))]);
    if(k!==key()||ticket!==sequence||state.page!=='workflows')return '';
    s.catalog=M.catalog(result[0].status==='fulfilled'?result[0].value:null);
    s.models=result[1].status==='fulfilled'?items(result[1].value).filter(x=>x.category==='language'):[];
    s.datasets=result[2].status==='fulfilled'?items(result[2].value):[];
-   s.remote=result[3].status==='fulfilled'?items(result[3].value):[];
+   s.remote=result[3].status==='fulfilled'?items(result[3].value).map(r=>({...r.record,visual:r.design,publication:r})):[];
    s.ready=true;s.apiErrors=result.map((r,i)=>r.status==='rejected'?['节点登记','模型列表','项目数据集','服务模板'][i]+'读取失败':null).filter(Boolean);
   }
-  if(!s.restored){s.restored=true;try{const raw=localStorage.getItem(k);if(raw)s.graph=M.importJSON(raw,{portable:false,c:s.catalog});}catch{status('已保存草稿无法解析；请导入备份或重新选择模板。');}}
+  if(!s.restored){s.restored=true;try{const raw=localStorage.getItem(k);if(raw){s.graph=M.importJSON(raw,{portable:false,c:s.catalog});const p=JSON.parse(localStorage.getItem(k+'.publication')||'null');if(p&&typeof p.template_id==='string'&&Number.isInteger(p.version)&&p.version>0)s.publication=p;}}catch{status('已保存草稿无法解析；请导入备份或重新选择模板。');}}
   return html(s);
  };
  function html(s){return `<section class="wd-app" aria-label="Workflow 设计工作台">${s.view==='templates'?gallery(s):editor(s)}<input type="file" accept=".json,application/json" data-wd-file hidden><dialog class="wd-dialog" aria-label="流程设计提示"></dialog></section>`;}
@@ -37,7 +37,7 @@
  <div class="wd-gallery-bottom"><div><h3>已有自己的流程？</h3><p>导入 BioFlow Workflow v1 JSON；不导入密钥、数据文件或其他项目的数据绑定。</p></div>${btn('导入模板 JSON','import')}</div>
  ${s.remote.length?`<details class="wd-server-templates"><summary>导入分析服务已有模板（${s.remote.length}）</summary><p>复制节点与参数为设计草稿，不改动服务器模板。</p><div>${s.remote.map(t=>`<button type="button" data-wd-server="${esc(t.template_id||t.id)}">${esc(t.name)}</button>`).join('')}</div></details>`:''}
  <p class="wd-status" role="status">${esc(s.status)}</p>`;}
- function editor(s){return `<header class="wd-editor-head"><div class="wd-editor-identity">${btn('← 模板','templates','title="返回模板选择，保留草稿"')}<label class="wd-name">流程名称<input data-wd-name value="${esc(s.graph.name)}" maxlength="120"></label><span class="wd-preview">设计草稿</span></div><div class="wd-actions">${btn('↶','undo',`aria-label="撤销" ${s.undo.length?'':'disabled'}`)}${btn('↷','redo',`aria-label="重做" ${s.redo.length?'':'disabled'}`)}${btn('导入','import')}${btn('导出','export')}${btn('保存草稿','save')}${btn('检查与预览','validate','class="primary"')}</div></header>
+ function editor(s){return `<header class="wd-editor-head"><div class="wd-editor-identity">${btn('← 模板','templates','title="返回模板选择，保留草稿"')}<label class="wd-name">流程名称<input data-wd-name value="${esc(s.graph.name)}" maxlength="120"></label><span class="wd-preview">${s.publication?'基于 v'+s.publication.version:'未发布草稿'}</span></div><div class="wd-actions">${btn('↶','undo',`aria-label="撤销" ${s.undo.length?'':'disabled'}`)}${btn('↷','redo',`aria-label="重做" ${s.redo.length?'':'disabled'}`)}${btn('导入','import')}${btn('导出','export')}${btn('保存草稿','save')}${btn('检查与预览','validate')}${btn('发布流程版本','publish','class="primary"')}</div></header>
  <div class="wd-info"><span>实线传递数据 · 虚线关联修复策略</span><span>仅设计，不调用模型、不启动计算</span></div>
  <div class="wd-mobile-tabs" aria-label="编辑区域">${[['nodes','节点库'],['canvas','画布'],['config','参数']].map(([p,t])=>`<button type="button" data-wd-panel="${p}" aria-pressed="${s.panel===p}">${t}</button>`).join('')}</div>
  <div class="wd-workspace" data-panel="${s.panel}"><aside class="wd-library" aria-label="节点库">${library(s)}</aside><section class="wd-canvas-column" aria-label="流程画布">${canvas(s)}</section><aside class="wd-inspector" aria-label="节点参数">${inspector(s)}</aside></div>
@@ -78,8 +78,8 @@
  function draw(){if(state.page!=='workflows'||!$('.wd-app'))return;const s=get(),vp=$('.wd-viewport'),panel=$('.wd-inspector');if(vp)s.scroll=[vp.scrollLeft,vp.scrollTop];const top=panel?.scrollTop||0;$('.wd-app').outerHTML=html(s);const v=$('.wd-viewport');if(v){v.scrollLeft=s.scroll[0];v.scrollTop=s.scroll[1];}if($('.wd-inspector'))$('.wd-inspector').scrollTop=top;}
  function openDialog(title,body,callback=null){dialogAction=callback;dialogFocus=document.activeElement;const d=$('.wd-dialog');d.innerHTML=`<header><h2>${esc(title)}</h2>${btn('×','close-dialog','aria-label="关闭提示"')}</header><div>${body}</div><footer>${btn(callback?'取消':'关闭','close-dialog')}${callback?btn('确认继续','confirm','class="primary"'):''}</footer>`;d.showModal();d.querySelector('button').focus();}
  function closeDialog(){const d=$('.wd-dialog');d?.close();dialogAction=null;if(dialogFocus?.isConnected)dialogFocus.focus();}
- function installGraph(graph){const s=get();checkpoint();s.graph=graph;s.view='editor';s.selected=graph.nodes.find(n=>n.type==='fastq_input')?.id;s.panel='canvas';s.scroll=[0,0];s.pending=null;save();draw();}
- function replaceGraph(graph){if(get().graph)openDialog('替换当前设计？','<p>将以新模板替换当前画布。旧设计可通过撤销恢复；也可以先取消并导出备份。</p>',()=>installGraph(graph));else installGraph(graph);}
+ function installGraph(graph,publication=null){const s=get();checkpoint();s.graph=graph;s.publication=publication;try{if(publication)localStorage.setItem(key()+'.publication',JSON.stringify({template_id:publication.template_id,version:publication.version}));else localStorage.removeItem(key()+'.publication');}catch{}s.view='editor';s.selected=graph.nodes.find(n=>n.type==='fastq_input')?.id;s.panel='canvas';s.scroll=[0,0];s.pending=null;save();draw();}
+ function replaceGraph(graph,publication=null){if(get().graph)openDialog('替换当前设计？','<p>将以新模板替换当前画布。旧设计可通过撤销恢复；也可以先取消并导出备份。</p>',()=>installGraph(graph,publication));else installGraph(graph,publication);}
  function pick(nid){const s=get();s.selected=nid;s.edge=null;s.panel='config';draw();}
  function tryConnect(source,port,target,targetPort){const s=get(),r=M.checkConnection(s.graph,source,port,target,targetPort,s.catalog);s.pending=null;if(!r.ok){status(r.message);return;}
   const apply=()=>mutate(g=>M.connect(g,source,port,target,targetPort,true,s.catalog));if(r.warning)openDialog('确认分析风险',`<p>${esc(r.warning.message)}</p><p>此确认仅记录在设计中，不会启动分析。</p>`,apply);else apply();
@@ -91,6 +91,14 @@
   if(action==='templates'){s.view='templates';save();draw();return;}
   if(action==='resume'){s.view='editor';s.selected=s.graph.nodes.find(n=>n.type==='fastq_input')?.id;draw();return;}
   if(action==='save'){save();return;}
+  if(action==='publish'){
+   const checked=M.validate(s.graph,s.catalog);if(checked.errors.length)throw Error(checked.errors.map(x=>x.message).join('；'));
+   if(!confirm('发布会创建固定版本供分析工作台使用，不启动计算。尚未接入的 16S、自定义参数会被拒绝；图表和解读仅作结果视图。继续？'))return;
+   const k=key(),body={design:JSON.parse(M.exportJSON(s.graph,{portable:false}))};
+   if(s.publication){body.template_id=s.publication.template_id;body.base_version=s.publication.version;}
+   const record=await api(pa('/analysis/workflows/publish'),'POST',body);if(k!==key())return;
+   s.publication=record;localStorage.setItem(key()+'.publication',JSON.stringify({template_id:record.template_id,version:record.version}));s.remote=s.remote.filter(r=>r.template_id!==record.template_id);s.remote.push({...record.record,visual:record.design,publication:record});status('已发布 v'+record.version+'，分析工作台可载入；历史任务不变。');return;
+  }
   if(action==='import'){$('[data-wd-file]').click();return;}
   if(action==='export'){const blob=new Blob([M.exportJSON(s.graph)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=(s.graph.name||'workflow').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,80)+'.workflow.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('已导出设计；不包含文件、密钥及项目数据绑定。');return;}
   if(action==='validate'){validate();return;}
@@ -111,6 +119,7 @@
   if(state.page!=='workflows'||!bioflowUser)return;const el=e.target.closest('button,[data-wd-edge]');if(!el)return;
   try{
    if(el.dataset.wdTemplate){replaceGraph(M.template(el.dataset.wdTemplate,get().catalog));return;}
+   if(el.dataset.wdServer){const record=get().remote.find(r=>r.template_id===el.dataset.wdServer);if(record?.visual){replaceGraph(M.importJSON(JSON.stringify(record.visual),{portable:false,c:get().catalog}),record.publication);return;}}
    if(el.dataset.wdAction){await command(el.dataset.wdAction,el);return;}
    if(el.dataset.wdPanel){get().panel=el.dataset.wdPanel;draw();return;}
    if(el.dataset.wdAdd){mutate(g=>{const n=M.addNode(g,el.dataset.wdAdd,get().catalog);const vp=$('.wd-viewport');n.x=Math.max(350,Math.round((vp?.scrollLeft||0)/get().zoom+100));n.y=Math.max(180,Math.round((vp?.scrollTop||0)/get().zoom+170));get().selected=n.id;get().panel='config';});return;}

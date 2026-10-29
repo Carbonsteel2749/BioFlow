@@ -27,6 +27,8 @@ def install(app,get_store,check_project,call,urls):
     install_groups(router,get_store,check_project,call)
     from .analysis_setup import install_analysis
     install_analysis(router,get_store,check_project,call,files)
+    from .unified_workflows import install as install_workflows
+    install_workflows(router,get_store,check_project,call)
 
     async def recover_interrupted():
         with get_store().connect() as db:
