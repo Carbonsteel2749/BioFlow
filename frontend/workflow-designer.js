@@ -11,7 +11,7 @@
  function status(message){get().status=message;const el=$('.wd-status');if(el)el.textContent=message;}
  function save(){const s=get();if(!s.graph)return;let json;try{json=M.exportJSON(s.graph,{portable:false});}catch(error){status('未保存：'+error.message+'。请修正后再保存。');return;}try{localStorage.setItem(key(),json);status('已保存到此浏览器 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+' · 未提交计算');}catch{status('浏览器存储不可用，请导出 JSON 保留设计，勿关闭页面。');}}
  function checkpoint(){const s=get();if(s.graph){s.undo.push(JSON.stringify(s.graph));if(s.undo.length>60)s.undo.shift();s.redo=[];const u=$('[data-wd-action=undo]'),r=$('[data-wd-action=redo]');if(u)u.disabled=false;if(r)r.disabled=true;}}
- function mutate(fn){checkpoint();fn(get().graph);save();draw();}
+ function mutate(fn){checkpoint();fn(get().graph);if(get().selected)get().edge=null;save();draw();}
  const oldChrome=chrome;chrome=function(){oldChrome();root.classList.toggle('wd-mode',state.page==='workflows');};
  names.workflows='Workflow 设计';
  views.workflows=async()=>{
@@ -63,7 +63,9 @@
   const range=p.minimum!==undefined||p.maximum!==undefined?`范围 ${p.minimum??'不限'}–${p.maximum??'未登记上限'}`:'';
   return `<label class="wd-field ${p.type==='boolean'?'wd-check':''}"><span>${esc(p.title||k)} ${p.unit?`<em>${esc(p.unit)}</em>`:''}</span>${control}<small>${esc(p.description||'')}</small><small class="wd-param-meta">${esc(k)}${range?' · '+esc(range):''} · 默认 ${esc(p.default===false?'关闭':p.default===true?'开启':String(p.default??'未设定').slice(0,50)||'未设定')}</small></label>`;
  }
- function inspector(s){const n=s.graph.nodes.find(n=>n.id===s.selected);
+ function inspector(s){const edge=s.graph.edges.find(e=>e.id===s.edge);
+  if(edge){const source=s.graph.nodes.find(n=>n.id===edge.source),target=s.graph.nodes.find(n=>n.id===edge.target);return `<div class="wd-inspector-head"><div><h2>连线设置</h2><small>仅影响当前设计草稿</small></div>${btn('×','clear-selection','aria-label="关闭连线设置"')}</div><div class="wd-inspector-body"><h3>${esc(source?.label||edge.source)} → ${esc(target?.label||edge.target)}</h3><dl><dt>输出端口</dt><dd>${esc(edge.sourcePort)}</dd><dt>输入端口</dt><dd>${esc(edge.targetPort)}</dd></dl><p>删除仅断开这条连线，不会删除节点或历史任务。可点击顶部“撤销”恢复。</p>${btn('删除连线','delete-edge',`data-edge-id="${esc(edge.id)}" class="wd-danger"`)}<p class="wd-hint">选中连线后，也可按 Delete 或 Backspace 删除；输入参数时不会触发。</p></div>`;}
+  const n=s.graph.nodes.find(n=>n.id===s.selected);
   if(!n)return `<div class="wd-inspector-empty">${icon('analysis_group')}<h2>点选节点，配置分析</h2><p>每个节点独立保存参数。右侧展示参数作用、默认值与输入输出。</p><h3>连接方式</h3><p>先点输出端口，再点输入端口；也可以拖线连接。</p><p>AI 修复是可选策略；分析后的解读 LLM 独立配置。</p></div>`;
   const d=s.catalog[n.type],basic=Object.entries(d.parameters).filter(([,p])=>!p.advanced),advanced=Object.entries(d.parameters).filter(([,p])=>p.advanced);
   return `<div class="wd-inspector-head"><span class="wd-icon">${icon(n.type)}</span><div><h2>${esc(n.label)}</h2><small>${esc(d.tool)}</small></div>${btn('×','clear-selection','aria-label="关闭节点参数"')}</div><div class="wd-inspector-body"><p class="wd-description">${esc(d.description)}</p>${d.design?'<p class="wd-warning">设计节点 · 该配置尚未连接执行后端。</p>':'<p class="wd-hint">使用现有方法的参数定义；画布尚未连接执行后端。</p>'}
@@ -78,7 +80,7 @@
  function draw(){if(state.page!=='workflows'||!$('.wd-app'))return;const s=get(),vp=$('.wd-viewport'),panel=$('.wd-inspector');if(vp)s.scroll=[vp.scrollLeft,vp.scrollTop];const top=panel?.scrollTop||0;$('.wd-app').outerHTML=html(s);const v=$('.wd-viewport');if(v){v.scrollLeft=s.scroll[0];v.scrollTop=s.scroll[1];}if($('.wd-inspector'))$('.wd-inspector').scrollTop=top;}
  function openDialog(title,body,callback=null){dialogAction=callback;dialogFocus=document.activeElement;const d=$('.wd-dialog');d.innerHTML=`<header><h2>${esc(title)}</h2>${btn('×','close-dialog','aria-label="关闭提示"')}</header><div>${body}</div><footer>${btn(callback?'取消':'关闭','close-dialog')}${callback?btn('确认继续','confirm','class="primary"'):''}</footer>`;d.showModal();d.querySelector('button').focus();}
  function closeDialog(){const d=$('.wd-dialog');d?.close();dialogAction=null;if(dialogFocus?.isConnected)dialogFocus.focus();}
- function installGraph(graph,publication=null){const s=get();checkpoint();s.graph=graph;s.publication=publication;try{if(publication)localStorage.setItem(key()+'.publication',JSON.stringify({template_id:publication.template_id,version:publication.version}));else localStorage.removeItem(key()+'.publication');}catch{}s.view='editor';s.selected=graph.nodes.find(n=>n.type==='fastq_input')?.id;s.panel='canvas';s.scroll=[0,0];s.pending=null;save();draw();}
+ function installGraph(graph,publication=null){const s=get();checkpoint();s.graph=graph;s.edge=null;s.publication=publication;try{if(publication)localStorage.setItem(key()+'.publication',JSON.stringify({template_id:publication.template_id,version:publication.version}));else localStorage.removeItem(key()+'.publication');}catch{}s.view='editor';s.selected=graph.nodes.find(n=>n.type==='fastq_input')?.id;s.panel='canvas';s.scroll=[0,0];s.pending=null;save();draw();}
  function replaceGraph(graph,publication=null){if(get().graph)openDialog('替换当前设计？','<p>将以新模板替换当前画布。旧设计可通过撤销恢复；也可以先取消并导出备份。</p>',()=>installGraph(graph,publication));else installGraph(graph,publication);}
  function pick(nid){const s=get();s.selected=nid;s.edge=null;s.panel='config';draw();}
  function tryConnect(source,port,target,targetPort){const s=get(),r=M.checkConnection(s.graph,source,port,target,targetPort,s.catalog);s.pending=null;if(!r.ok){status(r.message);return;}
@@ -104,7 +106,7 @@
   if(action==='validate'){validate();return;}
   if(action==='close-dialog'){closeDialog();return;}
   if(action==='confirm'){const fn=dialogAction;closeDialog();fn?.();return;}
-  if(action==='clear-selection'){s.selected=null;s.panel='canvas';draw();return;}
+  if(action==='clear-selection'){s.selected=null;s.edge=null;s.panel='canvas';draw();return;}
   if(action==='undo'||action==='redo'){const from=s[action],to=s[action==='undo'?'redo':'undo'];if(!from.length)return;to.push(JSON.stringify(s.graph));s.graph=JSON.parse(from.pop());s.pending=null;if(!s.graph.nodes.some(x=>x.id===s.selected))s.selected=null;save();draw();return;}
   if(action==='arrange'){mutate(g=>M.arrange(g,s.catalog));return;}
   if(action==='zoom-in'||action==='zoom-out'){s.zoom=Math.min(1.4,Math.max(.3,s.zoom+(action==='zoom-in'?.1:-.1)));draw();return;}
@@ -113,7 +115,7 @@
   if(action==='duplicate'&&n){mutate(g=>{const copy=M.addNode(g,n.type,s.catalog);copy.label=n.label+' 副本';copy.parameters=JSON.parse(JSON.stringify(n.parameters));copy.custom=JSON.parse(JSON.stringify(n.custom));copy.x=n.x+35;copy.y=n.y+190;s.selected=copy.id;});return;}
   if(action==='add-custom'&&n){mutate(()=>M.addCustom(n));return;}
   if(action==='remove-custom'&&n){mutate(()=>n.custom.splice(Number(el.dataset.index),1));return;}
-  if(action==='delete-edge'){mutate(g=>{g.edges=g.edges.filter(e=>e.id!==el.dataset.edgeId);});return;}
+  if(action==='delete-edge'){const eid=el?.dataset?.edgeId||s.edge;if(!s.graph.edges.some(e=>e.id===eid))return;mutate(g=>{g.edges=g.edges.filter(e=>e.id!==eid);s.edge=null;});status('已删除连线，节点保留；可撤销恢复。');return;}
  }
  root.addEventListener('click',async e=>{
   if(state.page!=='workflows'||!bioflowUser)return;const el=e.target.closest('button,[data-wd-edge]');if(!el)return;
@@ -126,7 +128,7 @@
    if(el.dataset.wdSelect){if(drag?.moved)return;pick(el.dataset.wdSelect);return;}
    if(el.dataset.wdOut){get().pending={node:el.dataset.node,port:el.dataset.wdOut};status('已选择输出 '+el.dataset.wdOut+'，请点击目标输入端口（Esc 取消）。');return;}
    if(el.dataset.wdIn){const p=get().pending;if(!p){status('请先选择一个输出端口，再选择输入端口。');return;}tryConnect(p.node,p.port,el.dataset.node,el.dataset.wdIn);return;}
-   if(el.dataset.wdEdge){const s=get();s.edge=el.dataset.wdEdge;const edge=s.graph.edges.find(x=>x.id===s.edge);s.selected=edge.target;draw();return;}
+   if(el.dataset.wdEdge){const s=get();s.edge=el.dataset.wdEdge;s.selected=null;s.panel='config';draw();return;}
    if(el.dataset.wdServer){const k=key(),s=get(),r=await service('analysis','/api/workflows/templates/'+id(el.dataset.wdServer));if(k!==key()||state.page!=='workflows')return;const g=M.template('blank',s.catalog),data=g.nodes.find(n=>n.type==='fastq_input'),end=g.nodes.find(n=>n.type==='end'),map=new Map();for(const n of r.workflow?.nodes||[]){if(!s.catalog[n.type])throw Error('模板包含暂不支持的节点：'+n.type);const node=n.type==='fastq_input'?data:M.addNode(g,n.type,s.catalog);node.parameters={...node.parameters,...n.parameters};if(!['report','fastq_input'].includes(n.type))node.group='analysis';map.set(n.id,node.id);}for(const e of r.workflow?.edges||[])M.connect(g,map.get(e.source_node),e.source_port,map.get(e.target_node),e.target_port,true,s.catalog);const report=g.nodes.find(n=>n.type==='report');if(report)M.connect(g,report.id,'report',end.id,'artifacts',false,s.catalog);g.name=r.name||'服务模板副本';M.arrange(g,s.catalog);replaceGraph(g);}
   }catch(error){status(error.message);}
  });
@@ -158,7 +160,8 @@
   const card=$(`.wd-node[data-node="${n.id}"]`);if(card){card.style.left=n.x+'px';card.style.top=n.y+'px';}const svg=$('.wd-edges');if(svg)svg.innerHTML=edges(get());const group=$('.wd-analysis-group');if(group){const b=M.groupBounds(get().graph);group.style.width=b.width+'px';group.style.height=b.height+'px';}
  });
  window.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(d.key!==key()||state.page!=='workflows')return;if(d.kind==='wire'&&d.moved){const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-wd-in]');if(target)tryConnect(d.node,d.port,target.dataset.node,target.dataset.wdIn);else status('连接未建立：请拖到输入端口。');return;}if(d.kind==='node'&&d.moved){save();draw();}});
- root.addEventListener('keydown',e=>{if(state.page!=='workflows')return;if(e.key==='Escape'){get().pending=null;status('已取消连接。');return;}const editing=e.target.matches('input,select,textarea');if(editing)return;
+ root.addEventListener('keydown',e=>{if(state.page!=='workflows')return;if(e.key==='Escape'){get().pending=null;status('已取消连接。');return;}const editing=e.target.closest('input,select,textarea,[contenteditable="true"]');if(editing||$('.wd-dialog')?.open)return;
+  if(['Delete','Backspace'].includes(e.key)&&get().edge){e.preventDefault();command('delete-edge');return;}
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();command(e.shiftKey?'redo':'undo');}
   if(e.altKey&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){const n=selected();if(!n||n.type==='analysis_group')return;e.preventDefault();mutate(()=>{n.x=Math.max(n.group?330:0,n.x+({ArrowLeft:-20,ArrowRight:20}[e.key]||0));n.y=Math.max(n.group?110:0,n.y+({ArrowUp:-20,ArrowDown:20}[e.key]||0));});$(`[data-wd-select="${n.id}"]`)?.focus();}
  });
