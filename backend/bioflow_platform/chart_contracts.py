@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel,Field,ConfigDict,field_validator
+from pydantic import BaseModel,Field,ConfigDict,field_validator,model_validator
 
 class DisplayParameters(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -15,6 +15,23 @@ class DisplayParameters(BaseModel):
     font_size:float=Field(default=10,ge=6,le=24)
     enrichment_x:Literal['ratio','count']='ratio'
     enrichment_size:Literal['count','ratio']='count'
+    enrichment_comparison:str=Field(default='',max_length=120)
+    enrichment_facet:Literal['none','direction']='none'
+    enrichment_palette:Literal['paper','viridis','RdYlBu_r','YlGnBu','magma','cividis']='paper'
+    enrichment_color:Literal['pvalue','neg_log10']='pvalue'
+    enrichment_size_title:str=Field(default='',max_length=100)
+    enrichment_size_ticks:list[float]|None=Field(default=None,min_length=1,max_length=8)
+    enrichment_bubble_min:float=Field(default=20,ge=1,le=800)
+    enrichment_bubble_max:float=Field(default=320,ge=10,le=1600)
+    @model_validator(mode='after')
+    def enrichment_values(self):
+        import math
+        if self.enrichment_bubble_min>=self.enrichment_bubble_max:raise ValueError('气泡基础面积必须小于最大面积')
+        ticks=self.enrichment_size_ticks
+        if ticks is not None:
+            if any(not math.isfinite(v) or v<=0 for v in ticks) or ticks!=sorted(set(ticks)):raise ValueError('大小图例刻度必须为递增、不重复的正数')
+            if self.enrichment_size=='ratio' and max(ticks)>1:raise ValueError('GeneRatio 图例刻度不能大于 1')
+        return self
     @field_validator('legend_labels')
     @classmethod
     def labels(cls,value):

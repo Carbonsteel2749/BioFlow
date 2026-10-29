@@ -46,7 +46,8 @@ def test_enrichment_mapping_changes_coordinates_and_size_not_just_labels():
     assert np.allclose(ax.collections[0].get_offsets()[:,0],[10,20])
     assert np.allclose(ax.collections[0].get_sizes(),[95,320])
     assert ax.get_xlabel()=='Count'
-    assert all('GeneRatio' in label for _,label,_ in ax._bioflow_series)
+    assert ax._bioflow_legend_config['title']=='GeneRatio'
+    assert all('=' not in label for _,label,_ in ax._bioflow_series)
     plt.close(fig)
 
 
@@ -61,4 +62,39 @@ def test_common_canvas_and_font_are_applied_to_export(tmp_path):
     assert result['canvas']=={'width':12,'height':4,'font_size':16}
     assert result['data_mapping']['x']=='count' and result['data_mapping']['size']=='ratio'
     svg=(tmp_path/'figure.svg').read_text()
-    assert 'Count' in svg and 'GeneRatio = ' in svg
+    assert 'Count' in svg and 'GeneRatio' in svg and 'GeneRatio = ' not in svg
+
+
+def test_enrichment_facets_palette_custom_ticks_and_comparison(tmp_path):
+    pytest.importorskip('matplotlib')
+    from backend.bioflow_platform.chart_runner import render
+    data=b'term,gene_ratio,pvalue,count,direction\nA,0.4,0.01,2,activated\nB,0.8,0.03,4,suppressed\nC,1,0.02,5,activated\n'
+    (tmp_path/'source.csv').write_bytes(data)
+    params={'enrichment_x':'count','enrichment_size':'ratio','enrichment_facet':'direction','enrichment_comparison':'AB vs. SPF','enrichment_palette':'paper','enrichment_color':'pvalue','enrichment_size_ticks':[.4,.6,.8,1],'enrichment_size_title':'GeneRatio','width':12,'height':8}
+    (tmp_path/'request.json').write_text(json.dumps({'chart':'enrichment','source':{'sha256':hashlib.sha256(data).hexdigest()},'parameters':params,'columns':{}}))
+    render(tmp_path)
+    result=json.loads((tmp_path/'result.json').read_text());svg=(tmp_path/'figure.svg').read_text()
+    assert result['legend_config']['ticks']==[.4,.6,.8,1]
+    assert result['legend_config']['layout']=='right_stacked'
+    assert result['data_mapping']['facet']=='direction' and result['data_mapping']['color']=='pvalue'
+    assert [s['label'] for s in result['legend']]==['0.4','0.6','0.8','1']
+    for label in ['AB vs. SPF','activated','suppressed','GeneRatio','pvalue']:assert label in svg
+    assert 'GeneRatio =' not in svg
+    assert (tmp_path/'source.csv').read_bytes()==data
+
+
+def test_enrichment_palette_changes_scatter_colormap_and_validates_ticks():
+    pytest.importorskip('matplotlib')
+    import matplotlib.pyplot as plt
+    from backend.bioflow_platform.charts.enrichment import draw
+    rows=[{'term':'A','ratio':'.4','count':'2','pvalue':'.01'},{'term':'B','ratio':'1','count':'5','pvalue':'.03'}]
+    fig,ax=plt.subplots();draw(rows,fig,ax,{'enrichment_palette':'magma','enrichment_color':'pvalue'})
+    assert ax.collections[0].cmap.name=='magma'
+    assert list(ax.collections[0].get_array())==[.01,.03]
+    plt.close(fig)
+    fig,ax=plt.subplots()
+    with pytest.raises(ValueError,match='direction'):draw(rows,fig,ax,{'enrichment_facet':'direction'})
+    plt.close(fig)
+    fig,ax=plt.subplots()
+    with pytest.raises(ValueError,match='刻度'):draw(rows,fig,ax,{'enrichment_size':'ratio','enrichment_size_ticks':[2]})
+    plt.close(fig)

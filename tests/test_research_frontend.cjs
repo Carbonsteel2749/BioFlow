@@ -34,7 +34,10 @@ vm.runInContext(bootstrap+fs.readFileSync('frontend/research-workspace.js','utf8
  assert(result.editor.includes('older-results.csv')&&result.editor.includes('name="title"')&&result.editor.includes('name="x_label"'));
  for(const label of ['上传文献','上传测序数据与表格','导入分析结果','上传图表','上传稿件'])assert(result.imports.includes(label),label);
  assert(result.confirmation.includes('value="results" selected'));assert.equal(result.uploadCount,0,'files must await explicit classification confirmation');
- const failedSubmit=await vm.runInContext(`(async()=>{let payload;researchState.chart='enrichment';researchState.version=null;api=async(path,method,body)=>{payload=body;throw Error('映射列不存在：GeneCount');};const values={title:'',x_label:'',y_label:'',width:'9',height:'6',font_size:'10',source_id:'source'};const form={elements:{namedItem:k=>k in values?{value:values[k]}:null},querySelectorAll:selector=>selector==='[data-column-key]'?[{dataset:{columnKey:'count'},value:'GeneCount'}]:[]};await forms['research-figure'](form);return {payload,error:previewPanel.innerHTML};})()`,context);
+ const failedSubmit=await vm.runInContext(`(async()=>{let payload;researchState.chart='enrichment';researchState.version=null;api=async(path,method,body)=>{payload=body;throw Error('映射列不存在：GeneCount');};const values={title:'',x_label:'',y_label:'',width:'9',height:'6',font_size:'10',source_id:'source',enrichment_size_ticks:'',enrichment_bubble_min:'20',enrichment_bubble_max:'320'};const form={elements:{namedItem:k=>k in values?{value:values[k]}:null},querySelectorAll:selector=>selector==='[data-column-key]'?[{dataset:{columnKey:'count'},value:'GeneCount'}]:[]};await forms['research-figure'](form);return {payload,error:previewPanel.innerHTML};})()`,context);
+ const controls=vm.runInContext('researchEnrichmentOptions({enrichment_size_ticks:[0.4,0.6,1]})',context);
+ for(const key of ['enrichment_comparison','enrichment_facet','enrichment_palette','enrichment_size_ticks','enrichment_size_title'])assert(controls.includes('name="'+key+'"'));
+ assert(controls.includes('0.4, 0.6, 1'));
  assert.equal(failedSubmit.payload.columns.count,'GeneCount');
  assert(!('GeneCount' in failedSubmit.payload.columns));
  assert(failedSubmit.error.includes('映射列不存在：GeneCount'));

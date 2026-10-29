@@ -42,11 +42,11 @@ def render(directory):
     try:
         module.draw(rows,fig,ax,params)
         series=getattr(ax,'_bioflow_series',[]);ids=[r[0] for r in series]
-        if any(k not in ids for k in params.get('legend_labels',{})) or any(k not in ids for k in params.get('legend_order',[])):raise ValueError('图例标识与原图不一致，请重新打开编辑器')
-        defaults={'title':ax.get_title(),'x_label':ax.get_xlabel(),'y_label':ax.get_ylabel()}
+        if not getattr(ax,'_bioflow_custom_legend',False) and (any(k not in ids for k in params.get('legend_labels',{})) or any(k not in ids for k in params.get('legend_order',[]))):raise ValueError('图例标识与原图不一致，请重新打开编辑器')
+        defaults={'title':getattr(ax,'_bioflow_title',ax.get_title()),'x_label':ax.get_xlabel(),'y_label':ax.get_ylabel()}
         for key,setter in [('title',ax.set_title),('x_label',ax.set_xlabel),('y_label',ax.set_ylabel)]:
-            if params.get(key) is not None:setter(params[key])
-        if series:
+            if params.get(key) is not None and not getattr(ax,'_bioflow_managed_display',False):setter(params[key])
+        if series and not getattr(ax,'_bioflow_custom_legend',False):
             lookup={r[0]:r for r in series};order=params.get('legend_order',[])+[k for k in ids if k not in params.get('legend_order',[])]
             arranged=[lookup[k] for k in order];labels=[params.get('legend_labels',{}).get(k,label) for k,label,_ in arranged]
             position=params.get('legend_position','best');kwargs={'loc':position}
@@ -61,7 +61,7 @@ def render(directory):
             path=directory/('figure.'+extension);fig.savefig(path,dpi=180,bbox_inches='tight');outputs[extension]={'name':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size_bytes':path.stat().st_size}
         result={'outputs':outputs,'legend':[{'id':k,'label':label} for k,label,_ in series],'defaults':defaults,'template_version':VERSION,
             'renderer_sha256':hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),'source_sha256':spec['source']['sha256'],'rows':len(rows),
-            'data_mapping':getattr(ax,'_bioflow_mapping',{}),'canvas':{'width':fig.get_figwidth(),'height':fig.get_figheight(),'font_size':params.get('font_size',10)}}
+            'legend_config':getattr(ax,'_bioflow_legend_config',{}),'data_mapping':getattr(ax,'_bioflow_mapping',{}),'canvas':{'width':fig.get_figwidth(),'height':fig.get_figheight(),'font_size':params.get('font_size',10)}}
         (directory/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     finally:plt.close(fig)
 
