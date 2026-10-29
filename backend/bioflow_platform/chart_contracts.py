@@ -15,6 +15,18 @@ class DisplayParameters(BaseModel):
     font_size:float=Field(default=10,ge=6,le=24)
     enrichment_x:Literal['ratio','count']='ratio'
     enrichment_size:Literal['count','ratio']='count'
+    series_palette:Literal['tab20','Set2','Dark2','Paired']='tab20'
+    pca_log1p:bool=False
+    pca_show_labels:bool=False
+    pca_point_size:float=Field(default=45,ge=5,le=250)
+    stacked_level:Literal['sample','group']='group'
+    stacked_top_n:int=Field(default=10,ge=1,le=20)
+    stacked_normalize:bool=True
+    shannon_show_band:bool=True
+    shannon_band_alpha:float=Field(default=.18,ge=0,le=.6)
+    shannon_line_width:float=Field(default=2,ge=.5,le=6)
+    shannon_log_depth:bool=False
+    shannon_show_points:bool=False
     enrichment_comparison:str=Field(default='',max_length=120)
     enrichment_facet:Literal['none','direction']='none'
     enrichment_palette:Literal['paper','viridis','RdYlBu_r','YlGnBu','magma','cividis']='paper'

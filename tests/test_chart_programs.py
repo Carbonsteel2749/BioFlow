@@ -98,3 +98,39 @@ def test_enrichment_palette_changes_scatter_colormap_and_validates_ticks():
     fig,ax=plt.subplots()
     with pytest.raises(ValueError,match='刻度'):draw(rows,fig,ax,{'enrichment_size':'ratio','enrichment_size_ticks':[2]})
     plt.close(fig)
+
+def test_stacked_normalizes_samples_before_group_means_and_top_n():
+    pytest.importorskip('matplotlib')
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from backend.bioflow_platform.charts.stacked import draw
+    rows=[{'sample':'S1','group':'A','taxon':'T1','abundance':'9'},{'sample':'S1','group':'A','taxon':'T2','abundance':'1'},{'sample':'S2','group':'A','taxon':'T1','abundance':'1'},{'sample':'S2','group':'A','taxon':'T2','abundance':'1'}]
+    fig,ax=plt.subplots();draw(rows,fig,ax,{'stacked_top_n':1})
+    assert np.allclose([p.get_height() for p in ax.patches],[.7,.3])
+    assert len(ax._bioflow_series)==2
+    plt.close(fig)
+
+
+def test_shannon_band_uses_input_bounds_and_rejects_invalid_intervals():
+    pytest.importorskip('matplotlib')
+    import matplotlib.pyplot as plt
+    from backend.bioflow_platform.charts.shannon import draw
+    rows=[{'depth':'100','shannon':'1','lower':'.8','upper':'1.2'},{'depth':'1000','shannon':'2','lower':'1.8','upper':'2.2'}]
+    fig,ax=plt.subplots();draw(rows,fig,ax,{})
+    assert len(ax.lines)==1 and len(ax.collections)==1
+    assert list(ax.lines[0].get_xdata())==[100,1000]
+    plt.close(fig)
+    fig,ax=plt.subplots();rows[0]['lower']='1.1'
+    with pytest.raises(ValueError,match='lower'):draw(rows,fig,ax,{})
+    plt.close(fig)
+
+
+def test_pca_accepts_text_labels_and_applies_log_and_point_size():
+    pytest.importorskip('matplotlib')
+    import matplotlib.pyplot as plt
+    from backend.bioflow_platform.charts.pca import draw
+    rows=[{'sample':'A','label':'Alpha','f1':'1','f2':'2'},{'sample':'B','label':'Beta','f1':'4','f2':'3'},{'sample':'C','label':'Gamma','f1':'2','f2':'6'}]
+    fig,ax=plt.subplots();draw(rows,fig,ax,{'pca_log1p':True,'pca_show_labels':True,'pca_point_size':80})
+    assert {t.get_text() for t in ax.texts}=={'Alpha','Beta','Gamma'}
+    assert list(ax.collections[0].get_sizes())==[80]
+    plt.close(fig)

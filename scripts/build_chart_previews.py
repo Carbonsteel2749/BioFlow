@@ -2,12 +2,15 @@
 from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT),str(ROOT/'.runtime/linux')]
+sys.path.insert(0,str(ROOT))
+if sys.platform!='win32':sys.path.insert(0,str(ROOT/'.runtime/linux'))
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import importlib
+import argparse
+parser=argparse.ArgumentParser();parser.add_argument('--only',nargs='*',default=[]);args=parser.parse_args()
 rng=np.random.default_rng(24)
 out=ROOT/'frontend/chart-previews';out.mkdir(exist_ok=True)
 rows={}
@@ -24,17 +27,20 @@ rows['ppi']=[dict(source=proteins[i],target=proteins[(i+1)%12],weight=.8) for i 
 rows['venn']=[dict(set=name,member=f'G{i}') for name,a,b in [('Control',0,60),('Treatment',25,90),('Recovery',45,110)] for i in range(a,b)]
 rows['go']=[dict(term=t,count=35-i*3,ontology=['BP','CC','MF'][i//3]) for i,t in enumerate(terms)]
 rows['sankey']=[dict(source=a,target=b,value=int(rng.integers(8,35))) for a in ['Control','Treatment','Recovery'] for b in ['Metabolism','Signaling','Immunity']]
+rows['stacked']=[dict(sample=f'S{i}',group=f'Group {i//3+1}',taxon=f'Taxon {j+1}',abundance=float(rng.uniform(.05,1))) for i in range(12) for j in range(7)]
+rows['shannon']=[dict(depth=float(d),group=name,shannon=float(scale*(1-np.exp(-d/1400))),lower=float(max(0,scale*(1-np.exp(-d/1400))-.09)),upper=float(scale*(1-np.exp(-d/1400))+.09)) for name,scale in [('Group A',1.6),('Group B',2.1),('Group C',2.6)] for d in np.linspace(100,10000,25)]
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':9,'axes.spines.top':False,'axes.spines.right':False,'axes.prop_cycle':plt.cycler(color=['#246750','#83bda5','#c59d65','#7195ac']),'savefig.facecolor':'white'})
 from matplotlib import font_manager
 font=Path('/mnt/c/Windows/Fonts/msyh.ttc')
 if font.is_file():
     font_manager.fontManager.addfont(str(font));plt.rcParams['font.family']=font_manager.FontProperties(fname=str(font)).get_name()
 for chart,data in rows.items():
+    if args.only and chart not in args.only:continue
     fig,ax=plt.subplots(figsize=(6,4),layout='constrained')
     importlib.import_module('backend.bioflow_platform.charts.'+chart).draw(data,fig,ax,{})
     ax.set_title('')
     handles,labels=ax.get_legend_handles_labels()
-    if handles:ax.legend(handles,labels,fontsize=7,frameon=False)
+    if handles and not getattr(ax,'_bioflow_custom_legend',False):ax.legend(handles,labels,fontsize=7,frameon=False)
     fig.savefig(out/(chart+'.png'),dpi=120)
     plt.close(fig)
     print(chart)

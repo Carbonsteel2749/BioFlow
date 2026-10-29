@@ -23,8 +23,8 @@ vm.runInContext(bootstrap+fs.readFileSync('frontend/research-workspace.js','utf8
    const mapping=researchColumnInputs({id:'enrichment'},null);
    return {gallery,editor,imports,confirmation:lastModal.html,uploadCount,errorPreview:previewPanel.innerHTML,mapping};
  })()`,context);
- assert.equal((result.gallery.match(/class="chart-type-card"/g)||[]).length,10);
- assert.equal((result.gallery.match(/src="\/static\/chart-previews\//g)||[]).length,10);
+ assert.equal((result.gallery.match(/class="chart-type-card"/g)||[]).length,templates.length);
+ assert.equal((result.gallery.match(/src="\/static\/chart-previews\//g)||[]).length,templates.length);
  assert(!result.gallery.includes('代码版本'));
  assert(!result.gallery.includes(templates[0].description));
  assert(result.editor.includes('data-research-preview'));
