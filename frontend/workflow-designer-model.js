@@ -68,7 +68,7 @@
   dada2:def('去噪与 ASV 构建','DADA2 · 设计','16S',[input('reads',['amplicon_reads'])],[output('table','feature_table','cohort'),output('sequences','representative_sequences','cohort')],{
    trunc_len_f:param('R1 截断长度','integer',0,'结合质量曲线和双端重叠选择；0 表示暂未指定截断。',{minimum:0,maximum:10000,unit:'bp'}),
    trunc_len_r:param('R2 截断长度','integer',0,'需保留足够双端重叠，不能照抄其他项目参数。',{minimum:0,maximum:10000,unit:'bp'}),threads:threads()
-  },'构建 ASV 特征表和代表序列；不是宏基因组功能注释。',true),
+  },'后端待接入：构建 ASV 特征表和代表序列；不是宏基因组功能注释。',true),
   amplicon_taxonomy:def('ASV 分类','16S 参考分类器 · 设计','16S',[input('sequences',['representative_sequences'])],[output('taxonomy','amplicon_taxonomy','cohort')],{
    reference_profile:param('参考库 / 扩增区域','string','','后续选择与扩增区域匹配的参考分类器及版本。')
   },'参考数据库、分类器与扩增区域需要共同校验。',true),
@@ -79,16 +79,20 @@
  };
  function catalog(registry){
   const c=clone(definitions);
+  const labels={assembly:'联合组装',binning:'基因组分箱',bin_refinement:'MAG 质量筛选',bin_quantification:'样本—MAG 定量',bin_reassembly:'候选 Bin 重组装',bin_annotation:'MAG 分类与功能注释'};
+  const descriptions={assembly:'将清洗或去宿主后的 reads 组装为 contigs；联合组装输出属于队列，不属于单一样本。',binning:'根据已登记的分箱方法，从组装结果中生成候选基因组 bins。',bin_refinement:'按完整度和污染度筛选候选 bins；筛选阈值不等同于完整质量认证。',bin_quantification:'将各样本 reads 回贴到 MAG，生成 sample_id + mag_id 的定量证据，不将联合组装 MAG 归属于单一样本。',bin_reassembly:'对候选 bin 进行可选重组装；保留原分箱与重组装结果的对应关系。',bin_annotation:'对 MAG 进行分类和功能注释；需要独立的分类与功能数据库，不能用群落总体功能替代 MAG 注释。'};
   for(const d of registry?.nodes||[]){
-   if(!c[d.type])continue;
+   if(!d||typeof d.type!=='string'||!/^[A-Za-z][A-Za-z0-9_]*$/.test(d.type)||['constructor','prototype','__proto__'].includes(d.type))continue;
+   if(!Object.hasOwn(c,d.type))c[d.type]=def(labels[d.type]||d.label||d.type,(d.tool_requirements||[]).join(' · ')||d.method_id||d.type,({mag:'MAG',qc:'质控',preprocessing:'质控',report:'结果'})[d.category]||'分析',[],[],{},d.description||descriptions[d.type]||'分析服务登记的方法；参数、输入输出与执行映射由同一注册表提供。');
    const node=c[d.type];node.registered=true;
+   node.requirements={tools:clone(d.tool_requirements||[]),databases:clone(d.database_requirements||[])};
    if(Array.isArray(d.inputs))node.inputs=clone(d.inputs);
    if(Array.isArray(d.outputs))node.outputs=clone(d.outputs);
    const props=d.parameters_schema?.properties||d.parameters_schema||{};
    for(const [key,value] of Object.entries(props))if(value&&typeof value==='object')node.parameters[key]={...node.parameters[key],...clone(value),title:node.parameters[key]?.title||value.title||key,description:node.parameters[key]?.description||value.description||'服务登记参数；请核对该工具的含义。'};
    // The start link is a frontend control edge, not an execution-engine input.
    if(d.type==='fastq_input')node.inputs=[input('control',['control'],false,false)];
-   if(d.type==='report')node.inputs=[input('artifacts',reports,true)];
+   if(d.type==='report'){const artifacts=node.inputs.find(p=>p.id==='artifacts');if(artifacts)artifacts.accepted_data_types=[...new Set([...artifacts.accepted_data_types,...reports])];}
   }
   return c;
  }
@@ -97,7 +101,7 @@
  function addNode(g,type,c=defaultCatalog){
   const d=c[type];if(!d)throw Error('未知节点类型');if(g.nodes.length>=100)throw Error('最多支持 100 个节点');
   if(['start','fastq_input','analysis_group','end','repair_llm'].includes(type)&&g.nodes.some(n=>n.type===type))throw Error('此基础节点只能添加一次');
-  const n={id:uid(type,g),type,label:d.label,x:340,y:130,group:['质控','分析','16S'].includes(d.category)||type==='repair_llm'?'analysis':null,parameters:Object.fromEntries(Object.entries(d.parameters).map(([k,s])=>[k,clone(s.default??'')])),custom:[]};
+  const n={id:uid(type,g),type,label:d.label,x:340,y:130,group:['质控','分析','MAG','16S'].includes(d.category)||type==='repair_llm'?'analysis':null,parameters:Object.fromEntries(Object.entries(d.parameters).map(([k,s])=>[k,clone(s.default??'')])),custom:[]};
   g.nodes.push(n);return n;
  }
  function checkConnection(g,source,sourcePort,target,targetPort,c=defaultCatalog,ignoreEdge=null){
