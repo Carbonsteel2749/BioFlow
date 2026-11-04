@@ -155,7 +155,7 @@ class ResourcePreflight:
         return size, samples
 
     def inspect(self, *, manifest_path: str | None = None, input_bytes: int | None = None,
-                threads: int | None = None, enable_mags: bool = False) -> dict:
+                threads: int | None = None, enable_mags: bool = False, typed_snapshot: Path | None = None) -> dict:
         blockers, warnings = [], []
         maximum = effective_cpu_count()
         recommended = min(4, maximum)
@@ -167,7 +167,18 @@ class ResourcePreflight:
             raise TaskValidationError('input_bytes must be a nonnegative safe integer')
         source, sample_count = 'unknown', None
         raw = input_bytes or 0
-        if manifest_path:
+        private_copies=0
+        if typed_snapshot is not None:
+            if manifest_path or input_bytes is not None:raise TaskValidationError('typed snapshots cannot be mixed with CSV or size hints')
+            from .input_datasets import InputDatasetService,evidence_files
+            body=InputDatasetService(self.settings).inspect_snapshot_metadata(typed_snapshot)
+            # Account for one private adapter copy per bound root, and retain evidence.
+            files={}
+            for node,binding in body['bindings'].items():
+                private_copies+=sum(f['size_bytes'] for f in binding['contract']['files'])
+                for f in binding['contract']['files']+evidence_files(binding):files[(binding['dataset_id'],f['path'])]=f['size_bytes']
+            raw=sum(files.values());source='server_typed_snapshot'
+        elif manifest_path:
             raw, sample_count = self._manifest_size(manifest_path)
             source = 'server_manifest'
         elif input_bytes is not None:
@@ -178,10 +189,12 @@ class ResourcePreflight:
         # These are planning envelopes, not scientifically calibrated bounds.
         # Work products and published outputs coexist; archive copies both + raw.
         work_min, work_max = raw * (6 if enable_mags else 3) + 256*MIB, raw * (48 if enable_mags else 12) + 1024*MIB
+        work_min+=private_copies;work_max+=private_copies
         output_min, output_max = raw * (2 if enable_mags else 1) + 256*MIB, raw * (12 if enable_mags else 4) + 1024*MIB
         archive_min, archive_max = raw + work_min + output_min, raw + work_max + output_max
         additional_raw = raw if source == 'client_hint' else 0
-        estimate = {'raw_bytes': raw, 'raw_already_uploaded': source == 'server_manifest',
+        estimate = {'raw_bytes': raw, 'raw_already_uploaded': source in ('server_manifest','server_typed_snapshot'),
+                    'private_input_copy_bytes':private_copies,
                     'additional_raw_bytes': additional_raw, 'raw_included_in_archive': True,
                     'basis': 'additional_disk_bytes_excluding_already_uploaded_raw_including_raw_archive_copy',
                     'intermediates_min_bytes': work_min + output_min,

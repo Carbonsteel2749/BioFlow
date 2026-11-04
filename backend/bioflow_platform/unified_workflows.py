@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 VIEW_TYPES={'start','analysis_group','end','pathways','figures','interpret_llm','repair_llm'}
 SAFE=re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+INPUT_TYPES={'fastq_input','clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'}
 
 def execution_graph(design,registry):
     nodes=design.get('nodes',[]);edges=design.get('edges',[])
@@ -30,7 +31,7 @@ def execution_graph(design,registry):
         if kind not in catalog:raise ValueError('分析方法尚未接入执行后端：'+str(kind))
         if not isinstance(params,dict):raise ValueError('节点参数格式错误')
         allowed=catalog[kind].get('parameters_schema',{})
-        clean={k:v for k,v in params.items() if not (kind=='fastq_input' and k in {'dataset_id','metadata_note'})}
+        clean={k:v for k,v in params.items() if not (kind in INPUT_TYPES and k in {'dataset_id','metadata_note'})}
         if set(clean)-set(allowed):raise ValueError('节点含未登记参数：'+nid)
         active.add(nid);result.append({'id':nid,'type':kind,'parameters':clean})
     links=[];risks=set();by_id={n['id']:n for n in nodes}
@@ -62,7 +63,8 @@ def initialize(store):
 def save_release(store,uid,record,design):
     visual=copy.deepcopy(design)
     for node in visual.get('nodes',[]):
-        if node['type']=='fastq_input':node.setdefault('parameters',{})['dataset_id']=''
+        if node['type'] in INPUT_TYPES:node.setdefault('parameters',{}).pop('dataset_id',None)
+    visual.pop('input_bindings',None)
     payload={'record':record,'design':visual,'template_id':record['template_id'],'version':record['version']}
     with store.connect() as db:
         db.execute('INSERT INTO workflow_visual_releases VALUES(?,?,?,?)',(uid,record['template_id'],record['version'],json.dumps(payload,ensure_ascii=False,allow_nan=False)))
@@ -93,7 +95,8 @@ class Submission(BaseModel):
     template_id:str=Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
     version:int=Field(ge=1)
     name:str=Field(min_length=1,max_length=120)
-    dataset_id:str=Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+    dataset_id:str|None=Field(default=None,pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+    input_bindings:dict[str,str]=Field(default_factory=dict,max_length=100)
     node_parameters:dict=Field(default_factory=dict)
     auto_repair:bool=False
 
@@ -147,10 +150,29 @@ def install(router,get_store,check_project,call):
     async def start(pid:str,body:Submission,request:Request):
         check_project(pid,request);uid=request.state.user['id'];store=get_store()
         if not body.name.strip():raise HTTPException(422,'任务名称不能为空')
-        if not store.owns('dataset',body.dataset_id,uid) or body.dataset_id not in store.ids(pid,'dataset'):raise HTTPException(404,'请选择当前项目的数据集')
+        if bool(body.dataset_id)==bool(body.input_bindings):raise HTTPException(422,'请选择传统数据集或逐节点绑定输入，不可同时使用')
+        if body.dataset_id and (not store.owns('dataset',body.dataset_id,uid) or body.dataset_id not in store.ids(pid,'dataset')):raise HTTPException(404,'请选择当前项目的数据集')
         record=await selected(uid,body.template_id,body.version)
         workflow=copy.deepcopy(record['record']['workflow']);nodes={n['id']:n for n in workflow['nodes']}
         registry=await call('analysis','/api/workflows/registry')
+        bound_inputs={}
+        if body.input_bindings:
+            project=store.get(pid)
+            if not project or project['owner_id']!=uid or project.get('archived'):raise HTTPException(404,'项目不存在')
+            roots={nid:node for nid,node in nodes.items() if node['type'] in INPUT_TYPES}
+            if set(body.input_bindings)!=set(roots):raise HTTPException(422,'请为每个输入节点绑定兼容数据，不能绑定其他节点')
+            catalog={node['type']:node for node in registry['nodes']}
+            for nid,dataset_id in body.input_bindings.items():
+                if not SAFE.fullmatch(nid) or not SAFE.fullmatch(dataset_id):raise HTTPException(422,'输入绑定标识无效')
+                if not store.owns('input_dataset',dataset_id,uid) or dataset_id not in store.ids(pid,'input_dataset'):raise HTTPException(404,'请选择当前项目已导入的数据')
+                with store.connect() as db:
+                    imported=db.execute('SELECT status,record_json,provenance_json FROM input_dataset_imports WHERE id=? AND project_id=? AND user_id=?',(dataset_id,pid,uid)).fetchone()
+                if not imported:raise HTTPException(404,'输入导入记录不存在')
+                if imported['status']!='ready':raise HTTPException(409,'输入尚未通过导入校验')
+                frozen=json.loads(imported['record_json'])
+                expected={port['data_type'] for port in catalog.get(roots[nid]['type'],{}).get('outputs',[])}
+                if frozen.get('dataset_id')!=dataset_id or frozen.get('contract',{}).get('data_type') not in expected:raise HTTPException(422,'输入类型与节点不兼容')
+                bound_inputs[nid]={'record':frozen,'provenance':json.loads(imported['provenance_json'] or '[]')}
         schemas={n['type']:n.get('parameters_schema',{}) for n in registry['nodes']}
         if set(body.node_parameters)-set(nodes):raise HTTPException(422,'参数引用未知节点')
         for nid,params in body.node_parameters.items():
@@ -162,8 +184,14 @@ def install(router,get_store,check_project,call):
             if set(node['parameters'])-set(schema):raise HTTPException(422,'参数未在当前方法登记')
             node['parameters']={**{k:copy.deepcopy(rule['default']) for k,rule in schema.items() if 'default' in rule},**node['parameters']}
         record={**record,'parameter_registry':registry}
-        reused=await call('analysis','/api/datasets/'+body.dataset_id+'/reuse','POST',{})
-        run=await call('analysis','/api/workflows/runs','POST',{'name':body.name.strip(),'manifest_path':reused['manifest_path'],'workflow':workflow,'auto_repair':body.auto_repair})
+        payload={'name':body.name.strip(),'workflow':workflow,'auto_repair':body.auto_repair}
+        if body.input_bindings:
+            payload['input_bindings']=dict(body.input_bindings)
+            record={**record,'input_bindings':dict(body.input_bindings),'bound_inputs':bound_inputs}
+        else:
+            reused=await call('analysis','/api/datasets/'+body.dataset_id+'/reuse','POST',{})
+            payload['manifest_path']=reused['manifest_path']
+        run=await call('analysis','/api/workflows/runs','POST',payload)
         tid=run['task_id'];store.claim('workflow',tid,uid);store.link(pid,'workflow',tid)
         save_snapshot(store,uid,pid,tid,record,workflow)
         return {**run,'template_id':body.template_id,'template_version':body.version}

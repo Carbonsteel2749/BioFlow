@@ -25,6 +25,7 @@
         "artifact_type": {
           "enum": [
             "reads.raw", "reads.clean", "reads.host_removed",
+            "assembly.contigs", "matrix.canonical", "matrix.descriptive_summary", "figure.matrix",
             "qc.read_counts", "qc.report",
             "taxonomy.species_abundance", "taxonomy.kraken_report", "taxonomy.bracken_abundance",
             "functional.gene_families", "functional.ko_abundance", "functional.ec_abundance", "functional.pathway_abundance", "functional.pathway_coverage",

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 from ..workflows.input_contracts import InputContractError, SAFE_ID, validate_input_contract
@@ -43,6 +44,41 @@ def _regular(path,root):
         raise InputContractError('输入文件不存在、包含符号链接或越界')
 
 
+def evidence_files(record):
+    return [{'path':s['staged_file'],'size_bytes':s['size_bytes'],'sha256':s['sha256']}
+            for s in (record.get('origin') or {}).get('sources',[])]
+
+
+def validate_origin(origin,folder):
+    if origin is None:return
+    _serialized(origin,MAX_CONTRACT_BYTES,'来源证据')
+    if not isinstance(origin,dict) or set(origin)!={'authority','sources','conversion'} or origin['authority']!='owned_import_gateway':
+        raise InputContractError('来源证据字段无效；不能设置验证身份')
+    rows=origin['sources']
+    if not isinstance(rows,list) or not 1<=len(rows)<=10000:raise InputContractError('来源证据数量无效')
+    for row in rows:
+        if not isinstance(row,dict) or set(row)!={'id','name','size_bytes','sha256','staged_file','source_task','node','producer'}:
+            raise InputContractError('来源证据字段无效')
+        if not isinstance(row['id'],str) or not re.fullmatch(r'(asset|artifact):[A-Za-z0-9][A-Za-z0-9._-]{0,127}',row['id']):raise InputContractError('来源标识无效')
+        if not isinstance(row['name'],str) or not 1<=len(row['name'])<=1024:raise InputContractError('来源名称无效')
+        for key in ('source_task','node','producer'):
+            if row[key] is not None and (not isinstance(row[key],str) or len(row[key])>512):raise InputContractError('来源生产记录无效')
+        if type(row['size_bytes']) is not int or row['size_bytes']<=0 or not isinstance(row['sha256'],str) or not re.fullmatch('[a-f0-9]{64}',row['sha256']):raise InputContractError('来源大小或 SHA-256 无效')
+        name=row['staged_file']
+        if not isinstance(name,str) or Path(name).is_absolute() or '..' in Path(name).parts or '\\' in name or ':' in name:raise InputContractError('来源证据路径无效')
+        path=folder/name;_regular(path,folder)
+        if path.stat().st_size!=row['size_bytes'] or _file_sha(path)!=row['sha256']:raise InputContractError('来源证据 SHA-256 校验失败')
+    conversion=origin['conversion']
+    if conversion is not None:
+        fields={'schema','rule','input_rows','included_rows','excluded_diagnostics','excluded_strata','unit','normalization','output_file'}
+        if not isinstance(conversion,dict) or set(conversion)!=fields:raise InputContractError('转换证据字段无效')
+        for key in ('input_rows','included_rows','excluded_diagnostics','excluded_strata'):
+            if type(conversion[key]) is not int or conversion[key]<0:raise InputContractError('转换计数无效')
+        for key in fields-{'input_rows','included_rows','excluded_diagnostics','excluded_strata'}:
+            if not isinstance(conversion[key],str) or len(conversion[key])>2048:raise InputContractError('转换描述无效')
+        if conversion['input_rows']!=conversion['included_rows']+conversion['excluded_diagnostics']+conversion['excluded_strata']:raise InputContractError('转换计数不一致')
+
+
 class InputDatasetService:
     def __init__(self,settings):
         self.settings=settings
@@ -53,14 +89,18 @@ class InputDatasetService:
         if not p.is_dir() or p.resolve()!=p.absolute():raise InputContractError('输入数据集不存在或包含符号链接')
         return p
 
-    def register(self,dataset_id:str,spec:dict)->dict:
+    def register(self,dataset_id:str,spec:dict,origin:dict|None=None)->dict:
         folder=self._folder(dataset_id);target=folder/'contract.json'
         if target.exists():
             record=self.get(dataset_id)
-            if record['spec']!=spec:raise InputContractError('已登记输入不可变；修改后请创建新数据集')
+            if record['spec']!=spec or record.get('origin')!=origin:raise InputContractError('已登记输入不可变；修改后请创建新数据集')
             return record
         contract=validate_input_contract(spec,folder)
+        validate_origin(origin,folder)
+        if origin and origin['conversion'] is not None and origin['conversion']['output_file'] not in {f['path'] for f in contract['files']}:
+            raise InputContractError('转换输出不属于已验证输入文件')
         record={'dataset_id':dataset_id,'spec':spec,'contract':contract}
+        if origin is not None:record['origin']=origin
         record['record_sha256']=_digest(record)
         serialized=_serialized(record,MAX_CONTRACT_BYTES,'输入契约')
         # Exclusive publication: concurrent registration cannot replace a dataset.
@@ -91,7 +131,7 @@ class InputDatasetService:
         """Full data SHA verification, mandatory for snapshots and execution checks."""
         record=self.metadata(dataset_id);folder=self._folder(dataset_id)
         contract=record['contract']
-        for entry in contract.get('files',[]):
+        for entry in contract.get('files',[])+evidence_files(record):
             name=entry.get('path')
             if not isinstance(name,str) or Path(name).is_absolute() or '..' in Path(name).parts:raise InputContractError('输入文件校验路径不合法')
             file=folder/name;_regular(file,folder)
@@ -113,6 +153,7 @@ class InputDatasetService:
         for node,dataset_id in bindings.items():
             _safe_id(node);record=(self.get if verify_files else self.metadata)(dataset_id)
             records[node]={'dataset_id':dataset_id,'spec':record['spec'],'contract':record['contract'],'manifest_sha256':record['contract']['manifest_sha256']}
+            if 'origin' in record:records[node]['origin']=record['origin']
         body={'schema_version':'1.0','task_id':task_id,'bindings':records,
               'integrity_check':'full_sha256_at_snapshot' if verify_files else 'pending_execution_sha256'}
         body['snapshot_sha256']=_digest(body)
@@ -137,12 +178,15 @@ class InputDatasetService:
     def _inspect_snapshot(self,path,*,verify_files):
         path=Path(path).absolute();_regular(path,self.settings.state_root/'workflow_runs')
         if path.stat().st_size>MAX_SNAPSHOT_BYTES:raise InputContractError('任务输入快照超过字节上限')
-        try:body=json.loads(path.read_text(encoding='utf-8'))
+        try:
+            with path.open('rb') as handle:data=handle.read(MAX_SNAPSHOT_BYTES+1)
+            if len(data)>MAX_SNAPSHOT_BYTES:raise InputContractError('任务输入快照超过字节上限')
+            body=json.loads(data.decode('utf-8'))
         except (ValueError,OSError) as e:raise InputContractError('任务输入快照校验失败') from e
         if body.get('snapshot_sha256')!=_digest({k:v for k,v in body.items() if k!='snapshot_sha256'}):raise InputContractError('任务输入快照校验失败')
         for node,binding in body.get('bindings',{}).items():
             _safe_id(node);record=(self.get if verify_files else self.metadata)(binding['dataset_id'])
-            if binding.get('spec',record['spec'])!=record['spec'] or binding.get('contract')!=record['contract'] or binding.get('manifest_sha256')!=record['contract']['manifest_sha256']:
+            if binding.get('origin')!=record.get('origin') or binding.get('spec',record['spec'])!=record['spec'] or binding.get('contract')!=record['contract'] or binding.get('manifest_sha256')!=record['contract']['manifest_sha256']:
                 raise InputContractError('任务输入快照与登记契约校验不一致')
         return body
 
@@ -155,7 +199,7 @@ class InputDatasetService:
         paths=[]
         for binding in body['bindings'].values():
             folder=self._folder(binding['dataset_id'])
-            for entry in binding['contract']['files']:
+            for entry in binding['contract']['files']+evidence_files(binding):
                 name=entry['path'];candidate=folder/name
                 if Path(name).is_absolute() or '..' in Path(name).parts or candidate.resolve()!=candidate.absolute() or not candidate.resolve().is_relative_to(folder.resolve()):
                     raise InputContractError('输入引用路径校验失败')

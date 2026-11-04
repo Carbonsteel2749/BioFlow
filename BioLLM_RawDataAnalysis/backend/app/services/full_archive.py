@@ -39,7 +39,9 @@ def typed_archive_entries(settings,task_id,manifest):
     for node,binding in body['bindings'].items():
         folder=service._folder(binding['dataset_id'])
         entries.append((folder/'contract.json',f'execution/input-contracts/{node}.json'))
-        entries.extend((folder/f['path'],f'raw/typed/{node}/{f["path"]}') for f in binding['contract']['files'])
+        from .input_datasets import evidence_files
+        files={f['path']:f for f in binding['contract']['files']+evidence_files(binding)}
+        entries.extend((folder/f['path'],f'raw/typed/{node}/{f["path"]}') for f in files.values())
     return entries
 
 

@@ -100,7 +100,8 @@ class WorkflowRunService:
 
         task_id = str(uuid.uuid4())
         if typed:
-            manifest=datasets.snapshot_metadata_only(input_bindings,task_id)
+            try:manifest=datasets.snapshot_metadata_only(input_bindings,task_id)
+            except InputContractError as exc:raise WorkflowRunValidationError(str(exc)) from exc
         artifacts = materialize_compilation(
             compiled,
             task_id=task_id,
@@ -133,7 +134,7 @@ class WorkflowRunService:
         if run:
             snapshot=self.settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json'
             if snapshot.is_file():
-                body=json.loads(snapshot.read_text(encoding='utf-8'))
+                body=InputDatasetService(self.settings).inspect_snapshot_metadata(snapshot)
                 run={**run,'input_bindings':body['bindings'],'input_integrity_check':body['integrity_check']}
         return run
 
@@ -218,11 +219,19 @@ class DynamicWorkflowRunner:
         submitted = self.scheduler.submit('dynamic:' + task_id, lambda: self._run_guarded(task_id),
             on_rejected=lambda reason: self._admission_rejected(task_id, reason),
             on_finished=lambda: self._release_active(task_id),
-            thread_budget=lambda: self._configured_threads(task_id))
+            thread_budget=lambda: self._configured_threads(task_id),
+            resource_preflight=(lambda: self._typed_resource_preflight(task_id))
+                if (self.settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json').is_file() else None)
         if not submitted:
             with self._lock:
                 self._active.discard(task_id)
         return submitted
+
+    def _typed_resource_preflight(self,task_id):
+        from .resource_preflight import ResourcePreflight
+        return ResourcePreflight(self.settings).inspect(
+            typed_snapshot=self.settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json',
+            threads=self._configured_threads(task_id))
 
     def _configured_threads(self, task_id: str) -> int | None:
         run = self.repository.get_run(task_id)

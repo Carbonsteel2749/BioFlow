@@ -6,6 +6,7 @@ import os
 import re
 import sqlite3
 import stat
+import shutil
 import time
 import uuid
 from contextlib import contextmanager
@@ -25,6 +26,22 @@ CATALOG={'upload_kinds':['reads','contigs','mags','matrix'],
          'limitations':['Unindexed FASTQ/contig/MAG outputs are not discoverable; upload them as project assets.',
                         'Processing declarations remain user_declared_unverified, including reused files.'],
          'source_reference':'asset:<asset_id> or artifact:<artifact_id>'}
+CATALOG.update({'formats':{'reads':['.fastq','.fq','.fastq.gz','.fq.gz'],'contigs':['.fasta','.fa','.fna','.fasta.gz','.fa.gz','.fna.gz'],'mags':['.fasta','.fa','.fna','.fasta.gz','.fa.gz','.fna.gz'],'matrix':['.csv','.tsv']},
+    'feature_types':['species','gene_families','KO','EC','pathway_abundance','pathway_coverage'],
+    'units':['fraction','percent','counts','CPM','RPK','RPKM','TPM','HUMAnN_reported','coverage'],
+    'read_states':['raw','clean','host_removed'],
+    'validator_caps':{'source_bytes':250*1024**3,'expanded_sequence_bytes':250*1024**3,'matrix_rows':2000000,'paired_samples':1024,'mags':10000,'fasta_records':1000000,'sequence_line_bytes':16*1024**2},
+    'storage_note':'导入复制来源文件；转换保留原始证据。执行另有输入副本、工作文件及完整归档；估计不是配额或保证上限。'})
+
+
+class ImportDiagnostic(ValueError):
+    """Only controlled user-recoverable messages cross the worker boundary."""
+
+
+def available_space(root,required,reserve):
+    try:free=shutil.disk_usage(root).free
+    except OSError as exc:raise ImportDiagnostic('无法测量导入存储空间，请稍后重试') from exc
+    if free<required+reserve:raise ImportDiagnostic('导入存储空间不足，请增加可用空间后重新导入；原文件保留')
 
 
 @contextmanager
@@ -103,6 +120,7 @@ class ImportGateway:
     def __init__(self,get_store,input_root,remote):
         self.get_store=get_store;self.input_root=Path(input_root).absolute();self.remote=remote
         self.max_bytes=250*1024**3
+        self.reserve_bytes=max(0,int(os.environ.get('BIOFLOW_IMPORT_MINIMUM_FREE_BYTES',str(10*1024**3))))
         with self.get_store().connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS input_dataset_imports(
               id TEXT PRIMARY KEY,project_id TEXT NOT NULL,user_id TEXT NOT NULL,
@@ -195,8 +213,9 @@ class ImportGateway:
         except Exception:
             self._failed(jid)
 
-    def _failed(self,jid):
-        with self.get_store().connect() as db:db.execute("UPDATE input_dataset_imports SET status='failed',error='导入校验失败：检查文件完整性、类型声明、配对关系与来源权限；已保留暂存文件',updated_at=CURRENT_TIMESTAMP WHERE id=?",(jid,))
+    def _failed(self,jid,message=None):
+        message=message or '导入校验失败：检查文件完整性、类型声明、配对关系与来源权限；已保留暂存文件'
+        with self.get_store().connect() as db:db.execute("UPDATE input_dataset_imports SET status='failed',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(message,jid))
 
     def _run(self,pid,uid,jid):
         try:
@@ -204,13 +223,15 @@ class ImportGateway:
             with self.get_store().connect() as db:
                 if db.execute("UPDATE input_dataset_imports SET status='validating',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'",(jid,)).rowcount!=1:return
             spec=json.loads(job['request_json']);folder=self.input_root/'typed-datasets'/jid
+            sources={row[key]:self.source(pid,uid,row[key]) for row,key in slots(spec)}
+            available_space(self.input_root,sum(s['size_bytes'] for s in sources.values()),self.reserve_bytes)
             folder.mkdir(parents=True,exist_ok=False)
             if folder.resolve()!=folder:raise ValueError('unsafe staging root')
             (folder/'files').mkdir();copied={};provenance=[]
             for row,key in slots(spec):
                 ref=row[key]
                 if ref not in copied:
-                    source=self.source(pid,uid,ref);path=safe_path(source['path'],source['root'])
+                    source=sources[ref];path=safe_path(source['path'],source['root'])
                     before=path.stat();relative='files/'+uuid.uuid4().hex+source['extension'];target=folder/relative
                     digest=hashlib.sha256();size=0
                     flags=os.O_RDONLY|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_BINARY',0)
@@ -220,6 +241,7 @@ class ImportGateway:
                         while block:=handle.read(4*1024*1024):
                             size+=len(block)
                             if size>self.max_bytes:raise ValueError('source too large')
+                            available_space(self.input_root,len(block),self.reserve_bytes)
                             digest.update(block);out.write(block)
                         out.flush();os.fsync(out.fileno())
                     after=path.stat()
@@ -228,10 +250,13 @@ class ImportGateway:
                     provenance.append({k:v for k,v in source.items() if k not in ('path','root','extension')}|{'staged_file':relative})
                 row[key]=copied[ref]
             with self.get_store().connect() as db:db.execute('UPDATE input_dataset_imports SET provenance_json=? WHERE id=?',(json.dumps(provenance),jid))
-            record=self.remote('POST','/api/input-datasets/register',{'dataset_id':jid,'spec':spec})
+            origin={'authority':'owned_import_gateway','sources':provenance,'conversion':None}
+            record=self.remote('POST','/api/input-datasets/register',{'dataset_id':jid,'spec':spec,'origin':origin})
             self.owner(pid,uid)
             store=self.get_store();store.claim('input_dataset',jid,uid);store.link(pid,'input_dataset',jid)
             with store.connect() as db:db.execute("UPDATE input_dataset_imports SET status='ready',record_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='validating'",(json.dumps(record),jid))
+        except ImportDiagnostic as exc:
+            self._failed(jid,str(exc))
         except Exception:
             self._failed(jid)
 
@@ -246,14 +271,20 @@ class ImportGateway:
                 source=self.source(pid,uid,ref)
                 rows.append({k:v for k,v in source.items() if k not in ('path','root','extension')})
             except (HTTPException,OSError,KeyError,ValueError):continue
-        return {'items':rows,'catalog':CATALOG}
+        return {'items':rows,'catalog':CATALOG,'storage':{'reserve_bytes':self.reserve_bytes,'all_candidate_source_bytes':sum(row['size_bytes'] for row in rows),'estimate_scope':'sum selected unique source IDs for import copies; conversion and execution require additional copies'}}
 
 
 def install(router,get_store,check_project,urls,gateway=None):
     def remote(method,path,payload=None):
         with httpx.Client(timeout=httpx.Timeout(86400,connect=5),trust_env=False) as client:
             response=client.request(method,urls['analysis']+path,json=payload)
-        if response.is_error:raise HTTPException(response.status_code,'输入数据校验失败')
+        if response.is_error:
+            if response.status_code in (409,422):
+                try:detail=response.json().get('detail')
+                except ValueError:detail=None
+                if isinstance(detail,dict) and detail.get('code') in ('input_contract_invalid','input_immutable') and isinstance(detail.get('message'),str):
+                    raise ImportDiagnostic(detail['message'][:512])
+            raise HTTPException(response.status_code,'输入数据校验失败')
         return response.json()
     gateway=gateway or ImportGateway(get_store,assets.analysis_root()/'runtime/incoming',remote)
     def who(pid,request):

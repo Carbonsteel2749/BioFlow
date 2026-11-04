@@ -239,3 +239,67 @@ def test_lock_open_failure_persists_failed_job(gateway,monkeypatch):
     with store.connect() as db:db.execute("INSERT INTO input_dataset_imports(id,project_id,user_id,idempotency_key,request_json,status) VALUES('openfail',?,'alice','openfail','{}','queued')",(pid,))
     g.run(pid,'alice','openfail')
     assert g.status(pid,'alice','openfail')['status']=='failed'
+
+
+@pytest.mark.parametrize('stage',['before','during','unavailable'])
+def test_import_space_guards_keep_originals(gateway,monkeypatch,stage):
+    from bioflow_platform import input_datasets as module
+    g,store,c,base,path,other=gateway
+    original=path.read_bytes();observations=[]
+    def disk(root):
+        observations.append(root)
+        if stage=='unavailable':raise OSError('private /secret/location')
+        return SimpleNamespace(free=(g.reserve_bytes+100 if stage=='during' and len(observations)==1 else 0))
+    monkeypatch.setattr(module.shutil,'disk_usage',disk)
+    r=c.post(base,json=payload('space'));assert r.status_code==202
+    row=finish(c,base,r.json()['id']);assert row['status']=='failed'
+    assert '存储空间' in row['error'] and '/secret' not in row['error']
+    assert path.read_bytes()==original
+    if stage in ('before','unavailable'):assert not (g.input_root/'typed-datasets'/row['id']).exists()
+
+
+def test_browser_origin_forgery_is_rejected(gateway):
+    g,store,c,base,path,other=gateway
+    p=payload();p['origin']={'authority':'owned_import_gateway'}
+    assert c.post(base,json=p).status_code==422
+    p=payload();p['spec']['origin']={'authority':'owned_import_gateway'}
+    assert c.post(base,json=p).status_code==422
+
+
+def test_zero_byte_source_is_not_a_valid_space_estimate(gateway):
+    g,store,c,base,path,other=gateway
+    path.write_bytes(b'')
+    with store.connect() as db:db.execute('UPDATE assets SET size_bytes=0,sha256=?',(hashlib.sha256(b'').hexdigest(),))
+    assert c.post(base,json=payload()).status_code==409
+    assert not c.get(base+'/candidates').json()['items']
+
+
+def test_specific_private_validation_message_without_paths(tmp_path):
+    service,c=engine(tmp_path);folder=service.root/'bad';folder.mkdir(parents=True)
+    (folder/'a.fa').write_bytes(b'>protein\nEFILPQ\n')
+    r=c.post('/api/input-datasets/register',json={'dataset_id':'bad','spec':{'kind':'contigs','cohort_id':'c','fasta':'a.fa'}})
+    assert r.status_code==422
+    assert r.json()['detail']['code']=='input_contract_invalid'
+    assert '核酸' in r.json()['detail']['message']
+    assert str(tmp_path) not in r.text
+
+
+def test_production_http_adapter_preserves_controlled_worker_diagnostic(gateway,monkeypatch):
+    from bioflow_platform import input_datasets as module,assets
+    g,store,c,base,path,other=gateway
+    service,private=engine(g.input_root.parent)
+    class Client:
+        def __init__(self,**kwargs):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def request(self,method,url,json=None):return private.request(method,url.replace('http://engine',''),json=json)
+    monkeypatch.setattr(module.httpx,'Client',Client)
+    monkeypatch.setattr(assets,'analysis_root',lambda:g.input_root.parent)
+    production=module.install(APIRouter(),lambda:store,lambda *args:None,{'analysis':'http://engine'})
+    g.remote=production.remote
+    data=b'>protein\nEFILPQ\n';path.write_bytes(data)
+    with store.connect() as db:db.execute('UPDATE assets SET size_bytes=?,sha256=? WHERE id=?',(len(data),hashlib.sha256(data).hexdigest(),'a'))
+    r=c.post(base,json=payload('invalid-fasta'));row=finish(c,base,r.json()['id'])
+    assert row['status']=='failed'
+    assert '核酸' in row['error']
+    assert str(path) not in row['error']

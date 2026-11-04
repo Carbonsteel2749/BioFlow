@@ -33,6 +33,8 @@ async def authorize(store,service,path,request,fetch):
     if (service,path) in LISTS:
         if method=='POST':
             body=await request.json()
+            if service=='analysis' and path=='api/workflows/runs' and body.get('input_bindings'):
+                raise HTTPException(403,'类型化输入须通过项目分析入口绑定')
             if service=='analysis':
                 if user['role']!='developer':
                     manifests={m.get('manifest_path') for m in store.resource_metadata('dataset',user['id'])}
@@ -64,7 +66,10 @@ async def authorize(store,service,path,request,fetch):
         allowed(store,'kb',parts[2],user);return
     if service=='analysis' and len(parts)>=3 and parts[:2]==['api','artifacts']:
         result=await fetch['call']('analysis','/api/artifacts/'+parts[2])
-        allowed(store,'task',result.get('task_id',''),user);return
+        producer=result.get('task_id','')
+        if not (store.owns('task',producer,user['id']) or store.owns('workflow',producer,user['id'])):
+            raise HTTPException(404,'记录不存在或不属于当前账户')
+        return
     if service=='analysis' and path=='api/uploads/files' and method=='POST':
         return
     if service=='analysis' and path=='api/uploads/manifests' and method=='POST':

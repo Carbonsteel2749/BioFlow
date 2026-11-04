@@ -54,6 +54,7 @@ class Matrix(Common):
 class Registration(StrictModel):
     dataset_id: str = Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
     spec: Annotated[Reads | Contigs | Mags | Matrix, Field(discriminator='kind')]
+    origin: dict | None = None
 
 
 def create_input_dataset_router(service):
@@ -70,10 +71,11 @@ def create_input_dataset_router(service):
 
     @router.post('/register',status_code=201)
     def register(body:Registration):
-        try:return service.register(body.dataset_id,body.spec.model_dump(exclude_unset=True))
+        try:return service.register(body.dataset_id,body.spec.model_dump(exclude_unset=True),origin=body.origin)
         except InputContractError as exc:
             conflict='不可变' in str(exc) or '冲突' in str(exc)
-            raise HTTPException(409 if conflict else 422,'输入不可变，请新建数据集' if conflict else '输入文件或类型声明校验失败') from exc
+            raise HTTPException(409 if conflict else 422,{'code':'input_immutable' if conflict else 'input_contract_invalid',
+                'message':'输入不可变，请新建数据集' if conflict else str(exc)[:512]}) from exc
         except OSError as exc:raise HTTPException(409,'输入文件不可读取') from exc
 
     @router.get('/{dataset_id}')
