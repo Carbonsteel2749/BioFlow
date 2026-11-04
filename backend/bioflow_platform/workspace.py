@@ -29,8 +29,11 @@ def install(app,get_store,check_project,call,urls):
     install_analysis(router,get_store,check_project,call,files)
     from .unified_workflows import install as install_workflows
     install_workflows(router,get_store,check_project,call)
+    from .input_datasets import install as install_input_datasets
+    input_imports=install_input_datasets(router,get_store,check_project,urls)
 
     async def recover_interrupted():
+        await asyncio.to_thread(input_imports.recover)
         with get_store().connect() as db:
             db.execute("UPDATE project_uploads SET status='paused',error='服务重启中断了校验，请选择原文件继续；已传分片保留' WHERE status='finalizing'")
             db.execute("UPDATE assistant_runs SET status='waiting_input',result=?,updated_at=CURRENT_TIMESTAMP WHERE status IN ('queued','planning','running')",

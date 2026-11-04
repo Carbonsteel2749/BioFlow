@@ -12,6 +12,15 @@ from pathlib import Path
 
 from ..workflows.input_contracts import InputContractError, SAFE_ID, validate_input_contract
 
+MAX_CONTRACT_BYTES = 4 * 1024 * 1024
+MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
+
+
+def _serialized(value,limit,label):
+    data=json.dumps(value,ensure_ascii=False,allow_nan=False,sort_keys=True).encode('utf-8')
+    if len(data)>limit:raise InputContractError(label+'超过字节上限')
+    return data
+
 
 def _digest(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
@@ -53,10 +62,11 @@ class InputDatasetService:
         contract=validate_input_contract(spec,folder)
         record={'dataset_id':dataset_id,'spec':spec,'contract':contract}
         record['record_sha256']=_digest(record)
+        serialized=_serialized(record,MAX_CONTRACT_BYTES,'输入契约')
         # Exclusive publication: concurrent registration cannot replace a dataset.
         try:
-            with target.open('x',encoding='utf-8') as f:
-                json.dump(record,f,ensure_ascii=False,allow_nan=False,sort_keys=True);f.flush();os.fsync(f.fileno())
+            with target.open('xb') as f:
+                f.write(serialized);f.flush();os.fsync(f.fileno())
         except FileExistsError:
             existing=self.get(dataset_id)
             if existing!=record:raise InputContractError('已登记输入不可变；并发登记发生冲突')
@@ -64,7 +74,7 @@ class InputDatasetService:
 
     def get(self,dataset_id:str)->dict:
         folder=self._folder(dataset_id);path=folder/'contract.json';_regular(path,self.root)
-        if path.stat().st_size>4*1024*1024:raise InputContractError('输入契约过大')
+        if path.stat().st_size>MAX_CONTRACT_BYTES:raise InputContractError('输入契约超过字节上限')
         try:record=json.loads(path.read_text(encoding='utf-8'))
         except (ValueError,OSError,UnicodeError) as e:raise InputContractError('输入契约校验失败') from e
         actual={k:v for k,v in record.items() if k!='record_sha256'}
@@ -88,19 +98,20 @@ class InputDatasetService:
             records[node]={'dataset_id':dataset_id,'contract':record['contract'],'manifest_sha256':record['contract']['manifest_sha256']}
         body={'schema_version':'1.0','task_id':task_id,'bindings':records}
         body['snapshot_sha256']=_digest(body)
+        serialized=_serialized(body,MAX_SNAPSHOT_BYTES,'输入快照')
         folder=self.settings.state_root.absolute()/'workflow_runs'/task_id/'inputs'
         if folder.exists() and folder.resolve()!=folder.absolute():raise InputContractError('任务输入快照目录不安全')
         folder.mkdir(parents=True,exist_ok=True)
         if folder.resolve()!=folder.absolute():raise InputContractError('任务输入快照目录不安全')
         target=folder/'bindings.json'
         try:
-            with target.open('x',encoding='utf-8') as f:json.dump(body,f,ensure_ascii=False,sort_keys=True,allow_nan=False)
+            with target.open('xb') as f:f.write(serialized);f.flush();os.fsync(f.fileno())
         except FileExistsError as e:raise InputContractError('任务输入快照已存在，不允许替换历史') from e
         return target
 
     def verify_snapshot(self,path:Path)->dict:
         path=Path(path).absolute();_regular(path,self.settings.state_root/'workflow_runs')
-        if path.stat().st_size>16*1024*1024:raise InputContractError('任务输入快照过大')
+        if path.stat().st_size>MAX_SNAPSHOT_BYTES:raise InputContractError('任务输入快照超过字节上限')
         try:body=json.loads(path.read_text(encoding='utf-8'))
         except (ValueError,OSError) as e:raise InputContractError('任务输入快照校验失败') from e
         if body.get('snapshot_sha256')!=_digest({k:v for k,v in body.items() if k!='snapshot_sha256'}):raise InputContractError('任务输入快照校验失败')

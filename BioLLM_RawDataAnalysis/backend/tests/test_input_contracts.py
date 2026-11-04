@@ -105,3 +105,39 @@ def test_matrix_duplicate_keys_and_mixed_units_rejected(tmp_path):
 def test_input_paths_cannot_escape_or_follow_symlinks(tmp_path):
     spec=reads(tmp_path);spec['samples'][0]['read1']='../outside.fastq'
     with pytest.raises(InputContractError):validate_input_contract(spec,tmp_path)
+
+
+@pytest.mark.parametrize('unit,value',[('counts','1.00000000000000001'),('fraction','1.00000000000000001'),('fraction','-1e-1000')])
+def test_numeric_contract_checks_original_decimal_not_float_rounding(tmp_path,unit,value):
+    spec=matrix(tmp_path,unit);put(tmp_path,'abundance.tsv',f'sample_id\tfeature_id\tvalue\na\tsp1\t{value}\n')
+    with pytest.raises(InputContractError):validate_input_contract(spec,tmp_path)
+
+
+def test_header_without_id_is_a_validation_error(tmp_path):
+    spec=reads(tmp_path);put(tmp_path,'s_R1.fastq','@\nACGT\n+\nIIII\n')
+    with pytest.raises(InputContractError):validate_input_contract(spec,tmp_path)
+
+
+def test_decompressed_lines_and_fasta_duplicate_index_have_explicit_limits(tmp_path,monkeypatch):
+    from backend.app.workflows import input_contracts as module
+    monkeypatch.setattr(module,'MAX_SEQUENCE_LINE',8,raising=False)
+    spec=reads(tmp_path);put(tmp_path,'s_R1.fastq','@p1/1\n'+'A'*20+'\n+\n'+'I'*20+'\n')
+    with pytest.raises(InputContractError,match='上限'):validate_input_contract(spec,tmp_path)
+    monkeypatch.setattr(module,'MAX_FASTA_RECORDS',1,raising=False)
+    put(tmp_path,'contigs.fa','>a\nACGT\n>b\nACGT\n')
+    with pytest.raises(InputContractError,match='上限'):validate_input_contract({'kind':'contigs','cohort_id':'joint','fasta':'contigs.fa'},tmp_path)
+
+
+@pytest.mark.parametrize('limit,value',[('MAX_SEQUENCE_HEADER',4),('MAX_SEQUENCE_ID',2),('MAX_EXPANDED_BYTES',12),('MAX_FASTA_ID_BYTES',2)])
+def test_fasta_gzip_header_expansion_and_id_index_limits(tmp_path,monkeypatch,limit,value):
+    from backend.app.workflows import input_contracts as module
+    monkeypatch.setattr(module,limit,value)
+    (tmp_path/'c.fa.gz').write_bytes(gzip.compress(b'>contig1\nACGT\n'))
+    with pytest.raises(InputContractError,match='上限'):
+        validate_input_contract({'kind':'contigs','cohort_id':'c','fasta':'c.fa.gz'},tmp_path)
+
+
+@pytest.mark.parametrize('value',['sNaN','Infinity','-Infinity'])
+def test_decimal_nonfinite_values_are_validation_errors(tmp_path,value):
+    spec=matrix(tmp_path);put(tmp_path,'abundance.tsv',f'sample_id\tfeature_id\tvalue\na\tsp1\t{value}\n')
+    with pytest.raises(InputContractError):validate_input_contract(spec,tmp_path)

@@ -20,6 +20,11 @@ async def authorize(store,service,path,request,fetch):
     user=request.state.user
     method=request.method
     parts=path.split('/')
+    if service=='analysis' and parts[:2]==['api','input-datasets']:
+        if method=='GET' and parts==['api','input-datasets','contracts']:return
+        if method=='GET' and len(parts)==3 and parts[2]!='register':
+            allowed(store,'input_dataset',parts[2],user);return
+        raise HTTPException(403,'请通过项目数据导入入口操作')
     if service=='analysis' and parts[:3]==['api','workflows','templates'] and len(parts)>3:
         tid=parts[3]
         if tid.startswith('builtin-') and method=='GET':return

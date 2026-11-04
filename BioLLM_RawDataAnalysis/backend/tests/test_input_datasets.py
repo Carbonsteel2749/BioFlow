@@ -49,3 +49,16 @@ def test_snapshot_validates_node_ids_and_never_replaces_existing_history(tmp_pat
     first=service.snapshot({'x':'abc123'},'task1')
     with pytest.raises(InputContractError,match='已存在'):service.snapshot({'y':'abc123'},'task1')
     assert 'x' in json.loads(first.read_text())['bindings']
+
+
+def test_oversize_contract_is_not_published_and_oversize_snapshot_not_written(tmp_path,monkeypatch):
+    from backend.app.services import input_datasets as module
+    service,folder,spec=setup(tmp_path)
+    monkeypatch.setattr(module,'MAX_CONTRACT_BYTES',20,raising=False)
+    with pytest.raises(InputContractError,match='上限'):service.register('abc123',spec)
+    assert not (folder/'contract.json').exists()
+    monkeypatch.setattr(module,'MAX_CONTRACT_BYTES',4*1024*1024)
+    service.register('abc123',spec)
+    monkeypatch.setattr(module,'MAX_SNAPSHOT_BYTES',20,raising=False)
+    with pytest.raises(InputContractError,match='上限'):service.snapshot({'x':'abc123'},'task1')
+    assert not (service.settings.state_root/'workflow_runs/task1/inputs/bindings.json').exists()

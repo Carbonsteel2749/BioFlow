@@ -10,6 +10,8 @@ from .config import Settings
 from .models import TaskRepository
 from .routes.artifacts import create_artifact_router
 from .routes.datasets import create_dataset_router
+from .routes.input_datasets import create_input_dataset_router
+from .services.input_datasets import InputDatasetService
 from .routes.resources import create_resource_router
 from .routes.task_repairs import create_task_repair_router
 from .services.datasets import DatasetService
@@ -150,6 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(create_sample_metadata_router(sample_metadata_service))
     app.include_router(create_resumable_upload_router(resumable_upload_service))
     app.include_router(create_dataset_router(dataset_service))
+    app.include_router(create_input_dataset_router(InputDatasetService(settings)))
     app.include_router(create_resource_router(scheduler, settings))
     app.include_router(create_runtime_router(settings))
     app.include_router(create_task_repair_router(task_repair_service, repository))

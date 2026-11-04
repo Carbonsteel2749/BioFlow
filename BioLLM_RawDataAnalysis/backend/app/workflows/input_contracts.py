@@ -9,8 +9,8 @@ import csv
 import gzip
 import hashlib
 import itertools
-import math
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
@@ -24,6 +24,25 @@ FEATURE_TYPES = ('species', 'gene_families', 'KO', 'EC', 'pathway_abundance', 'p
 UNITS = ('fraction', 'percent', 'counts', 'CPM', 'RPK', 'RPKM', 'TPM', 'HUMAnN_reported', 'coverage')
 READ_STATES = {'raw':'paired_raw_reads', 'clean':'paired_clean_reads', 'host_removed':'paired_host_removed_reads'}
 MAX_MATRIX_ROWS = 2_000_000
+MAX_SEQUENCE_LINE = 16 * 1024 * 1024
+MAX_SEQUENCE_HEADER = 4096
+MAX_SEQUENCE_ID = 512
+MAX_FASTA_RECORDS = 1_000_000
+MAX_FASTA_ID_BYTES = 64 * 1024 * 1024
+MAX_EXPANDED_BYTES = 250 * 1024**3
+
+
+class _SequenceLines:
+    """Bound allocations before decompression output reaches a Python string."""
+    def __init__(self,handle):self.handle=handle;self.total=0
+
+    def readline(self,limit=None):
+        limit=MAX_SEQUENCE_LINE if limit is None else limit
+        line=self.handle.readline(limit+3)
+        self.total+=len(line)
+        if len(line.rstrip('\r\n'))>limit:raise InputContractError('序列单行长度超过校验上限')
+        if self.total>MAX_EXPANDED_BYTES:raise InputContractError('序列解压内容超过校验上限')
+        return line
 
 
 def _identifier(value, label):
@@ -82,13 +101,17 @@ def _open(path):
 def _fastq_records(path,mate):
     try:
         with _open(path) as f:
+            f=_SequenceLines(f)
             while True:
-                header=f.readline()
+                header=f.readline(MAX_SEQUENCE_HEADER)
                 if not header:break
-                seq=f.readline().rstrip('\r\n');plus=f.readline();quality=f.readline().rstrip('\r\n')
+                seq=f.readline().rstrip('\r\n');plus=f.readline(MAX_SEQUENCE_HEADER);quality=f.readline().rstrip('\r\n')
                 if not header.startswith('@') or not plus.startswith('+') or not seq or not set(seq)<=NUCLEOTIDES or len(seq)!=len(quality) or any(not 33<=ord(q)<=126 for q in quality):
                     raise InputContractError('FASTQ 记录不完整或序列/质量格式错误')
-                token=header[1:].split()[0]
+                tokens=header[1:].split()
+                if not tokens:raise InputContractError('FASTQ read ID 为空')
+                token=tokens[0]
+                if len(token)>MAX_SEQUENCE_ID:raise InputContractError('FASTQ read ID 长度超过校验上限')
                 if token.endswith(('/1','/2')):
                     if token[-1]!=str(mate):raise InputContractError('FASTQ 配对方向与 R1/R2 不一致')
                     token=token[:-2]
@@ -98,15 +121,20 @@ def _fastq_records(path,mate):
 
 
 def _fasta(path):
-    ids=set();current=None;length=0;total=0
+    ids=set();current=None;length=0;total=0;id_bytes=0
     try:
         with _open(path) as f:
-            for line in f:
+            lines=_SequenceLines(f)
+            while line:=lines.readline():
                 line=line.strip()
                 if not line:continue
                 if line.startswith('>'):
+                    if len(line)>MAX_SEQUENCE_HEADER:raise InputContractError('FASTA 标题长度超过校验上限')
                     if current is not None and length==0:raise InputContractError('FASTA 存在空序列')
                     tokens=line[1:].split();current=tokens[0] if tokens else ''
+                    id_bytes+=len(current)
+                    if len(current)>MAX_SEQUENCE_ID or len(ids)>=MAX_FASTA_RECORDS or id_bytes>MAX_FASTA_ID_BYTES:
+                        raise InputContractError('FASTA ID 长度、数量或索引大小超过校验上限')
                     if not current or current in ids:raise InputContractError('FASTA 序列 ID 为空或重复')
                     ids.add(current);length=0
                 else:
@@ -137,11 +165,11 @@ def _matrix(spec,files):
                 if None in row or any(v is None for v in row.values()):raise InputContractError('矩阵列数不一致')
                 if (sample,fid) in keys:raise InputContractError('矩阵 sample_id + feature_id 重复')
                 keys.add((sample,fid));samples.add(sample)
-                try:value=float(row['value'])
-                except (ValueError,TypeError) as e:raise InputContractError('矩阵值不是数值') from e
-                if not math.isfinite(value) or value<0:raise InputContractError('矩阵值必须是非负有限数值')
+                try:value=Decimal(row['value'])
+                except (InvalidOperation,ValueError,TypeError) as e:raise InputContractError('矩阵值不是数值') from e
+                if not value.is_finite() or value<0:raise InputContractError('矩阵值必须是非负有限数值')
                 if unit in ('fraction','coverage') and value>1 or unit=='percent' and value>100:raise InputContractError('矩阵数值超出明确单位允许范围')
-                if unit=='counts' and not value.is_integer():raise InputContractError('counts 必须为整数计数')
+                if unit=='counts' and value!=value.to_integral_value():raise InputContractError('counts 必须为整数计数')
                 if 'unit' in row and row['unit']!=unit:raise InputContractError('矩阵含不同单位或与声明单位不一致')
     except (UnicodeError,OSError,csv.Error) as e:raise InputContractError('矩阵文件无法完整读取') from e
     if count==0:raise InputContractError('矩阵没有数据行')
