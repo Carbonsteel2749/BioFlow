@@ -72,15 +72,25 @@ class InputDatasetService:
             if existing!=record:raise InputContractError('已登记输入不可变；并发登记发生冲突')
         return record
 
-    def get(self,dataset_id:str)->dict:
+    def metadata(self,dataset_id:str)->dict:
+        """Bounded contract-only read; does not attest current data-file integrity."""
         folder=self._folder(dataset_id);path=folder/'contract.json';_regular(path,self.root)
         if path.stat().st_size>MAX_CONTRACT_BYTES:raise InputContractError('输入契约超过字节上限')
-        try:record=json.loads(path.read_text(encoding='utf-8'))
+        try:
+            with path.open('rb') as handle:data=handle.read(MAX_CONTRACT_BYTES+1)
+            if len(data)>MAX_CONTRACT_BYTES:raise InputContractError('输入契约超过字节上限')
+            record=json.loads(data.decode('utf-8'))
         except (ValueError,OSError,UnicodeError) as e:raise InputContractError('输入契约校验失败') from e
         actual={k:v for k,v in record.items() if k!='record_sha256'}
         if record.get('record_sha256')!=_digest(actual) or record.get('dataset_id')!=dataset_id:raise InputContractError('输入契约校验失败')
         contract=record.get('contract',{});basis={k:v for k,v in contract.items() if k!='manifest_sha256'}
         if contract.get('manifest_sha256')!=_digest(basis):raise InputContractError('输入 manifest 校验失败')
+        return record
+
+    def get(self,dataset_id:str)->dict:
+        """Full data SHA verification, mandatory for snapshots and execution checks."""
+        record=self.metadata(dataset_id);folder=self._folder(dataset_id)
+        contract=record['contract']
         for entry in contract.get('files',[]):
             name=entry.get('path')
             if not isinstance(name,str) or Path(name).is_absolute() or '..' in Path(name).parts:raise InputContractError('输入文件校验路径不合法')

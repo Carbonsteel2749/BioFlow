@@ -81,6 +81,7 @@ def create_input_dataset_router(service):
         from ..workflows.input_contracts import SAFE_ID
         if not SAFE_ID.fullmatch(dataset_id):raise HTTPException(422,'数据集标识无效')
         if not (service.root/dataset_id/'contract.json').is_file():raise HTTPException(404,'数据集不存在')
-        try:return service.get(dataset_id)
+        try:return {**service.metadata(dataset_id),'file_integrity':{'state':'not_rechecked',
+            'verified_at':'registration','full_verification_required_before_execution':True}}
         except (InputContractError,OSError) as exc:raise HTTPException(409,'数据集完整性校验失败') from exc
     return router

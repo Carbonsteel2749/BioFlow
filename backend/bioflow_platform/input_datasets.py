@@ -1,5 +1,6 @@
 """Owned, immutable imports. Only opaque source identifiers cross the UI boundary."""
 import hashlib
+import errno
 import json
 import os
 import re
@@ -46,6 +47,9 @@ def import_lock(root,blocking=True):
                     fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
                 break
             except OSError as exc:
+                contention=(exc.errno in {errno.EACCES,errno.EAGAIN,errno.EWOULDBLOCK}
+                            and (os.name!='nt' or getattr(exc,'winerror',None) in (None,33)))
+                if not contention:raise
                 if not blocking:raise BlockingIOError('input import active') from exc
                 time.sleep(.25)
         try:yield
@@ -65,7 +69,7 @@ def slots(spec):
     """Strict shape validation; engine remains authoritative for file contents."""
     kind=spec.get('kind');fields={'reads':{'processing_status','samples'},'contigs':{'cohort_id','fasta'},
                                 'mags':{'cohort_id','mags'},'matrix':{'table','feature_type','unit','normalization'}}
-    if kind not in fields or set(spec)-fields[kind]-{'kind','processing_note','confirmed'}:
+    if not isinstance(kind,str) or kind not in fields or set(spec)-fields[kind]-{'kind','processing_note','confirmed'}:
         raise HTTPException(422,'输入类型或字段无效')
     if 'confirmed' in spec and type(spec['confirmed']) is not bool:raise HTTPException(422,'确认字段须为布尔值')
     if kind=='reads':
@@ -186,7 +190,13 @@ class ImportGateway:
         return self.public(self.status(pid,uid,jid))
 
     def run(self,pid,uid,jid):
-        with import_lock(self.input_root):self._run(pid,uid,jid)
+        try:
+            with import_lock(self.input_root):self._run(pid,uid,jid)
+        except Exception:
+            self._failed(jid)
+
+    def _failed(self,jid):
+        with self.get_store().connect() as db:db.execute("UPDATE input_dataset_imports SET status='failed',error='导入校验失败：检查文件完整性、类型声明、配对关系与来源权限；已保留暂存文件',updated_at=CURRENT_TIMESTAMP WHERE id=?",(jid,))
 
     def _run(self,pid,uid,jid):
         try:
@@ -223,7 +233,7 @@ class ImportGateway:
             store=self.get_store();store.claim('input_dataset',jid,uid);store.link(pid,'input_dataset',jid)
             with store.connect() as db:db.execute("UPDATE input_dataset_imports SET status='ready',record_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='validating'",(json.dumps(record),jid))
         except Exception:
-            with self.get_store().connect() as db:db.execute("UPDATE input_dataset_imports SET status='failed',error='导入校验失败：检查文件完整性、类型声明、配对关系与来源权限；已保留暂存文件',updated_at=CURRENT_TIMESTAMP WHERE id=?",(jid,))
+            self._failed(jid)
 
     def candidates(self,pid,uid):
         self.owner(pid,uid);store=self.get_store()
@@ -263,5 +273,8 @@ def install(router,get_store,check_project,urls,gateway=None):
     def detail(pid:str,jid:str,request:Request):
         row=gateway.status(pid,who(pid,request),jid)
         if row['status']!='ready':raise HTTPException(409,'输入尚未通过校验')
-        return gateway.remote('GET','/api/input-datasets/'+jid)
+        # Interactive reads show immutable import-time metadata, never scan large files.
+        record=json.loads(row['record_json'])
+        return {**record,'file_integrity':{'state':'not_rechecked','verified_at':'registration',
+            'import_completed_at':row['updated_at'],'full_verification_required_before_execution':True}}
     return gateway

@@ -180,12 +180,12 @@ def validate_input_contract(spec:dict,root:Path)->dict:
     common={'kind','processing_note','confirmed'}
     fields={'reads':{'processing_status','samples'},'contigs':{'cohort_id','fasta'},'mags':{'cohort_id','mags'},'matrix':{'table','feature_type','unit','normalization'}}
     kind=spec.get('kind') if isinstance(spec,dict) else None
-    if kind not in fields:raise InputContractError('输入类型未登记')
+    if not isinstance(kind,str) or kind not in fields:raise InputContractError('输入类型未登记')
     _allowed(spec,common|fields[kind]);files=_Files(root)
     result={'schema_version':'1.0','kind':kind,'trust':'external_unverified'}
     if kind=='reads':
         stage=spec.get('processing_status','raw')
-        if stage not in READ_STATES:raise InputContractError('reads 处理状态无效')
+        if not isinstance(stage,str) or stage not in READ_STATES:raise InputContractError('reads 处理状态无效')
         if stage!='raw':
             result['processing_note']=_text(spec.get('processing_note'),'处理说明')
             if spec.get('confirmed') is not True:raise InputContractError('外部处理声明必须二次确认')

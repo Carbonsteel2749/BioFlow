@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / 'BioLLM_RawDataAnalysis'))
 def engine(tmp_path):
     from backend.app.services.input_datasets import InputDatasetService
     from backend.app.routes.input_datasets import create_input_dataset_router
-    service = InputDatasetService(SimpleNamespace(input_root=tmp_path/'incoming'))
+    service = InputDatasetService(SimpleNamespace(input_root=tmp_path/'incoming',state_root=tmp_path/'state'))
     app = FastAPI(); app.include_router(create_input_dataset_router(service))
     return service, TestClient(app)
 
@@ -162,12 +162,20 @@ def test_registered_artifact_reuse_checks_task_owner_and_success(gateway,monkeyp
     body['idempotency_key']='failed';assert c.post(base,json=body).status_code==404
 
 
-def test_staged_file_mutation_invalidates_detail(gateway):
+def test_detail_is_import_metadata_but_execution_still_rechecks(gateway,monkeypatch):
+    from backend.app.services.input_datasets import InputDatasetService
+    from backend.app.workflows.input_contracts import InputContractError
     g,store,c,base,path,other=gateway
     jid=c.post(base,json=payload()).json()['id'];assert finish(c,base,jid)['status']=='ready'
     record=c.get(base+'/'+jid).json();staged=g.input_root/'typed-datasets'/jid/record['spec']['fasta']
     staged.write_text('>c\nTTTT\n')
-    assert c.get(base+'/'+jid).status_code==409
+    def no_remote(*args,**kwargs):raise AssertionError('interactive detail must not call engine')
+    monkeypatch.setattr(g,'remote',no_remote)
+    response=c.get(base+'/'+jid)
+    assert response.status_code==200
+    assert response.json()['file_integrity']['state']=='not_rechecked'
+    service=InputDatasetService(SimpleNamespace(input_root=g.input_root,state_root=g.input_root.parent/'state'))
+    with pytest.raises(InputContractError,match='SHA'):service.snapshot({'input':jid},'run1')
 
 
 def test_import_process_lock_excludes_other_gateway(gateway):
@@ -176,3 +184,58 @@ def test_import_process_lock_excludes_other_gateway(gateway):
     with import_lock(g.input_root):
         with pytest.raises(BlockingIOError):
             with import_lock(g.input_root,blocking=False):pass
+
+
+def test_private_get_never_hashes_data_files(tmp_path,monkeypatch):
+    from backend.app.services import input_datasets as module
+    service,c=engine(tmp_path)
+    folder=service.root/'one';folder.mkdir(parents=True);(folder/'c.fa').write_text('>c\nACGT\n')
+    service.register('one',{'kind':'contigs','cohort_id':'c','fasta':'c.fa'})
+    def forbidden(path):raise AssertionError('full data hash on interactive GET')
+    monkeypatch.setattr(module,'_file_sha',forbidden)
+    response=c.get('/api/input-datasets/one')
+    assert response.status_code==200
+    assert response.json()['file_integrity']['state']=='not_rechecked'
+
+
+@pytest.mark.parametrize('kind',[[],{},1,None])
+def test_invalid_kind_is_422_in_gateway_and_validation_error_in_core(gateway,kind):
+    from backend.app.workflows.input_contracts import validate_input_contract,InputContractError
+    g,store,c,base,path,other=gateway
+    assert c.post(base,json={'idempotency_key':'invalid','spec':{'kind':kind}}).status_code==422
+    with pytest.raises(InputContractError):validate_input_contract({'kind':kind},path.parent)
+
+
+@pytest.mark.parametrize('code_name',['EIO','ENOLCK'])
+def test_permanent_lock_errors_do_not_retry_and_job_fails(gateway,monkeypatch,code_name):
+    import errno,os
+    from bioflow_platform import input_datasets as module
+    g,store,c,base,path,other=gateway
+    def broken(*args):raise OSError(getattr(errno,code_name),'controlled permanent error')
+    if os.name=='nt':
+        import msvcrt
+        monkeypatch.setattr(msvcrt,'locking',broken)
+    else:
+        import fcntl
+        monkeypatch.setattr(fcntl,'flock',broken)
+    def no_sleep(*args):raise AssertionError('permanent lock error retried')
+    monkeypatch.setattr(module.time,'sleep',no_sleep)
+    with pytest.raises(OSError) as exc:
+        with module.import_lock(g.input_root):pass
+    assert exc.value.errno==getattr(errno,code_name)
+    pid=base.split('/')[3]
+    with store.connect() as db:db.execute("INSERT INTO input_dataset_imports(id,project_id,user_id,idempotency_key,request_json,status) VALUES('lockfail',?,'alice','lockfail','{}','queued')",(pid,))
+    g.run(pid,'alice','lockfail')
+    assert g.status(pid,'alice','lockfail')['status']=='failed'
+
+
+def test_lock_open_failure_persists_failed_job(gateway,monkeypatch):
+    g,store,c,base,path,other=gateway;pid=base.split('/')[3]
+    original=Path.open
+    def broken(self,*args,**kwargs):
+        if self.name=='.typed-import.lock':raise PermissionError('controlled lock open failure')
+        return original(self,*args,**kwargs)
+    monkeypatch.setattr(Path,'open',broken)
+    with store.connect() as db:db.execute("INSERT INTO input_dataset_imports(id,project_id,user_id,idempotency_key,request_json,status) VALUES('openfail',?,'alice','openfail','{}','queued')",(pid,))
+    g.run(pid,'alice','openfail')
+    assert g.status(pid,'alice','openfail')['status']=='failed'
