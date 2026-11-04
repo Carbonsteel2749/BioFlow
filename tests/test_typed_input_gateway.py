@@ -156,7 +156,7 @@ def test_registered_artifact_reuse_checks_task_owner_and_success(gateway,monkeyp
     original=g.remote
     def authoritative(method,path,payload=None):
         if path=='/api/tasks/task1':return snap['task']
-        if path=='/api/tasks/task1/artifacts':return snap['artifacts']
+        if path=='/api/tasks/task1/artifacts?metadata_only=true':return snap['artifacts']
         if path=='/api/artifacts/out':return snap['artifacts'][0]
         return original(method,path,payload)
     g.remote=authoritative

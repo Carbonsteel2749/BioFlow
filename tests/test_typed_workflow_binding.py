@@ -14,6 +14,7 @@ from bioflow_platform import unified_workflows as u
 from bioflow_platform.access import authorize
 from bioflow_platform.store import Store
 from bioflow_platform.input_datasets import ImportGateway
+from test_typed_reuse import private_metadata_catalog
 
 
 @pytest.mark.parametrize('role',['user','developer'])
@@ -47,8 +48,8 @@ def bound(tmp_path):
     registry={'nodes':[{'type':'abundance_input','parameters_schema':{},'inputs':[],'outputs':[{'id':'matrix','data_type':'abundance_matrix'}]},{'type':'matrix_summary','parameters_schema':{}}]}
     calls=[]
     async def upstream(service,path,method='GET',payload=None):
-        if path=='/api/tasks/run1/artifacts':return [{'artifact_id':'a','task_id':'run1','file_name':'x.png','path':'/secret/x.png','metadata':{'path':'/secret'}}]
-        if path=='/api/tasks/bad/artifacts':return [{'artifact_id':'a','task_id':'foreign'}]
+        if path=='/api/tasks/run1/artifacts?metadata_only=true':return [{'artifact_id':'a','task_id':'run1','file_name':'x.png','path':'/secret/x.png','metadata':{'path':'/secret'}}]
+        if path=='/api/tasks/bad/artifacts?metadata_only=true':return [{'artifact_id':'a','task_id':'foreign'}]
         if path.endswith('/registry'):return registry
         if path.startswith('/api/workflows/templates/builtin-'):return {'workflow':workflow}
         if path=='/api/workflows/runs':calls.append(copy.deepcopy(payload));return {'task_id':'run1'}
@@ -74,6 +75,25 @@ def test_project_workflow_artifacts_strip_paths_and_enforce_owner(bound):
     assert c.get(url.replace(pid,other)).status_code==404
     store.claim('workflow','bad','alice');store.link(pid,'workflow','bad')
     assert c.get(url.replace('run1','bad')).status_code==502
+
+
+def test_project_outputs_use_real_private_metadata_only_handler(tmp_path,private_metadata_catalog):
+    private,record,invocations=private_metadata_catalog
+    store=Store(tmp_path/'project.db');pid=store.create('p','','alice')['id']
+    store.claim('workflow','run1','alice');store.link(pid,'workflow','run1')
+    async def upstream(service,path,method='GET',payload=None):
+        response=private.request(method,path,json=payload)
+        response.raise_for_status();return response.json()
+    app=FastAPI();router=APIRouter(prefix='/api/projects/{pid}')
+    @app.middleware('http')
+    async def auth(request,call_next):
+        request.state.user={'id':'alice','role':'developer'}
+        return await call_next(request)
+    u.install(router,lambda:store,lambda p,r:None,upstream);app.include_router(router)
+    response=TestClient(app).get(f'/api/projects/{pid}/analysis/workflows/runs/run1/artifacts')
+    assert response.status_code==200,response.text
+    assert response.json()['items'][0]['artifact_id']==record['artifact_id']
+    assert 'source_file' not in response.text and invocations==[]
 
 
 def body():return {'template_id':'builtin-matrix','version':1,'name':'matrix','input_bindings':{'source':'typed'}}

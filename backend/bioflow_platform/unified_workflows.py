@@ -224,7 +224,7 @@ def install(router,get_store,check_project,call):
         if not project or project['owner_id']!=uid or project.get('archived') or tid not in store.ids(pid,'workflow') or not store.owns('workflow',tid,uid):
             raise HTTPException(404,'任务不属于当前项目')
         try:
-            rows=await asyncio.wait_for(call('analysis','/api/tasks/'+tid+'/artifacts'),timeout=10)
+            rows=await asyncio.wait_for(call('analysis','/api/tasks/'+tid+'/artifacts?metadata_only=true'),timeout=10)
         except Exception as exc:raise HTTPException(503,'结果服务暂不可用，请稍后重试') from exc
         if not isinstance(rows,list) or any(not isinstance(row,dict) or row.get('task_id')!=tid for row in rows):
             raise HTTPException(502,'结果来源身份不一致，请稍后重试')

@@ -3,6 +3,66 @@ import pytest
 from fastapi import HTTPException
 from test_typed_input_gateway import gateway,finish
 
+
+@pytest.fixture
+def private_metadata_catalog(tmp_path,monkeypatch):
+    """Real private router/service/repository; forbid publication and content IO."""
+    from pathlib import Path
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.app.artifacts import ArtifactRepository
+    from backend.app.services import artifacts,stage_figures
+    from backend.app.routes import artifacts as routes
+    root=tmp_path/'private/runtime/outputs';source=root/'run1/nested/c.fa'
+    source.parent.mkdir(parents=True);source.write_bytes(b'>c\nACGT\n')
+    repository=ArtifactRepository(tmp_path/'private/artifacts.db');repository.initialize()
+    service=artifacts.ArtifactService(repository,root)
+    registered=service.register(task_id='run1',producer='assembly',artifact_type='assembly.contigs',path=source,media_type='text/plain')
+    app=FastAPI();app.include_router(routes.create_artifact_router(service,lambda tid:tid=='run1'))
+    @app.get('/api/workflows/runs/{tid}')
+    def run(tid:str):return {'task_id':tid,'status':'succeeded'}
+    client=TestClient(app);invocations=[]
+    def forbidden(*args,**kwargs):
+        invocations.append('publication/read/hash')
+        raise AssertionError('interactive listing must not publish, read or hash file content')
+    monkeypatch.setattr(routes,'publish_stage_figures',forbidden)
+    monkeypatch.setattr(stage_figures,'_publish_companions',forbidden)
+    monkeypatch.setattr(stage_figures,'_refresh_figure_context',forbidden)
+    monkeypatch.setattr(artifacts,'_sha256',forbidden)
+    for name in ('open','read_text','read_bytes','glob'):
+        original=getattr(Path,name)
+        def guard(path,*args,_original=original,**kwargs):
+            if path.is_relative_to(root.parent):return forbidden()
+            return _original(path,*args,**kwargs)
+        monkeypatch.setattr(Path,name,guard)
+    monkeypatch.setenv('BIOFLOW_ANALYSIS_ROOT',str(root.parents[1]))
+    return client,registered,invocations
+
+
+def test_candidates_use_real_private_metadata_only_handler(gateway,private_metadata_catalog):
+    g,store,c,base,_,_=gateway;private,record,invocations=private_metadata_catalog
+    pid=base.split('/')[3];store.claim('workflow','run1','alice');store.link(pid,'workflow','run1')
+    def remote(method,path,payload=None):
+        response=private.request(method,path,json=payload)
+        response.raise_for_status();return response.json()
+    g.remote=remote
+    response=c.get(base+'/candidates');assert response.status_code==200,response.text
+    assert 'artifact:'+record['artifact_id'] in {item['id'] for item in response.json()['items']}
+    assert invocations==[]
+
+
+def test_private_metadata_mode_preserves_legacy_publication(private_metadata_catalog,monkeypatch):
+    from backend.app.routes import artifacts as routes
+    private,record,invocations=private_metadata_catalog;published=[]
+    monkeypatch.setattr(routes,'publish_stage_figures',lambda service,tid:published.append(tid))
+    response=private.get('/api/tasks/run1/artifacts?metadata_only=true')
+    assert response.status_code==200 and published==[]
+    assert response.json()[0]['artifact_id']==record['artifact_id']
+    assert private.get('/api/tasks/run1/artifacts').status_code==200
+    assert published==['run1'] and invocations==[]
+    assert private.get('/api/tasks/run1/artifacts?metadata_only=false').status_code==200
+    assert published==['run1','run1']
+
 @pytest.fixture
 def reuse(gateway,monkeypatch):
     g,store,c,base,path,other=gateway;pid=base.split('/')[3]
@@ -13,7 +73,7 @@ def reuse(gateway,monkeypatch):
     def remote(method,path,payload=None):
         calls.append(path)
         if path=='/api/workflows/runs/run1':return status
-        if path=='/api/tasks/run1/artifacts':return [row]
+        if path=='/api/tasks/run1/artifacts?metadata_only=true':return [row]
         if path=='/api/artifacts/out':return row
         return original(method,path,payload)
     g.remote=remote;store.claim('workflow','run1','alice');store.link(pid,'workflow','run1')

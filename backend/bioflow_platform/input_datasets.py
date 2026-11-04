@@ -310,7 +310,7 @@ class ImportGateway:
                 sliced=batch[:limit-processed];more=len(batch)>len(sliced)
             else:
                 if not self.producer_status(tid,kind):ri+=1;oi=0;continue
-                batch=self.read_remote('/api/tasks/'+tid+'/artifacts')
+                batch=self.read_remote('/api/tasks/'+tid+'/artifacts?metadata_only=true')
                 if not isinstance(batch,list) or any(not isinstance(a,dict) or a.get('task_id')!=tid for a in batch):raise HTTPException(502,'结果来源身份不一致')
                 batch=sorted(batch,key=lambda a:a.get('artifact_id',''))
                 sliced=batch[oi:oi+limit-processed];more=oi+len(sliced)<len(batch)
