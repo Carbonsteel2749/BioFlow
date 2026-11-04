@@ -28,6 +28,18 @@ TABLES = {
 
 def _kind(path: Path, node_type: str):
     name = path.name
+    if name.endswith(('.fastq','.fq','.fastq.gz','.fq.gz')):
+        kind={'fastp':'reads.clean','host_depletion':'reads.host_removed'}.get(node_type)
+        if kind:return kind,'application/gzip' if name.endswith('.gz') else 'text/plain'
+    if name.endswith(('.fa','.fna','.fasta')):
+        if node_type=='assembly':return 'assembly.contigs','text/plain'
+        if node_type=='bin_reassembly' and 'reassembled_bins' in path.parts:return 'mag.fasta','text/plain'
+    if node_type=='matrix_summary':
+        if name=='canonical.tsv':return 'matrix.canonical','text/tab-separated-values'
+        if name.endswith('.tsv'):return 'matrix.descriptive_summary','text/tab-separated-values'
+        if name.endswith('.png'):return 'figure.matrix','image/png'
+        if name.endswith('.caption.md'):return 'figure.data','text/markdown'
+        if name=='summary.txt':return 'report.summary','text/plain'
     if name in TABLES:
         return TABLES[name], 'text/tab-separated-values'
     if node_type == 'taxonomy' and name.endswith('.species.tsv'):

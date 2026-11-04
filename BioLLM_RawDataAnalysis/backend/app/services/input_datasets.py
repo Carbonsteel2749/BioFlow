@@ -100,13 +100,21 @@ class InputDatasetService:
         return record
 
     def snapshot(self,bindings:dict[str,str],task_id:str)->Path:
+        return self._snapshot(bindings,task_id,verify_files=True)
+
+    def snapshot_metadata_only(self,bindings:dict[str,str],task_id:str)->Path:
+        """Freeze metadata for queue admission; NOT execution integrity evidence."""
+        return self._snapshot(bindings,task_id,verify_files=False)
+
+    def _snapshot(self,bindings,task_id,*,verify_files):
         _safe_id(task_id)
         if not isinstance(bindings,dict) or not 1<=len(bindings)<=100:raise InputContractError('输入节点绑定数量无效')
         records={}
         for node,dataset_id in bindings.items():
-            _safe_id(node);record=self.get(dataset_id)
-            records[node]={'dataset_id':dataset_id,'contract':record['contract'],'manifest_sha256':record['contract']['manifest_sha256']}
-        body={'schema_version':'1.0','task_id':task_id,'bindings':records}
+            _safe_id(node);record=(self.get if verify_files else self.metadata)(dataset_id)
+            records[node]={'dataset_id':dataset_id,'spec':record['spec'],'contract':record['contract'],'manifest_sha256':record['contract']['manifest_sha256']}
+        body={'schema_version':'1.0','task_id':task_id,'bindings':records,
+              'integrity_check':'full_sha256_at_snapshot' if verify_files else 'pending_execution_sha256'}
         body['snapshot_sha256']=_digest(body)
         serialized=_serialized(body,MAX_SNAPSHOT_BYTES,'输入快照')
         folder=self.settings.state_root.absolute()/'workflow_runs'/task_id/'inputs'
@@ -127,6 +135,6 @@ class InputDatasetService:
         if body.get('snapshot_sha256')!=_digest({k:v for k,v in body.items() if k!='snapshot_sha256'}):raise InputContractError('任务输入快照校验失败')
         for node,binding in body.get('bindings',{}).items():
             _safe_id(node);record=self.get(binding['dataset_id'])
-            if binding.get('contract')!=record['contract'] or binding.get('manifest_sha256')!=record['contract']['manifest_sha256']:
+            if binding.get('spec',record['spec'])!=record['spec'] or binding.get('contract')!=record['contract'] or binding.get('manifest_sha256')!=record['contract']['manifest_sha256']:
                 raise InputContractError('任务输入快照与登记契约校验不一致')
         return body

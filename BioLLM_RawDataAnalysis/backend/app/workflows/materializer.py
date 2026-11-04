@@ -137,6 +137,8 @@ def materialize_compilation(
                     )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(source, destination, symlinks=False)
+            _write_private(staging_root / 'bin' / 'core' / '_input_contracts.py',
+                (Path(__file__).parent / 'input_contracts.py').read_bytes())
             regression_tests = resolved_workflow_root / "tests"
             if regression_tests.is_dir():
                 shutil.copytree(regression_tests, staging_root / "tests", symlinks=False,

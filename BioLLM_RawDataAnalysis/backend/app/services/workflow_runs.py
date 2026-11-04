@@ -10,6 +10,8 @@ import time
 import uuid
 from pathlib import Path
 from .resource_scheduler import ResourceScheduler
+from .input_datasets import InputDatasetService
+from ..workflows.input_contracts import InputContractError
 
 from backend.app.config import Settings
 from .input_lifecycle import input_operation
@@ -53,17 +55,29 @@ class WorkflowRunService:
     def create_run(
         self,
         workflow: WorkflowGraph,
-        manifest_path: str,
-        *, name: str = '', auto_repair: bool = False,
+        manifest_path: str | None = None,
+        *, name: str = '', auto_repair: bool = False, input_bindings: dict[str,str] | None = None,
     ) -> dict[str, object]:
         try:
-            manifest = self.task_service.validate_manifest_path(manifest_path)
+            typed = bool(input_bindings)
+            if typed and manifest_path:
+                raise WorkflowRunValidationError('Cannot mix a legacy CSV and typed input bindings')
+            contracts=None
+            if typed:
+                datasets=InputDatasetService(self.settings)
+                contracts={node:{**datasets.metadata(dataset),'source_root':str(datasets._folder(dataset))}
+                    for node,dataset in input_bindings.items()}
+                manifest=None
+            else:
+                if not manifest_path:raise WorkflowRunValidationError('A legacy manifest or fully bound typed inputs is required')
+                manifest = self.task_service.validate_manifest_path(manifest_path)
             compiled = compile_workflow(
                 workflow,
                 self.registry,
                 project_root=self.settings.project_root,
+                input_contracts=contracts,
             )
-        except (TaskValidationError, WorkflowCompilationError) as exc:
+        except (TaskValidationError, WorkflowCompilationError, InputContractError) as exc:
             raise WorkflowRunValidationError(str(exc)) from exc
 
         database_manifest: Path | None = None
@@ -85,6 +99,8 @@ class WorkflowRunService:
                 )
 
         task_id = str(uuid.uuid4())
+        if typed:
+            manifest=datasets.snapshot_metadata_only(input_bindings,task_id)
         artifacts = materialize_compilation(
             compiled,
             task_id=task_id,
@@ -95,7 +111,7 @@ class WorkflowRunService:
         (artifacts.root / 'workflow.json').write_text(workflow.model_dump_json(), encoding='utf-8')
         try:
             snapshot = self.metadata_service.snapshot_for_manifest(manifest, task_id,
-                self.settings.state_root / 'outputs' / task_id / 'metadata') if self.metadata_service else None
+                self.settings.state_root / 'outputs' / task_id / 'metadata') if self.metadata_service and not typed else None
         except ValueError as exc:
             raise WorkflowRunValidationError(str(exc)) from exc
         self.repository.create_run(
@@ -110,10 +126,16 @@ class WorkflowRunService:
         )
         if snapshot:
             self.repository.set_metadata_snapshot(task_id, Path(snapshot['groups_path']), snapshot['sha256'])
-        return self.repository.get_run(task_id)
+        return self.get_run(task_id)
 
     def get_run(self, task_id: str) -> dict[str, object] | None:
-        return self.repository.get_run(task_id)
+        run=self.repository.get_run(task_id)
+        if run:
+            snapshot=self.settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json'
+            if snapshot.is_file():
+                body=json.loads(snapshot.read_text(encoding='utf-8'))
+                run={**run,'input_bindings':body['bindings'],'input_integrity_check':body['integrity_check']}
+        return run
 
     def get_workflow(self, task_id: str) -> dict:
         run = self.repository.get_run(task_id)
@@ -402,6 +424,10 @@ class DynamicWorkflowRunner:
 
     def _retain_completed_nodes(self, task_id: str, trace: Path, aliases: dict[str, str], manifest: Path) -> None:
         """Only final trace evidence for all expected sample invocations proves completion."""
+        if manifest.suffix=='.json':
+            # Typed roots may carry independent cohorts; no global sample count
+            # can prove every per-sample invocation complete after a failed run.
+            return
         with manifest.open(encoding='utf-8', newline='') as handle:
             sample_count = sum(bool(row.get('sample_id')) for row in csv.DictReader(handle))
         run = self.repository.get_run(task_id)
@@ -433,13 +459,18 @@ class DynamicWorkflowRunner:
         manifest_value = run.get("input_manifest")
         if not isinstance(manifest_value, str) or not manifest_value:
             raise WorkflowRunValidationError("run has no input manifest")
+        typed_snapshot=self.settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json'
+        if typed_snapshot.is_file():
+            # run() is admitted through the shared scheduler, including resumes.
+            # Never substitute metadata() for this full SHA check.
+            InputDatasetService(self.settings).verify_snapshot(typed_snapshot)
 
         self._queue_nodes(task_id)
         queued = self.repository.get_run(task_id)
         if queued is None:
             raise KeyError(task_id)
         input_nodes = [
-            node for node in queued["nodes"] if node["node_type"] == "fastq_input"
+            node for node in queued["nodes"] if node["node_type"] == "fastq_input" and not typed_snapshot.is_file()
         ]
         for node in input_nodes:
             if node['status'] == 'succeeded':

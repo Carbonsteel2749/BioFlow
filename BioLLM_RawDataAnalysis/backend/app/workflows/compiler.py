@@ -230,7 +230,7 @@ def _render_nextflow_config(
     lines = [f"includeConfig '{base_config.as_posix()}'", "", "process {"]
     for node_id in topological_order:
         node = nodes_by_id[node_id]
-        if node.type == "fastq_input":
+        if node_id not in node_aliases:
             continue
         definition = registry[node.type]
         parameters = node_parameters[node_id]
@@ -323,7 +323,11 @@ def compile_workflow(
     registry: NodeRegistry,
     *,
     project_root: Path,
+    input_contracts: dict | None = None,
 ) -> CompiledWorkflow:
+    if input_contracts is not None:
+        from .typed_compiler import compile_typed_workflow
+        return compile_typed_workflow(graph,registry,project_root,input_contracts)
     validation = validate_workflow_graph(graph, registry)
     if not validation.structurally_valid:
         raise WorkflowCompilationError(
@@ -524,6 +528,8 @@ def compile_workflow(
         else:
             arguments = []
             for input_port in definition.inputs:
+                if input_port.id not in incoming_by_port and not input_port.required:
+                    continue
                 incoming = incoming_by_port[input_port.id]
                 arguments.append(
                     output_channels[

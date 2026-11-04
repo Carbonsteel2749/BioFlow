@@ -16,6 +16,12 @@ from .workflow_templates import validate_workflow_document
 # Executables invoked by the existing basic node scripts; availability is
 # checked by their shared require_command helper, not a simulated status.
 _BASIC_TOOLS = {
+    'clean_reads_input': ('python3',),
+    'host_removed_reads_input': ('python3',),
+    'contigs_input': ('python3',),
+    'mag_input': ('python3',),
+    'abundance_input': ('python3',),
+    'matrix_summary': ('python3',),
     "fastq_input": ("python3", "gzip"),
     "fastqc": ("fastqc", "gzip", "python3"),
     "fastp": ("fastp", "gzip", "python3"),
@@ -62,6 +68,14 @@ def preflight_workflow(
             add(command, "unknown", f"无法完成依赖预检：{exc}")
 
     types = {node.type for node in graph.nodes}
+    if 'matrix_summary' in types:
+        try:
+            probe=subprocess.run(['python3','-c','import numpy, pandas, matplotlib'],
+                capture_output=True,text=True,timeout=10,check=False)
+            add('matrix_python_dependencies','passed' if probe.returncode==0 else 'blocked',
+                'External matrix summaries require numpy, pandas and matplotlib; no biological database is required.')
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            add('matrix_python_dependencies','unknown',str(exc))
     if "host_depletion" in types:
         prefix = settings.default_host_index
         shards = ('1', '2', '3', '4', 'rev.1', 'rev.2')

@@ -29,6 +29,20 @@ CONTROL = {'manifest.json', 'SHA256SUMS', 'archive-metadata.json', 'ARCHIVE-READ
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
 
 
+def typed_archive_entries(settings,task_id,manifest):
+    """Explicit typed input retention, never interpret binding JSON as reads CSV."""
+    from .input_datasets import InputDatasetService
+    expected=settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json'
+    if Path(manifest).absolute()!=expected.absolute():raise ValueError('Unexpected typed snapshot path')
+    service=InputDatasetService(settings);body=service.verify_snapshot(expected)
+    entries=[(expected,'execution/input-bindings.json')]
+    for node,binding in body['bindings'].items():
+        folder=service._folder(binding['dataset_id'])
+        entries.append((folder/'contract.json',f'execution/input-contracts/{node}.json'))
+        entries.extend((folder/f['path'],f'raw/typed/{node}/{f["path"]}') for f in binding['contract']['files'])
+    return entries
+
+
 def is_private_archive(path):
     return (Path(path).parent / '.sensitive-archive').exists()
 
@@ -188,7 +202,13 @@ class FullArchiveService:
         manifest_value = task.get('manifest_path') or task.get('input_manifest')
         manifest = Path(manifest_value) if manifest_value else None
         input_root = self.settings.input_root.resolve()
-        if manifest is None or not manifest.is_file():
+        if manifest and manifest.suffix=='.json':
+            for path,name in typed_archive_entries(self.settings,task_id,manifest):
+                raw_paths.add(path.resolve())
+                add_file(path,name,exact=raw_paths)
+                if name.startswith('raw/'):
+                    raw_map.append({'role':'typed_input','path':name,'original_path':str(path),'available':name in files})
+        elif manifest is None or not manifest.is_file():
             missing_file('raw/samples.csv', 'input manifest missing')
         else:
             if not manifest.resolve().is_relative_to(input_root):
