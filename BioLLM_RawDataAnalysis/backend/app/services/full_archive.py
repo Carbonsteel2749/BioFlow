@@ -70,7 +70,7 @@ def report_package_not_requested(settings, task_id, kind, task, manifest):
             return False
         graph=WorkflowGraph.model_validate_json(content)
         registry=default_node_registry()
-        return (any(n.type in {'clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'} for n in graph.nodes)
+        return (any(n.type in {'fastq_input','clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'} for n in graph.nodes)
             and not any(n.type=='report' for n in graph.nodes)
             and validate_workflow_graph(graph,registry).can_execute)
     except (OSError,ValueError):

@@ -180,7 +180,10 @@
   if(!g.nodes.some(n=>roots.includes(n.type)&&(n.type==='fastq_input'||c[n.type]?.registered)))add(errors,'missing_node','缺少已登记输入根节点');
   for(const n of g.nodes){
    const d=c[n.type];if(!d){add(errors,'unknown_node','未知节点类型',n.id);continue;}
-   for(const p of d.inputs)if(p.required&&!g.edges.some(e=>e.target===n.id&&e.targetPort===p.id))add(errors,'missing_input',n.label+'：尚未连接 '+p.id+' 输入',n.id);
+   // End is a frontend delivery view. Native-output workflows deliberately
+   // omit legacy REPORT; they need no invented execution edge into this view.
+   const nativeOutputView=n.type==='end'&&!g.nodes.some(node=>node.type==='report');
+   for(const p of d.inputs)if(p.required&&!nativeOutputView&&!g.edges.some(e=>e.target===n.id&&e.targetPort===p.id))add(errors,'missing_input',n.label+'：尚未连接 '+p.id+' 输入',n.id);
    for(const [k,s] of Object.entries(d.parameters))if(parameterError(s,n.parameters[k]??s.default))add(errors,'invalid_parameter',n.label+'：'+s.title+' 的类型或范围不正确',n.id);
    const keys=new Set(Object.keys(d.parameters));
    for(const p of n.custom||[]){if(!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(p.name)||keys.has(p.name))add(errors,'custom_key','自定义参数名非法或重复：'+p.name,n.id);keys.add(p.name);if(!['string','number','integer','boolean'].includes(p.type)||parameterError({type:p.type},p.value))add(errors,'custom_type','自定义参数值类型不匹配：'+p.name,n.id);}
