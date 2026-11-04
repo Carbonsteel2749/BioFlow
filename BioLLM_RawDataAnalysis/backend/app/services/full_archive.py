@@ -49,6 +49,34 @@ def is_private_archive(path):
     return (Path(path).parent / '.sensitive-archive').exists()
 
 
+def report_package_not_requested(settings, task_id, kind, task, manifest):
+    """Only a validated typed graph may intentionally omit legacy REPORT."""
+    if kind!='workflow' or manifest is None:
+        return False
+    expected=settings.state_root/'workflow_runs'/task_id
+    compiled=Path(task.get('compiled_root') or '')
+    if Path(manifest).absolute()!=(expected/'inputs/bindings.json').absolute() or compiled!=(expected/'compiled'):
+        return False
+    path=compiled/'workflow.json'
+    if compiled.resolve()!=compiled or path.is_symlink():
+        return False
+    try:
+        from ..workflows.graph import WorkflowGraph
+        from ..workflows.registry import default_node_registry
+        from ..workflows.validation import validate_workflow_graph
+        with path.open('rb') as handle:
+            content=handle.read(4*1024*1024+1)
+        if len(content)>4*1024*1024:
+            return False
+        graph=WorkflowGraph.model_validate_json(content)
+        registry=default_node_registry()
+        return (any(n.type in {'clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'} for n in graph.nodes)
+            and not any(n.type=='report' for n in graph.nodes)
+            and validate_workflow_graph(graph,registry).can_execute)
+    except (OSError,ValueError):
+        return False
+
+
 def archive_download_response(path, *, filename, media_type, headers=None):
     """Pin the public inode before checking privacy; never reopen a replaced path."""
     from fastapi import HTTPException
@@ -330,6 +358,8 @@ class FullArchiveService:
                     if member.name in {entry.name for entry in base_records}:
                         raise ValueError('duplicate member in existing result archive')
                     base_records.append(member)
+        elif report_package_not_requested(self.settings,task_id,kind,task,manifest):
+            excluded.append({'path':'original_result_package','reason':'not_requested: typed workflow intentionally omits legacy REPORT; use node outputs'})
         else:
             missing_file('original_result_package', 'report package not generated')
 

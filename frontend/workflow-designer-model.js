@@ -2,6 +2,7 @@
 (function(root,factory){const model=factory();if(typeof module==='object'&&module.exports)module.exports=model;else root.BioFlowDesigner=model;})(typeof window!=='undefined'?window:globalThis,function(){
  'use strict';
  const clone=x=>JSON.parse(JSON.stringify(x));
+ const roots=['fastq_input','clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'];
  const raw=['paired_raw_reads'],clean=['paired_clean_reads'],host=['paired_host_removed_reads'];
  const reads=[...raw,...clean,...host];
  const reports=['qc_report','fastp_metrics','host_depletion_metrics','taxonomy_abundance','taxonomy_report','functional_abundance','functional_report','pathway_tables','feature_table','amplicon_taxonomy','diversity_results','analysis_report','figure_collection','interpretation'];
@@ -91,7 +92,7 @@
    const props=d.parameters_schema?.properties||d.parameters_schema||{};
    for(const [key,value] of Object.entries(props))if(value&&typeof value==='object')node.parameters[key]={...node.parameters[key],...clone(value),title:node.parameters[key]?.title||value.title||key,description:node.parameters[key]?.description||value.description||'服务登记参数；请核对该工具的含义。'};
    // The start link is a frontend control edge, not an execution-engine input.
-   if(d.type==='fastq_input')node.inputs=[input('control',['control'],false,false)];
+   if(roots.includes(d.type)){node.inputs=[input('control',['control'],false,false)];node.category='基础';node.inputRoot=true;}
    if(d.type==='report'){const artifacts=node.inputs.find(p=>p.id==='artifacts');if(artifacts)artifacts.accepted_data_types=[...new Set([...artifacts.accepted_data_types,...reports])];}
   }
   return c;
@@ -100,7 +101,7 @@
  const uid=(prefix,g)=>{let i=1;while(g.nodes?.some(n=>n.id===prefix+'_'+i)||g.edges?.some(e=>e.id===prefix+'_'+i))i++;return prefix+'_'+i;};
  function addNode(g,type,c=defaultCatalog){
   const d=c[type];if(!d)throw Error('未知节点类型');if(g.nodes.length>=100)throw Error('最多支持 100 个节点');
-  if(['start','fastq_input','analysis_group','end','repair_llm'].includes(type)&&g.nodes.some(n=>n.type===type))throw Error('此基础节点只能添加一次');
+  if(['start','analysis_group','end','repair_llm'].includes(type)&&g.nodes.some(n=>n.type===type))throw Error('此基础节点只能添加一次');
   const n={id:uid(type,g),type,label:d.label,x:340,y:130,group:['质控','分析','MAG','16S'].includes(d.category)||type==='repair_llm'?'analysis':null,parameters:Object.fromEntries(Object.entries(d.parameters).map(([k,s])=>[k,clone(s.default??'')])),custom:[]};
   g.nodes.push(n);return n;
  }
@@ -156,14 +157,14 @@
   arrange(g,c);return g;
  }
  function arrange(g,c=defaultCatalog){
-  const inner=g.nodes.filter(n=>n.group==='analysis'&&n.type!=='repair_llm');
+  const inner=g.nodes.filter(n=>n.group==='analysis'&&n.type!=='repair_llm'&&!roots.includes(n.type));
   const levels=new Map();const pending=new Set(inner.map(n=>n.id));let guard=0;
   while(pending.size&&guard++<100){for(const n of inner){if(!pending.has(n.id))continue;const deps=g.edges.filter(e=>e.target===n.id&&pending.has(e.source));if(deps.length)continue;const parents=g.edges.filter(e=>e.target===n.id).map(e=>levels.get(e.source)??-1);levels.set(n.id,Math.max(-1,...parents)+1);pending.delete(n.id);}}
   const rows={};for(const n of inner){const level=levels.get(n.id)||0;const row=rows[level]||0;rows[level]=row+1;n.x=350+level*260;n.y=300+row*210;}
   const right=Math.max(900,...inner.map(n=>n.x+250));
-  for(const n of g.nodes){if(n.type==='start'){n.x=30;n.y=70;}if(n.type==='fastq_input'){n.x=30;n.y=300;}if(n.type==='analysis_group'){n.x=310;n.y=50;}if(n.type==='repair_llm'){n.x=350;n.y=110;}
+  let rootRow=0;for(const n of g.nodes){if(n.type==='start'){n.x=30;n.y=70;}if(roots.includes(n.type)){n.x=30;n.y=300+rootRow++*210;}if(n.type==='analysis_group'){n.x=310;n.y=50;}if(n.type==='repair_llm'){n.x=350;n.y=110;}
    if(n.type==='report'){n.x=right+50;n.y=300;}if(n.type==='figures'){n.x=right+320;n.y=160;}if(n.type==='interpret_llm'){n.x=right+320;n.y=420;}if(n.type==='end'){n.x=right+600;n.y=300;}
-   if(!n.group&&!['start','fastq_input','analysis_group','report','figures','interpret_llm','end'].includes(n.type)){n.x=right+50;n.y=660;}
+   if(!n.group&&!roots.includes(n.type)&&!['start','analysis_group','report','figures','interpret_llm','end'].includes(n.type)){n.x=right+50;n.y=660;}
   }
   return g;
  }
@@ -175,7 +176,8 @@
  }
  function validate(g,c=defaultCatalog){
   const errors=[],warnings=[];const add=(arr,code,message,node)=>arr.push({code,message,node});
-  for(const type of ['start','fastq_input','analysis_group','end'])if(!g.nodes.some(n=>n.type===type))add(errors,'missing_node','缺少 '+c[type].label);
+  for(const type of ['start','analysis_group','end'])if(!g.nodes.some(n=>n.type===type))add(errors,'missing_node','缺少 '+c[type].label);
+  if(!g.nodes.some(n=>roots.includes(n.type)&&(n.type==='fastq_input'||c[n.type]?.registered)))add(errors,'missing_node','缺少已登记输入根节点');
   for(const n of g.nodes){
    const d=c[n.type];if(!d){add(errors,'unknown_node','未知节点类型',n.id);continue;}
    for(const p of d.inputs)if(p.required&&!g.edges.some(e=>e.target===n.id&&e.targetPort===p.id))add(errors,'missing_input',n.label+'：尚未连接 '+p.id+' 输入',n.id);
@@ -197,12 +199,12 @@
   const ids=new Set(),types=new Set();const nodes=g.nodes.map(n=>{
    if(!n||!c[n.type]||typeof n.id!=='string'||!/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(n.id))throw Error('未知节点类型或非法编号');
    if(ids.has(n.id))throw Error('节点编号重复');ids.add(n.id);
-   if(['start','fastq_input','analysis_group','end','repair_llm'].includes(n.type)&&types.has(n.type))throw Error('基础节点重复');types.add(n.type);
+   if(['start','analysis_group','end','repair_llm'].includes(n.type)&&types.has(n.type))throw Error('基础节点重复');types.add(n.type);
    if(!Number.isFinite(n.x)||!Number.isFinite(n.y)||n.x<0||n.y<0||n.x>30000||n.y>30000)throw Error('节点坐标无效');
    if(!n.parameters||typeof n.parameters!=='object'||Array.isArray(n.parameters))throw Error('节点参数无效');
-   const params={};for(const [k,v] of Object.entries(n.parameters)){if(!Object.hasOwn(c[n.type].parameters,k))throw Error('未知参数或凭据：'+k);if(typeof v==='object'||String(v).length>12000)throw Error('参数仅接受有限标量');params[k]=v;}
+   const params={};for(const [k,v] of Object.entries(n.parameters)){if(portable&&roots.includes(n.type)&&k==='dataset_id')continue;if(!Object.hasOwn(c[n.type].parameters,k))throw Error('未知参数或凭据：'+k);if(typeof v==='object'||String(v).length>12000)throw Error('参数仅接受有限标量');params[k]=v;}
    for(const [k,s] of Object.entries(c[n.type].parameters))if(!Object.hasOwn(params,k))params[k]=clone(s.default??'');
-   if(portable&&n.type==='fastq_input')params.dataset_id='';
+   if(portable&&roots.includes(n.type)&&Object.hasOwn(params,'dataset_id'))params.dataset_id='';
    if(portable&&['repair_llm','interpret_llm'].includes(n.type))params.model_id='';
    const custom=n.custom||[];if(!Array.isArray(custom)||custom.length>40)throw Error('自定义参数过多');
    const safe=custom.map(p=>{if(!p||typeof p.name!=='string'||/key|password|secret|token|authorization/i.test(p.name)||typeof p.value==='object'||String(p.value).length>12000)throw Error('自定义参数不允许凭据或复杂对象');return {name:p.name.slice(0,64),type:p.type,value:p.value,description:String(p.description||'').slice(0,600)};});
@@ -213,10 +215,11 @@
   for(const e of edges){const check=checkConnection(result,e.source,e.sourcePort,e.target,e.targetPort,c,e.id);if(!check.ok)throw Error(check.message);if(check.warning&&!e.acknowledged)throw Error('风险连接尚未确认，请在画布中重新连接并确认');e.kind=check.kind;}
   return result;
  }
- function exportJSON(g,{portable=true}={}){for(const n of g.nodes){if(Object.keys(n.parameters).some(k=>/api.?key|password|secret|access.?token|authorization/i.test(k))||(n.custom||[]).some(p=>/key|password|secret|token|authorization/i.test(p.name)))throw Error('不允许保存凭据参数，请移除密钥或密码字段');if(Object.values(n.parameters).concat((n.custom||[]).map(p=>p.value)).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('参数包含非有限数值，无法保存');if(n.custom?.length>40)throw Error('每个节点最多支持 40 个自定义参数');}const copy=clone(g);copy.execution='design_only';if(portable)for(const n of copy.nodes){if(n.type==='fastq_input')n.parameters.dataset_id='';if(['repair_llm','interpret_llm'].includes(n.type))n.parameters.model_id='';}return JSON.stringify(copy,null,2);}
+ function exportJSON(g,{portable=true}={}){for(const n of g.nodes){if(Object.keys(n.parameters).some(k=>/api.?key|password|secret|access.?token|authorization/i.test(k))||(n.custom||[]).some(p=>/key|password|secret|token|authorization/i.test(p.name)))throw Error('不允许保存凭据参数，请移除密钥或密码字段');if(Object.values(n.parameters).concat((n.custom||[]).map(p=>p.value)).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('参数包含非有限数值，无法保存');if(n.custom?.length>40)throw Error('每个节点最多支持 40 个自定义参数');}const copy=clone(g);copy.execution='design_only';if(portable){delete copy.input_bindings;for(const n of copy.nodes){if(roots.includes(n.type)){delete n.dataset_id;delete n.input_bindings;if(Object.hasOwn(n.parameters,'dataset_id'))n.parameters.dataset_id='';}if(['repair_llm','interpret_llm'].includes(n.type))n.parameters.model_id='';}}return JSON.stringify(copy,null,2);}
  function parameterValue(type,raw){if(type==='boolean')return raw===true||raw==='true';if(['number','integer'].includes(type)&&String(raw).trim()!==''&&Number.isFinite(Number(raw)))return Number(raw);return String(raw);}
  function addCustom(n){if(n.custom.length>=40)throw Error('每个节点最多支持 40 个自定义参数');let i=1;while(n.custom.some(p=>p.name==='custom_'+i))i++;const p={name:'custom_'+i,type:'string',value:'',description:''};n.custom.push(p);return p;}
  function removeNode(g,nid){g.nodes=g.nodes.filter(n=>n.id!==nid);g.edges=g.edges.filter(e=>e.source!==nid&&e.target!==nid);}
  const draftKey=(user,project)=>'bioflow.workflow-design.v1.'+JSON.stringify([String(user),String(project)]);
- return {catalog,templates,template,addNode,connect,checkConnection,validate,arrange,groupBounds,importJSON,exportJSON,removeNode,draftKey,parameterValue,addCustom};
+ function fromWorkflow(record,c=defaultCatalog){const g=template('blank',c);removeNode(g,g.nodes.find(n=>n.type==='fastq_input').id);const map=new Map();for(const item of record.workflow.nodes){const n=addNode(g,item.type,c);n.parameters={...n.parameters,...clone(item.parameters||{})};map.set(item.id,n.id);if(!roots.includes(n.type)&&n.type!=='report')n.group='analysis';}for(const e of record.workflow.edges)connect(g,map.get(e.source_node),e.source_port,map.get(e.target_node),e.target_port,true,c);const start=g.nodes.find(n=>n.type==='start');for(const n of g.nodes.filter(n=>roots.includes(n.type)))connect(g,start.id,'control',n.id,'control',true,c);const report=g.nodes.find(n=>n.type==='report');if(report)connect(g,report.id,'report',g.nodes.find(n=>n.type==='end').id,'artifacts',true,c);g.name=record.name;arrange(g,c);return g;}
+ return {roots,fromWorkflow,catalog,templates,template,addNode,connect,checkConnection,validate,arrange,groupBounds,importJSON,exportJSON,removeNode,draftKey,parameterValue,addCustom};
 });
