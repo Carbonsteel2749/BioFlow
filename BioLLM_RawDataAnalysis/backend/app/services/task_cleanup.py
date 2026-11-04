@@ -142,6 +142,15 @@ class TaskCleanupService:
             if contained(manifest):
                 raise CleanupConflict(f"任务 {other_id} 的输入清单引用此目录")
             source = Path(manifest)
+            if source.suffix.lower()=='.json':
+                from .input_datasets import InputDatasetService
+                try:
+                    references=InputDatasetService(self.settings).snapshot_reference_paths(source,other_id)
+                    if any(contained(value) for value in references):
+                        raise CleanupConflict(f'任务 {other_id} 的类型化输入引用此目录')
+                except (OSError,ValueError) as exc:
+                    raise CleanupConflict(f'无法安全清理：任务 {other_id} 的类型化输入引用仍需保留') from exc
+                continue
             if not source.is_file():
                 continue
             try:

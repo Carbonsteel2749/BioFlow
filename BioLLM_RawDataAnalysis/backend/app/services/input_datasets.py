@@ -128,13 +128,48 @@ class InputDatasetService:
         return target
 
     def verify_snapshot(self,path:Path)->dict:
+        return self._inspect_snapshot(path,verify_files=True)
+
+    def inspect_snapshot_metadata(self,path:Path)->dict:
+        """Validate frozen metadata only, for references/redaction, NOT execution."""
+        return self._inspect_snapshot(path,verify_files=False)
+
+    def _inspect_snapshot(self,path,*,verify_files):
         path=Path(path).absolute();_regular(path,self.settings.state_root/'workflow_runs')
         if path.stat().st_size>MAX_SNAPSHOT_BYTES:raise InputContractError('任务输入快照超过字节上限')
         try:body=json.loads(path.read_text(encoding='utf-8'))
         except (ValueError,OSError) as e:raise InputContractError('任务输入快照校验失败') from e
         if body.get('snapshot_sha256')!=_digest({k:v for k,v in body.items() if k!='snapshot_sha256'}):raise InputContractError('任务输入快照校验失败')
         for node,binding in body.get('bindings',{}).items():
-            _safe_id(node);record=self.get(binding['dataset_id'])
+            _safe_id(node);record=(self.get if verify_files else self.metadata)(binding['dataset_id'])
             if binding.get('spec',record['spec'])!=record['spec'] or binding.get('contract')!=record['contract'] or binding.get('manifest_sha256')!=record['contract']['manifest_sha256']:
                 raise InputContractError('任务输入快照与登记契约校验不一致')
         return body
+
+    def snapshot_reference_paths(self,path:Path,task_id:str)->list[Path]:
+        """Bounded, checksum-validated ownership/path references; no data scans."""
+        expected=self.settings.state_root.absolute()/'workflow_runs'/_safe_id(task_id)/'inputs/bindings.json'
+        if Path(path).absolute()!=expected:raise InputContractError('任务输入快照路径不匹配')
+        body=self.inspect_snapshot_metadata(expected)
+        if body.get('task_id')!=task_id:raise InputContractError('任务输入快照身份不匹配')
+        paths=[]
+        for binding in body['bindings'].values():
+            folder=self._folder(binding['dataset_id'])
+            for entry in binding['contract']['files']:
+                name=entry['path'];candidate=folder/name
+                if Path(name).is_absolute() or '..' in Path(name).parts or candidate.resolve()!=candidate.absolute() or not candidate.resolve().is_relative_to(folder.resolve()):
+                    raise InputContractError('输入引用路径校验失败')
+                paths.append(candidate)
+        return paths
+
+    def snapshot_sample_identifiers(self,task_id:str)->list[str]:
+        path=self.settings.state_root.absolute()/'workflow_runs'/_safe_id(task_id)/'inputs/bindings.json'
+        if not path.exists():return []
+        body=self.inspect_snapshot_metadata(path)
+        if body.get('task_id')!=task_id:raise InputContractError('任务输入快照身份不匹配')
+        identifiers=set()
+        for binding in body['bindings'].values():
+            contract=binding['contract']
+            identifiers.update(row['sample_id'] for row in contract.get('samples',[]))
+            identifiers.update(contract.get('sample_ids',[]))
+        return sorted(identifiers)

@@ -23,6 +23,11 @@ class DynamicRepairService:
         run = self.repository.get_run(task_id)
         return run is None or run['status'] == 'cancelled'
 
+    def _redact(self,text,run):
+        from .input_datasets import InputDatasetService
+        identifiers=InputDatasetService(self.settings).snapshot_sample_identifiers(run['task_id'])
+        return redact_log(text,input_root=str(self.settings.input_root),sample_identifiers=identifiers)
+
     def _pause(self, task_id, original, reason):
         self.repository.pause_run(task_id, original + '\nAI 受限修复：' + redact_log(reason)[:1200])
 
@@ -85,7 +90,7 @@ class DynamicRepairService:
                 raise ValueError('task-scoped failure log unavailable')
             with log.open('rb') as stream:
                 stream.seek(0, 2); stream.seek(max(0, stream.tell()-16000))
-                excerpt = redact_log(stream.read().decode('utf-8', errors='replace'), input_root=str(self.settings.input_root))
+                excerpt = self._redact(stream.read().decode('utf-8', errors='replace'),run)
             relative = summary.get('node_output_roots', {}).get(node_id, '')
             output_root = (self.settings.state_root/'outputs'/task_id).resolve()
             node_root = output_root/relative
@@ -94,7 +99,7 @@ class DynamicRepairService:
                     if stage_log.is_file() and stage_log.resolve() == stage_log:
                         with stage_log.open('rb') as stream:
                             stream.seek(0,2); stream.seek(max(0,stream.tell()-4000))
-                            excerpt += '\n' + redact_log(stream.read().decode('utf-8', errors='replace'), input_root=str(self.settings.input_root))
+                            excerpt += '\n' + self._redact(stream.read().decode('utf-8', errors='replace'),run)
             excerpt = excerpt[-24000:]
             step = 'fastqc_raw' if node['node_type'] == 'fastqc' else node['node_type']
             source = self._source(root)

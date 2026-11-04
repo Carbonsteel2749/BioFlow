@@ -80,8 +80,12 @@ def publish_dynamic_artifacts(settings, repository, service: ArtifactService, ta
                 for row in service.repository.list_for_task(task_id)}
     sample_ids = set()
     try:
-        with Path(run['input_manifest']).open(encoding='utf-8', newline='') as stream:
-            sample_ids = {row['sample_id'] for row in csv.DictReader(stream) if row.get('sample_id')}
+        if Path(run['input_manifest']).suffix.lower()=='.json':
+            from .input_datasets import InputDatasetService
+            sample_ids=set(InputDatasetService(settings).snapshot_sample_identifiers(task_id))
+        else:
+            with Path(run['input_manifest']).open(encoding='utf-8', newline='') as stream:
+                sample_ids = {row['sample_id'] for row in csv.DictReader(stream) if row.get('sample_id')}
     except (OSError, TypeError, ValueError):
         pass
     published = []

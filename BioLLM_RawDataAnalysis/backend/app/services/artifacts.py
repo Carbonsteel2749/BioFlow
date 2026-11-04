@@ -20,6 +20,10 @@ class ArtifactIntegrityError(RuntimeError):
 
 
 ARTIFACT_TYPES: dict[str, dict[str, Any]] = {
+    'assembly.contigs': {'downloadable': True},
+    'matrix.canonical': {'downloadable': True},
+    'matrix.descriptive_summary': {'downloadable': True},
+    'figure.matrix': {'downloadable': True},
     "reads.raw": {"downloadable": False},
     "reads.clean": {"downloadable": False},
     "reads.host_removed": {"downloadable": False},

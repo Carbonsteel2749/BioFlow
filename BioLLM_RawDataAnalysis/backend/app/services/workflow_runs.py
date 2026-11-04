@@ -180,6 +180,7 @@ class WorkflowRunService:
         return redact_log(
             tail_excerpt(content, max_chars=max_bytes),
             input_root=str(self.settings.input_root.resolve()),
+            sample_identifiers=InputDatasetService(self.settings).snapshot_sample_identifiers(task_id),
         )
 
 
