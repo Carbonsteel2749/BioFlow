@@ -14,9 +14,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field
 from . import assets
+from .input_matrix_conversion import convert_matrix, ConversionError
 
 # A single executor bounds both hashing/copying and private full-file validation.
 EXECUTOR=ThreadPoolExecutor(max_workers=1,thread_name_prefix='typed-input')
@@ -32,6 +33,20 @@ CATALOG.update({'formats':{'reads':['.fastq','.fq','.fastq.gz','.fq.gz'],'contig
     'read_states':['raw','clean','host_removed'],
     'validator_caps':{'source_bytes':250*1024**3,'expanded_sequence_bytes':250*1024**3,'matrix_rows':2000000,'paired_samples':1024,'mags':10000,'fasta_records':1000000,'sequence_line_bytes':16*1024**2},
     'storage_note':'导入复制来源文件；转换保留原始证据。执行另有输入副本、工作文件及完整归档；估计不是配额或保证上限。'})
+CATALOG['validator_caps'].update(sequence_header_bytes=4096,sequence_id_bytes=512,fasta_id_bytes=64*1024**2)
+CATALOG['numeric_policy']={'significant_digits':28,'min_adjusted_exponent':-100,'max_adjusted_exponent':100,
+    'sum_precision':237,'mean_precision':28,'mean_rounding':'ROUND_HALF_EVEN','plot_values':'finite float display only'}
+CATALOG['reuse']='owned_indexed_artifacts_from_successful_tasks_and_workflows'
+REUSABLE_TYPES={'reads.clean','reads.host_removed','assembly.contigs','mag.fasta','matrix.canonical',
+    'taxonomy.species_abundance','functional.gene_families','functional.ko_abundance','functional.ec_abundance',
+    'functional.pathway_abundance','functional.pathway_coverage'}
+CATALOG['matrix_conversion']={
+    'canonical':'sample_id,feature_id,value; optional feature_name,unit; no conversion',
+    'species':{'schema':'bioflow.rich.species.v1','taxonomy_systems':['NCBI','NCBI taxonomy'],'source_unit':'fraction_of_reads','unit':'fraction','normalization':'none'},
+    'functional':{'schema':'bioflow.rich.functional.v1','source':'HUMAnN','normalization':'HUMAnN raw output',
+        'feature_types':{'gene_family':'gene_families','ko':'KO','ec':'EC','pathway_abundance':'pathway_abundance','pathway_coverage':'pathway_coverage'},
+        'abundance_unit':'HUMAnN_reported','coverage_unit':'coverage','selection':'diagnostics first; then strata; retain named community_total including zeros'},
+    'note':'完整列模式及逐行语义校验；候选提示不是验证证明。未知模式请提供 canonical 长表；不推断比例或新增标准化。'}
 
 
 class ImportDiagnostic(ValueError):
@@ -139,7 +154,24 @@ class ImportGateway:
         project=self.get_store().get(pid)
         if not project or project['owner_id']!=uid or project.get('archived'):raise HTTPException(404,'项目不存在')
 
-    def source(self,pid,uid,reference):
+    def read_remote(self,path):
+        try:return self.remote('GET',path)
+        except Exception as exc:raise HTTPException(503,'结果来源服务暂不可用，请稍后重试；未判定为无结果') from exc
+
+    def producer_kind(self,pid,uid,tid):
+        store=self.get_store()
+        if not isinstance(tid,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tid):raise HTTPException(404,'结果来源无效')
+        for kind in ('workflow','task'):
+            if tid in store.ids(pid,kind) and store.owns(kind,tid,uid):return kind
+        raise HTTPException(404,'可复用结果不属于当前项目和账户')
+
+    def producer_status(self,tid,kind):
+        status=self.read_remote(('/api/workflows/runs/' if kind=='workflow' else '/api/tasks/')+tid)
+        if not isinstance(status,dict) or status.get('task_id',tid)!=tid:raise HTTPException(409,'结果来源身份不一致')
+        return status.get('status') in ('completed','succeeded')
+
+    def source(self,pid,uid,reference,artifact=None,producer_ok=False):
+        self.owner(pid,uid)
         if not isinstance(reference,str) or not re.fullmatch(r'(asset|artifact):[A-Za-z0-9][A-Za-z0-9._-]{0,127}',reference):
             raise HTTPException(422,'请选择项目来源文件标识')
         store=self.get_store();source_kind,identifier=reference.split(':',1)
@@ -155,21 +187,25 @@ class ImportGateway:
             path=assets.uploaded_path(row,pid,uid)
             result={'id':reference,'name':row['name'],'size_bytes':row['size_bytes'],'sha256':row['sha256'],'source_task':None,'node':None,'producer':None,'path':path,'root':storage}
         else:
-            result=None
-            for tid in store.ids(pid,'task'):
-                if not store.owns('task',tid,uid):continue
-                snapshot=assets.read_snapshot(tid);task=snapshot.get('task',{})
-                if task.get('status') not in ('completed','succeeded'):continue
-                for row in snapshot.get('artifacts',[]):
-                    if row.get('artifact_id')!=identifier or row.get('status')!='active' or not row.get('producer'):continue
-                    relative=assets.relative_reference(row.get('path'),'/runtime/outputs/')
-                    if not relative:continue
-                    root=assets.analysis_root()/'runtime/outputs';path=safe_path(root/relative,root)
-                    # Artifact must be physically confined to its owned producer task.
-                    safe_path(path,root/tid)
-                    result={'id':reference,'name':row.get('file_name') or path.name,'size_bytes':row['size_bytes'],
-                            'sha256':row['sha256'],'source_task':tid,'node':row.get('node_id'),'producer':row['producer'],'path':path,'root':root}
-            if result is None:raise HTTPException(404,'可复用结果不存在')
+            row=artifact if artifact is not None else self.read_remote('/api/artifacts/'+identifier)
+            if not isinstance(row,dict) or row.get('artifact_id')!=identifier:raise HTTPException(409,'结果来源身份不一致')
+            tid=row.get('task_id');kind=self.producer_kind(pid,uid,tid)
+            if not producer_ok and not self.producer_status(tid,kind):raise HTTPException(404,'来源任务尚未成功完成')
+            if row.get('status')!='active' or not row.get('producer') or row.get('artifact_type') not in REUSABLE_TYPES:raise HTTPException(404,'结果未登记为可复用类型或已失效')
+            relative=row.get('source_file')
+            if not isinstance(relative,str) or not relative or '\\' in relative or Path(relative).is_absolute() or any(p in ('.','..','') for p in relative.split('/')):raise HTTPException(409,'结果文件不可安全复用')
+            root=assets.analysis_root()/'runtime/outputs'/tid;path=safe_path(root/relative,root)
+            result={'id':reference,'name':row.get('file_name') or path.name,'size_bytes':row['size_bytes'],
+                'sha256':row['sha256'],'source_task':tid,'node':row.get('node_id'),'producer':row['producer'],'path':path,'root':root,
+                'hints':{k:row[k] for k in ('artifact_type','sample_id','sample_scope') if k in row}}
+            hints=result['hints'];atype=row['artifact_type']
+            if atype.startswith('reads.'):hints.update(kind='reads',processing_status=atype.split('.')[1])
+            elif atype=='assembly.contigs':hints.update(kind='contigs')
+            elif atype=='mag.fasta':hints.update(kind='mags')
+            else:
+                hints['kind']='matrix'
+                feature={'taxonomy.species_abundance':'species','functional.gene_families':'gene_families','functional.ko_abundance':'KO','functional.ec_abundance':'EC','functional.pathway_abundance':'pathway_abundance','functional.pathway_coverage':'pathway_coverage'}.get(atype)
+                if feature:hints.update(feature_type=feature,unit='fraction' if feature=='species' else 'coverage' if feature=='pathway_coverage' else 'HUMAnN_reported',normalization='none' if feature=='species' else 'HUMAnN raw output')
         name=result['name'].lower();suffix=next((x for x in EXTENSIONS if name.endswith(x)),None)
         if not suffix or not re.fullmatch('[a-fA-F0-9]{64}',result['sha256'] or ''):raise HTTPException(422,'文件类型或哈希无效')
         result['extension']=suffix
@@ -247,36 +283,56 @@ class ImportGateway:
                     after=path.stat()
                     if (before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_ino,after.st_size,after.st_mtime_ns) or size!=source['size_bytes'] or digest.hexdigest()!=source['sha256']:raise ValueError('changed source')
                     safe_path(path,source['root']);copied[ref]=relative
-                    provenance.append({k:v for k,v in source.items() if k not in ('path','root','extension')}|{'staged_file':relative})
+                    provenance.append({k:source[k] for k in ('id','name','size_bytes','sha256','source_task','node','producer')}|{'staged_file':relative})
                 row[key]=copied[ref]
             with self.get_store().connect() as db:db.execute('UPDATE input_dataset_imports SET provenance_json=? WHERE id=?',(json.dumps(provenance),jid))
             origin={'authority':'owned_import_gateway','sources':provenance,'conversion':None}
+            if spec['kind']=='matrix':
+                origin['conversion']=convert_matrix(folder,spec,lambda size:available_space(self.input_root,size,self.reserve_bytes))
             record=self.remote('POST','/api/input-datasets/register',{'dataset_id':jid,'spec':spec,'origin':origin})
             self.owner(pid,uid)
             store=self.get_store();store.claim('input_dataset',jid,uid);store.link(pid,'input_dataset',jid)
             with store.connect() as db:db.execute("UPDATE input_dataset_imports SET status='ready',record_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='validating'",(json.dumps(record),jid))
-        except ImportDiagnostic as exc:
+        except (ImportDiagnostic,ConversionError) as exc:
             self._failed(jid,str(exc))
         except Exception:
             self._failed(jid)
 
-    def candidates(self,pid,uid):
+    def candidates(self,pid,uid,resource_offset=0,offset=0,limit=100):
         self.owner(pid,uid);store=self.get_store()
-        with store.connect() as db:refs=['asset:'+r[0] for r in db.execute('SELECT id FROM assets WHERE project_id=? AND user_id=?',(pid,uid))]
-        for tid in store.ids(pid,'task'):
-            if store.owns('task',tid,uid):refs.extend('artifact:'+a['artifact_id'] for a in assets.read_snapshot(tid).get('artifacts',[]) if a.get('artifact_id'))
-        rows=[]
-        for ref in refs:
-            try:
-                source=self.source(pid,uid,ref)
-                rows.append({k:v for k,v in source.items() if k not in ('path','root','extension')})
-            except (HTTPException,OSError,KeyError,ValueError):continue
-        return {'items':rows,'catalog':CATALOG,'storage':{'reserve_bytes':self.reserve_bytes,'all_candidate_source_bytes':sum(row['size_bytes'] for row in rows),'estimate_scope':'sum selected unique source IDs for import copies; conversion and execution require additional copies'}}
+        resources=[('asset',None)]+sorted({(kind,tid) for kind in ('task','workflow') for tid in store.ids(pid,kind) if store.owns(kind,tid,uid)})
+        rows=[];processed=0;visited=0;ri=resource_offset;oi=offset
+        # At most ten producer requests and `limit` rows examined per response.
+        while ri<len(resources) and processed<limit and visited<10:
+            kind,tid=resources[ri];visited+=1
+            if kind=='asset':
+                with store.connect() as db:batch=[dict(id='asset:'+r[0]) for r in db.execute('SELECT id FROM assets WHERE project_id=? AND user_id=? ORDER BY id LIMIT ? OFFSET ?',(pid,uid,limit-processed+1,oi))]
+                sliced=batch[:limit-processed];more=len(batch)>len(sliced)
+            else:
+                if not self.producer_status(tid,kind):ri+=1;oi=0;continue
+                batch=self.read_remote('/api/tasks/'+tid+'/artifacts')
+                if not isinstance(batch,list) or any(not isinstance(a,dict) or a.get('task_id')!=tid for a in batch):raise HTTPException(502,'结果来源身份不一致')
+                batch=sorted(batch,key=lambda a:a.get('artifact_id',''))
+                sliced=batch[oi:oi+limit-processed];more=oi+len(sliced)<len(batch)
+            for item in sliced:
+                processed+=1;oi+=1
+                try:
+                    source=self.source(pid,uid,item['id'] if kind=='asset' else 'artifact:'+item['artifact_id'],artifact=item if kind!='asset' else None,producer_ok=kind!='asset')
+                    rows.append({k:v for k,v in source.items() if k not in ('path','root','extension')})
+                except HTTPException as exc:
+                    if exc.status_code>=500:raise
+                except (OSError,KeyError,ValueError):pass
+            if more:break
+            ri+=1;oi=0
+        has_more=ri<len(resources)
+        return {'items':rows,'catalog':CATALOG,'has_more':has_more,'resource_offset':resource_offset,'offset':offset,'limit':limit,
+            'next':{'resource_offset':ri,'offset':oi,'limit':limit} if has_more else None,
+            'storage':{'reserve_bytes':self.reserve_bytes,'page_candidate_source_bytes':sum(row['size_bytes'] for row in rows),'estimate_scope':'this page only; sum selected unique source IDs for import copies; conversion and execution require additional copies'}}
 
 
 def install(router,get_store,check_project,urls,gateway=None):
     def remote(method,path,payload=None):
-        with httpx.Client(timeout=httpx.Timeout(86400,connect=5),trust_env=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(10 if method=='GET' else 86400,connect=5),trust_env=False) as client:
             response=client.request(method,urls['analysis']+path,json=payload)
         if response.is_error:
             if response.status_code in (409,422):
@@ -297,7 +353,8 @@ def install(router,get_store,check_project,urls,gateway=None):
         with get_store().connect() as db:rows=db.execute('SELECT * FROM input_dataset_imports WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,uid)).fetchall()
         return {'items':[gateway.public(dict(r)) for r in rows],'catalog':CATALOG}
     @router.get('/input-datasets/candidates')
-    def candidates(pid:str,request:Request):return gateway.candidates(pid,who(pid,request))
+    def candidates(pid:str,request:Request,resource_offset:int=Query(0,ge=0),offset:int=Query(0,ge=0),limit:int=Query(100,ge=1,le=100)):
+        return gateway.candidates(pid,who(pid,request),resource_offset,offset,limit)
     @router.get('/input-datasets/imports/{jid}')
     def status(pid:str,jid:str,request:Request):return gateway.public(gateway.status(pid,who(pid,request),jid))
     @router.get('/input-datasets/{jid}')

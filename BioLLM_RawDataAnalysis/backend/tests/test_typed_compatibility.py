@@ -74,6 +74,9 @@ def test_new_matrix_artifacts_are_registerable(tmp_path,artifact_type):
     output=settings.state_root/'outputs/typed1/canonical.tsv';output.parent.mkdir(parents=True);output.write_text('sample_id\tfeature_id\tvalue\n')
     result=service.register(task_id='typed1',producer='dynamic.matrix_summary',artifact_type=artifact_type,path=output,media_type='text/tab-separated-values')
     assert result['artifact_type']==artifact_type
+    assert result['source_file']=='canonical.tsv'
+    assert service.get(result['artifact_id'])['source_file']=='canonical.tsv'
+    assert service.list_for_task('typed1')[0]['source_file']=='canonical.tsv'
 
 
 def test_task_cleanup_protects_typed_originals_without_blocking_unrelated_cache(tmp_path):

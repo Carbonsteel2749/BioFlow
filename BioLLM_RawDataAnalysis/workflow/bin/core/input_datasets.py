@@ -11,9 +11,22 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from decimal import Decimal
+from decimal import Decimal, localcontext, ROUND_HALF_EVEN
+import math
 
-from _input_contracts import SAFE_ID, validate_input_contract
+from _input_contracts import SAFE_ID, validate_input_contract, matrix_value, NUMERIC_POLICY
+
+
+def mean_value(total,count):
+    with localcontext() as context:
+        context.prec=28;context.rounding=ROUND_HALF_EVEN
+        return total/count
+
+
+def plot_coordinate(value):
+    try:result=float(value)
+    except (ValueError,OverflowError):return None
+    return result if math.isfinite(result) and (not value or result!=0) else None
 
 
 def digest(value):
@@ -59,38 +72,50 @@ def materialize(manifest,node,paths,out):
 def matrix_summary(dataset,out):
     dataset=Path(dataset);out=Path(out);out.mkdir(parents=True,exist_ok=False)
     contract=json.loads((dataset/'input.provenance.json').read_text(encoding='utf-8'))
+    coverage=contract['feature_type']=='pathway_coverage'
     source=(dataset/'source_payload' if (dataset/'source_payload').is_dir() else dataset)/contract['table'];samples={};features={}
     # Streaming reductions avoid a potentially enormous sparse-to-dense pivot.
     with source.open(encoding='utf-8-sig',newline='') as handle, (out/'canonical.tsv').open('w',encoding='utf-8',newline='') as target:
         reader=csv.DictReader(handle,delimiter='\t' if source.suffix.lower()=='.tsv' else ',')
         writer=csv.DictWriter(target,fieldnames=['sample_id','feature_id','value','unit'],delimiter='\t');writer.writeheader()
         for row in reader:
-            value=Decimal(row['value']);sid=row['sample_id'];fid=row['feature_id']
-            writer.writerow({'sample_id':sid,'feature_id':fid,'value':str(value),'unit':contract['unit']})
+            value=matrix_value(row['value']);sid=row['sample_id'];fid=row['feature_id']
+            writer.writerow({'sample_id':sid,'feature_id':fid,'value':row['value'],'unit':contract['unit']})
             for mapping,key in ((samples,sid),(features,fid)):
-                acc=mapping.setdefault(key,[Decimal(0),0,0]);acc[0]+=value;acc[1]+=1;acc[2]+=int(value>0)
+                acc=mapping.setdefault(key,[Decimal(0),0,0])
+                with localcontext() as context:
+                    context.prec=237
+                    acc[0]+=value if value else Decimal(0)
+                acc[1]+=1;acc[2]+=int(value>0)
     for name,mapping,key in [('sample_summary.tsv',samples,'sample_id'),('feature_summary.tsv',features,'feature_id')]:
         with (out/name).open('w',encoding='utf-8',newline='') as handle:
             writer=csv.writer(handle,delimiter='\t');writer.writerow([key,'sum','observed_features' if key=='sample_id' else 'observed_samples','positive_values','mean_observed'])
-            for item,(total,count,positive) in sorted(mapping.items()):writer.writerow([item,str(total),count,positive,str(total/count)])
+            for item,(total,count,positive) in sorted(mapping.items()):writer.writerow([item,'' if coverage else str(total),count,positive,str(mean_value(total,count))])
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'visualization'))
     from plot_utils import styled_plots, save_figure, write_provenance, plt, OKABE_ITO
-    top=sorted(features.items(),key=lambda item:(-item[1][0]/item[1][1],item[0]))[:20]
+    top=sorted(features.items(),key=lambda item:(mean_value(item[1][0],item[1][1]).copy_negate(),item[0]))[:20]
+    coordinates=[plot_coordinate(mean_value(v[0],v[1])) for _,v in reversed(top)]
     @styled_plots
     def render():
-        fig,ax=plt.subplots(figsize=(8,max(3,len(top)*.3)))
-        ax.barh([key for key,_ in reversed(top)],[float(v[0]/v[1]) for _,v in reversed(top)],color=OKABE_ITO[0])
-        ax.set_xlabel('Mean observed value ('+contract['unit']+')');ax.set_title('External '+contract['feature_type']+' matrix')
-        save_figure(fig,out/'feature_means.png');plt.close(fig)
+        plot={'status':'skipped','reason':'Coordinates are not representable as finite non-underflowing display floats'}
+        if all(v is not None for v in coordinates):
+            fig,ax=plt.subplots(figsize=(8,max(3,len(top)*.3)))
+            ax.barh([key for key,_ in reversed(top)],coordinates,color=OKABE_ITO[0])
+            ax.set_xlabel('Mean observed value ('+contract['unit']+')');ax.set_title('External '+contract['feature_type']+' matrix')
+            save_figure(fig,out/'feature_means.png');plt.close(fig)
+            plot={'status':'generated','output':'feature_means.png'}
         provenance={**contract,'producer':'external_matrix_descriptive_summary','transformation':'none',
             'missing_values':'unobserved entries remain missing; means use observed rows only',
-            'plots':{'feature_means':{'status':'generated','output':'feature_means.png'},
+            'numeric_policy':NUMERIC_POLICY,
+            'sum_policy':'non_additive_coverage_confidence' if coverage else 'exact observed sum',
+            'mean_policy':'descriptive confidence average over observed rows; not whole-community probability or abundance; no zero imputation' if coverage else 'descriptive mean over observed rows',
+            'plots':{'feature_means':plot,
                      'ordination':{'status':'skipped','reason':'No distance transform or missing-value convention was specified'},
                      'differential':{'status':'skipped','reason':'Descriptive analysis only; no statistical inference'}},
             'dense_matrix':'not constructed; streaming reductions', 'sample_count':len(samples),'feature_count':len(features)}
         write_provenance(out/'summary.provenance.json',provenance)
     render()
-    (out/'feature_means.caption.md').write_text('Top 20 features ranked by mean of observed values. Original '+contract['unit']+' units; no transformation or normalization. Missing entries are not zero-filled. External, unverified source; not HUMAnN/Bracken evidence. Descriptive only.\n',encoding='utf-8')
+    (out/'feature_means.caption.md').write_text('Top 20 features ranked by mean of observed values. Original '+contract['unit']+' units; no transformation or normalization. Missing entries are not zero-filled. External, unverified source; not HUMAnN/Bracken evidence. Descriptive only. '+('non_additive_coverage_confidence: sum unavailable; descriptive confidence average over observed rows, not whole-community probability or abundance.' if coverage else '')+'\n',encoding='utf-8')
     (out/'summary.txt').write_text(f'{len(samples)} samples; {len(features)} features. Unit: {contract["unit"]}. Normalization declared by source: {contract["normalization"]}. No additional normalization. Missing entries are not assumed zero.\n',encoding='utf-8')
 
 

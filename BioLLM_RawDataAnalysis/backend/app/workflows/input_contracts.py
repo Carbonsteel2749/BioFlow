@@ -30,6 +30,23 @@ MAX_SEQUENCE_ID = 512
 MAX_FASTA_RECORDS = 1_000_000
 MAX_FASTA_ID_BYTES = 64 * 1024 * 1024
 MAX_EXPANDED_BYTES = 250 * 1024**3
+NUMERIC_POLICY = {'significant_digits':28,'min_adjusted_exponent':-100,'max_adjusted_exponent':100,
+                  'sum_precision':237,'mean_precision':28,'mean_rounding':'ROUND_HALF_EVEN','plot_values':'finite float display only'}
+VALIDATOR_CAPS = {'source_bytes':MAX_EXPANDED_BYTES,'expanded_sequence_bytes':MAX_EXPANDED_BYTES,
+    'matrix_rows':MAX_MATRIX_ROWS,'paired_samples':1024,'mags':10000,'fasta_records':MAX_FASTA_RECORDS,
+    'sequence_line_bytes':MAX_SEQUENCE_LINE,'sequence_header_bytes':MAX_SEQUENCE_HEADER,
+    'sequence_id_bytes':MAX_SEQUENCE_ID,'fasta_id_bytes':MAX_FASTA_ID_BYTES}
+
+
+def matrix_value(text):
+    try:value=Decimal(text)
+    except (InvalidOperation,ValueError,TypeError) as e:raise InputContractError('矩阵值不是数值') from e
+    if not value.is_finite() or value<0:raise InputContractError('矩阵值必须是非负有限数值')
+    digits=list(value.as_tuple().digits)
+    while digits and digits[-1]==0:digits.pop()
+    if len(digits)>28 or value and not -100<=value.adjusted()<=100:
+        raise InputContractError('矩阵数值支持最多 28 位有效数字及非零调整指数 -100..100；不会舍入接受')
+    return value
 
 
 class _SequenceLines:
@@ -165,15 +182,13 @@ def _matrix(spec,files):
                 if None in row or any(v is None for v in row.values()):raise InputContractError('矩阵列数不一致')
                 if (sample,fid) in keys:raise InputContractError('矩阵 sample_id + feature_id 重复')
                 keys.add((sample,fid));samples.add(sample)
-                try:value=Decimal(row['value'])
-                except (InvalidOperation,ValueError,TypeError) as e:raise InputContractError('矩阵值不是数值') from e
-                if not value.is_finite() or value<0:raise InputContractError('矩阵值必须是非负有限数值')
+                value=matrix_value(row['value'])
                 if unit in ('fraction','coverage') and value>1 or unit=='percent' and value>100:raise InputContractError('矩阵数值超出明确单位允许范围')
                 if unit=='counts' and value!=value.to_integral_value():raise InputContractError('counts 必须为整数计数')
                 if 'unit' in row and row['unit']!=unit:raise InputContractError('矩阵含不同单位或与声明单位不一致')
     except (UnicodeError,OSError,csv.Error) as e:raise InputContractError('矩阵文件无法完整读取') from e
     if count==0:raise InputContractError('矩阵没有数据行')
-    return {'table':spec['table'],'feature_type':feature,'unit':unit,'normalization':normalization,'sample_ids':sorted(samples),'row_count':count}
+    return {'table':spec['table'],'feature_type':feature,'unit':unit,'normalization':normalization,'sample_ids':sorted(samples),'row_count':count,'numeric_policy':dict(NUMERIC_POLICY)}
 
 
 def validate_input_contract(spec:dict,root:Path)->dict:

@@ -2,7 +2,7 @@
 from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from ..workflows.input_contracts import InputContractError, FEATURE_TYPES, UNITS
+from ..workflows.input_contracts import InputContractError, FEATURE_TYPES, UNITS, NUMERIC_POLICY, VALIDATOR_CAPS
 
 
 class StrictModel(BaseModel):
@@ -63,6 +63,7 @@ def create_input_dataset_router(service):
     @router.get('/contracts')
     def contracts():
         return {'kinds':['reads','contigs','mags','matrix'],
+                'numeric_policy':NUMERIC_POLICY,'validator_caps':VALIDATOR_CAPS,
                 'read_states':['raw','clean','host_removed'],'feature_types':list(FEATURE_TYPES),
                 'units':list(UNITS),'matrix_columns':['sample_id','feature_id','value'],
                 'required_semantics':{'reads':['processing_status','samples'], 'contigs':['cohort_id'],

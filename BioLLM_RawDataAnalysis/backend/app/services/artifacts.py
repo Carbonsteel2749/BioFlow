@@ -296,9 +296,19 @@ class ArtifactService:
             raise ArtifactIntegrityError("artifact changed after registration")
         return resolved
 
-    @staticmethod
-    def _public(record: dict[str, Any]) -> dict[str, Any]:
+    def _source_file(self,record):
+        """Producer-relative evidence locator; no walk, hash, or path guessing."""
+        tid=record.get('task_id')
+        if not isinstance(tid,str) or not SAFE_IDENTIFIER.fullmatch(tid):return None
+        root=(self.output_root/tid).absolute();path=Path(record['path']).absolute()
+        try:
+            if not path.is_relative_to(root) or path.resolve()!=path or any(p.is_symlink() for p in (path,*path.parents)) or not path.is_file():return None
+            return path.relative_to(root).as_posix()
+        except OSError:return None
+
+    def _public(self,record: dict[str, Any]) -> dict[str, Any]:
         return {
+            'source_file':self._source_file(record),
             "artifact_id": record["artifact_id"],
             "task_id": record["task_id"],
             "node_id": record["node_id"],

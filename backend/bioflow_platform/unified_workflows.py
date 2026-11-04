@@ -216,3 +216,17 @@ def install(router,get_store,check_project,call):
         except KeyError:
             snap={'workflow':await call('analysis','/api/workflows/runs/'+tid+'/workflow'),'design':None}
         return {'run':run,'snapshot':snap}
+
+    @router.get('/analysis/workflows/runs/{tid}/artifacts')
+    async def artifacts(pid:str,tid:str,request:Request):
+        check_project(pid,request);store=get_store();uid=request.state.user['id']
+        project=store.get(pid)
+        if not project or project['owner_id']!=uid or project.get('archived') or tid not in store.ids(pid,'workflow') or not store.owns('workflow',tid,uid):
+            raise HTTPException(404,'任务不属于当前项目')
+        try:
+            rows=await asyncio.wait_for(call('analysis','/api/tasks/'+tid+'/artifacts'),timeout=10)
+        except Exception as exc:raise HTTPException(503,'结果服务暂不可用，请稍后重试') from exc
+        if not isinstance(rows,list) or any(not isinstance(row,dict) or row.get('task_id')!=tid for row in rows):
+            raise HTTPException(502,'结果来源身份不一致，请稍后重试')
+        allowed={'artifact_id','node_id','file_name','artifact_type','media_type','size_bytes','sha256','status','downloadable','sample_scope','sample_id','producer'}
+        return {'items':[{k:v for k,v in row.items() if k in allowed} for row in rows]}

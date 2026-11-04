@@ -47,6 +47,8 @@ def bound(tmp_path):
     registry={'nodes':[{'type':'abundance_input','parameters_schema':{},'inputs':[],'outputs':[{'id':'matrix','data_type':'abundance_matrix'}]},{'type':'matrix_summary','parameters_schema':{}}]}
     calls=[]
     async def upstream(service,path,method='GET',payload=None):
+        if path=='/api/tasks/run1/artifacts':return [{'artifact_id':'a','task_id':'run1','file_name':'x.png','path':'/secret/x.png','metadata':{'path':'/secret'}}]
+        if path=='/api/tasks/bad/artifacts':return [{'artifact_id':'a','task_id':'foreign'}]
         if path.endswith('/registry'):return registry
         if path.startswith('/api/workflows/templates/builtin-'):return {'workflow':workflow}
         if path=='/api/workflows/runs':calls.append(copy.deepcopy(payload));return {'task_id':'run1'}
@@ -58,6 +60,20 @@ def bound(tmp_path):
         return await call_next(request)
     u.install(router,lambda:store,lambda p,r:None,upstream);app.include_router(router)
     return store,TestClient(app),pid,calls,record
+
+
+def test_project_workflow_artifacts_strip_paths_and_enforce_owner(bound):
+    store,c,pid,_,_=bound
+    store.claim('workflow','run1','alice');store.link(pid,'workflow','run1')
+    url=f'/api/projects/{pid}/analysis/workflows/runs/run1/artifacts'
+    response=c.get(url);assert response.status_code==200,response.text
+    assert response.json()['items'][0]['file_name']=='x.png'
+    assert 'secret' not in response.text and 'metadata' not in response.text
+    assert c.get(url,headers={'x-user':'bob'}).status_code==404
+    other=store.create('other','','alice')['id']
+    assert c.get(url.replace(pid,other)).status_code==404
+    store.claim('workflow','bad','alice');store.link(pid,'workflow','bad')
+    assert c.get(url.replace('run1','bad')).status_code==502
 
 
 def body():return {'template_id':'builtin-matrix','version':1,'name':'matrix','input_bindings':{'source':'typed'}}

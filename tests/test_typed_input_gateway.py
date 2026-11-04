@@ -151,8 +151,15 @@ def test_registered_artifact_reuse_checks_task_owner_and_success(gateway,monkeyp
     g,store,c,base,path,other=gateway;pid=base.split('/')[3]
     root=path.parents[4]/'analysis';monkeypatch.setenv('BIOFLOW_ANALYSIS_ROOT',str(root))
     output=root/'runtime/outputs/task1';output.mkdir(parents=True);f=output/'c.fa';f.write_bytes(path.read_bytes())
-    snap={'task':{'status':'completed'},'artifacts':[{'artifact_id':'out','status':'active','producer':'dynamic.megahit','node_id':'assembly','path':'task1/c.fa','file_name':'c.fa','sha256':hashlib.sha256(f.read_bytes()).hexdigest(),'size_bytes':f.stat().st_size}]}
+    snap={'task':{'status':'completed'},'artifacts':[{'artifact_id':'out','task_id':'task1','artifact_type':'assembly.contigs','source_file':'c.fa','status':'active','producer':'dynamic.megahit','node_id':'assembly','file_name':'c.fa','sha256':hashlib.sha256(f.read_bytes()).hexdigest(),'size_bytes':f.stat().st_size}]}
     target=assets.snapshot_path('task1');target.parent.mkdir(parents=True);target.write_text(json.dumps(snap))
+    original=g.remote
+    def authoritative(method,path,payload=None):
+        if path=='/api/tasks/task1':return snap['task']
+        if path=='/api/tasks/task1/artifacts':return snap['artifacts']
+        if path=='/api/artifacts/out':return snap['artifacts'][0]
+        return original(method,path,payload)
+    g.remote=authoritative
     store.claim('task','task1','alice');store.link(pid,'task','task1')
     assert 'artifact:out' in [a['id'] for a in c.get(base+'/candidates').json()['items']]
     body=payload('artifact');body['spec']['fasta']='artifact:out'
