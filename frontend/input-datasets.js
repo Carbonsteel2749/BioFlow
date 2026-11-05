@@ -6,7 +6,8 @@
     states = new Map();
   let epoch = 0,
     timer,
-    pending;
+    pending,
+    recoveryReview;
   const key = () => JSON.stringify([bioflowUser?.id, state.project]);
   const pendingPrefix = 'bioflow-input-pending:';
   function marker(k, value) {
@@ -93,7 +94,7 @@
       s.history = (reply.items || []).filter(j => typeof j.id === 'string');
       s.historyEpoch = e;
       s.historyError = '';
-      if (s.recovery) {
+      if (s.recovery && marker(k) === s.recovery) {
         const found = s.history.find(j => j.request_id === s.recovery);
         if (found) {
           s.job = found;
@@ -104,6 +105,7 @@
           s.message = '已找回先前受理的导入；无需重复提交。请选择刷新导入状态读取最新结果。';
         }
       }
+      return true;
     } catch (error) {
       if (active(k, s, e) && request === s.historyRequest) s.historyError = safeError(error);
     }
@@ -205,7 +207,7 @@
       <p>仅显示当前账户、当前项目的持久化导入。返回后可选择记录继续查看；不会自动重新提交。</p>
       ${button('刷新导入记录', 'input-history-refresh')}
       ${s.historyError ? `<p role="alert">记录读取失败，不能据此判定无导入：${esc(s.historyError)}</p>` : ''}
-      ${s.recovery ? '<p role="alert">先前提交的网络结果仍待确认。请刷新导入记录找回已受理任务；确认前暂停新提交，以免重复复制。原来源内容未存储。</p>' : ''}
+      ${s.recovery ? '<p role="alert">先前提交的网络结果仍待确认。请刷新导入记录找回已受理任务；确认前暂停新提交，以免重复复制。原来源内容未存储。</p>' + button('核对记录并重新开始', 'input-recovery-start', `type="button" ${s.recoveryBusy ? 'disabled' : ''}`) : ''}
       <ul>${s.history.slice(0, s.historyLimit).map(j => `<li>${button((status[j.status] || '状态待确认') + ' · ' + j.id, 'input-job', `type="button" data-job="${esc(j.id)}"`)} <small>${esc(j.updated_at || j.created_at || '')}</small>${j.status === 'failed' ? `<p>${esc(safeError({message:j.error || '导入失败，请选择记录查看'}))}</p>` : ''}</li>`).join('')}</ul>
       ${!s.history.length && !s.historyError ? '<p>暂无已加载的导入记录。</p>' : ''}
       ${s.history.length > s.historyLimit ? button('加载更多导入记录', 'input-history-more') : ''}
@@ -344,6 +346,53 @@
     await render();
   };
   actions['input-poll'] = poll;
+  actions['input-recovery-cancel'] = () => {
+    const dialog = $('[data-input-recovery-review]');
+    if (dialog) { dialog.close(); dialog.remove(); }
+    recoveryReview = null;
+  };
+  async function recover(p, confirmed) {
+    const {k, s, e, digest} = p;
+    const current = () => active(k, s, e) && s.recovery === digest && marker(k) === digest;
+    if (!digest || !current() || s.recoveryBusy) return;
+    s.recoveryBusy = true;
+    const reconciled = await history(s);
+    s.recoveryBusy = false;
+    if (!active(k, s, e)) return;
+    if (!reconciled || !current()) { await render(); return; }
+    if (confirmed) {
+      // This retires only the browser gate, not any server job. Absence from
+      // history is not proof of nonacceptance; the user accepts duplicate risk.
+      marker(k, null);
+      s.recovery = null;
+      s.request = null;
+      s.uncertain = false;
+      s.message = '已解除本账户、本项目的待确认标记；未取消任何服务端任务，也未重新提交。请核对来源后手动登记，仍可能重复导入。';
+      await render();
+      return;
+    }
+    await render();
+    if (!current()) return;
+    recoveryReview = p;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'wb-submit-review';
+    dialog.dataset.inputRecoveryReview = '';
+    dialog.setAttribute('aria-label', '确认重新开始导入');
+    dialog.innerHTML = `<h2>仍可能重复导入</h2><p>刚刚读取的记录中未找到匹配任务，但这不能证明先前请求未被受理。重新开始可能重复复制文件、占用存储。</p><p>确认仅解除本账户、本项目的待确认标记；不会取消或删除任何服务端任务，也不会自动提交。确认时将再次核对记录，若找回任务则直接选择它。</p><div class="row">${button('保留标记，继续等待', 'input-recovery-cancel', 'type="button" autofocus')}${button('接受重复风险，解除标记', 'input-recovery-confirm', 'type="button" class="primary"')}</div>`;
+    root.append(dialog);
+    dialog.addEventListener('cancel', () => { recoveryReview = null; dialog.remove(); });
+    dialog.showModal();
+  }
+  actions['input-recovery-start'] = async () => {
+    if (recoveryReview) return;
+    const s = get();
+    await recover({k: key(), s, e: epoch, digest: s.recovery}, false);
+  };
+  actions['input-recovery-confirm'] = async () => {
+    const p = recoveryReview;
+    actions['input-recovery-cancel']();
+    if (p) await recover(p, true);
+  };
   actions['input-history-refresh'] = async () => { await history(get()); await render(); };
   actions['input-history-more'] = async () => { get().historyLimit += 20; await render(); };
   actions['input-job'] = async el => {
@@ -421,12 +470,14 @@
       stop();
       ++epoch;
       actions['input-cancel']();
+      actions['input-recovery-cancel']();
     }
   };
   document.addEventListener('visibilitychange', () => {
     stop();
     ++epoch;
     actions['input-cancel']();
+    actions['input-recovery-cancel']();
     if (!document.hidden) poll();
   });
   const oldSignout = actions.signout;
@@ -434,6 +485,7 @@
     stop();
     ++epoch;
     actions['input-cancel']();
+    actions['input-recovery-cancel']();
     states.clear();
     try {
       for (let i = localStorage.length - 1; i >= 0; --i) {
