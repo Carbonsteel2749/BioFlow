@@ -38,6 +38,8 @@ ARTIFACT_TYPES: dict[str, dict[str, Any]] = {
     "functional.pathway_abundance": {"downloadable": True},
     "functional.pathway_coverage": {"downloadable": True},
     "mag.fasta": {"downloadable": True},
+    "mag.candidate_fasta": {"downloadable": True},
+    "mag.quality_report": {"downloadable": True},
     "mag.annotation": {"downloadable": True},
     "mag.function_annotation": {"downloadable": True},
     "mag.sample_abundance": {"downloadable": True},

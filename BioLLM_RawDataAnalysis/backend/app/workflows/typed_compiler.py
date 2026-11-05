@@ -31,16 +31,38 @@ def compile_typed_workflow(graph,registry,project_root,bindings):
     for key in roots:runtime.setdefault(key,{})
     out_roots={key:f'nodes/{alias}' for key,alias in aliases.items()}
     identity={key:{'dataset_id':b['dataset_id'],'contract':b['contract']} for key,b in bindings.items()}
+    # Cohort identity follows the scientific payload, never companion reads or
+    # a task-wide label. Keep biological module tuple contracts unchanged.
+    cohorts={}
+    for key in order:
+        node=nodes[key]
+        if key in roots:
+            contract=bindings[key]['contract']
+            if contract.get('kind') in {'contigs','mags'}:
+                cohort=contract.get('cohort_id')
+                if not isinstance(cohort,str) or not SAFE_ID.fullmatch(cohort):
+                    raise c.WorkflowCompilationError('invalid_input_bindings','A safe declared cohort is required')
+                cohorts[key]=cohort
+        elif node.type=='assembly':cohorts[key]='coassembly'
+        else:
+            incoming=[e for e in graph.edges if e.target_node==key]
+            primary=[e for e in incoming if e.target_port in {'assembly','bins','mags'}]
+            inherited={cohorts[e.source_node] for e in (primary or incoming) if e.source_node in cohorts}
+            if len(inherited)==1:cohorts[key]=inherited.pop()
+            elif len(inherited)>1:
+                raise c.WorkflowCompilationError('ambiguous_cohort_lineage','Node combines distinct cohort lineages')
     payload=c._canonical_graph_payload(graph,normalized,registry)
     payload['input_bindings']=identity
+    payload['node_cohorts']=cohorts
     digest=lambda value:hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     graph_hash=digest(payload)
     fingerprints={}
     for key in order:
         fingerprints[key]=digest({'parameters':normalized[key],'method':versions[key],
-            'input':identity.get(key),'parents':sorted(fingerprints[e.source_node] for e in graph.edges if e.target_node==key)})
+            'input':identity.get(key),'cohort':cohorts.get(key),'parents':sorted(fingerprints[e.source_node] for e in graph.edges if e.target_node==key)})
     parameters=c._map_nextflow_parameters(order,nodes,normalized,validation,registry)
     parameters['typed_inputs']={key:{**value,'source_root':str(value.get('source_root',''))} for key,value in bindings.items()}
+    parameters['bioflow_node_cohorts']=cohorts
     parameters['bioflow_nodes']={key:{'type':nodes[key].type,'alias':aliases[key],'parameters':normalized[key],
         'runtime_parameters':runtime[key],'method_version':versions[key],'output_root':out_roots[key]} for key in order}
     includes=[];lines=['workflow {','    binding_manifest_ch = Channel.value(file(params.input_manifest, checkIfExists: true))']
@@ -74,7 +96,7 @@ def compile_typed_workflow(graph,registry,project_root,bindings):
         elif node.type=='bin_annotation':
             source=next(nodes[e.source_node] for e in graph.edges if e.target_node==key and e.target_port=='mags')
             channel=incoming['mags']
-            if source.type!='mag_input':channel+=".map { bins, assembly, reads -> tuple(params.cohort_id ?: 'coassembly', bins) }"
+            if source.type!='mag_input':channel+=f".map {{ bins, assembly, reads -> tuple(params.bioflow_node_cohorts['{key}'], bins) }}"
             args=[channel,'database_manifest_ch']
         elif node.type=='bin_quantification':
             manifest_alias=alias+'_READS'
@@ -94,4 +116,4 @@ def compile_typed_workflow(graph,registry,project_root,bindings):
         graph_hash=graph_hash,registry_version=c.REGISTRY_VERSION,compiler_version=c.COMPILER_VERSION,
         topological_order=order,node_aliases=aliases,node_parameters=normalized,nextflow_parameters=parameters,
         node_output_channels=outputs,node_method_versions=versions,node_runtime_parameters=runtime,
-        node_output_roots=out_roots,node_fingerprints=fingerprints)
+        node_output_roots=out_roots,node_fingerprints=fingerprints,node_cohorts=cohorts)

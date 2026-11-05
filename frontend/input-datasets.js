@@ -8,6 +8,22 @@
     timer,
     pending;
   const key = () => JSON.stringify([bioflowUser?.id, state.project]);
+  const pendingPrefix = 'bioflow-input-pending:';
+  function marker(k, value) {
+    // Persist only an opaque random request identifier; never source
+    // references, biological rows, declarations or credentials.
+    try {
+      const name = pendingPrefix + k;
+      if (value === null) localStorage.removeItem(name);
+      else if (value !== undefined) localStorage.setItem(name, value);
+      else {
+        const stored = localStorage.getItem(name);
+        if (stored?.length === 64 && /^[a-f0-9]{64}$/.test(stored)) return stored;
+        if (stored) localStorage.removeItem(name);
+      }
+    } catch {}
+    return null;
+  }
   const get = () => {
     if (!states.has(key())) states.set(key(), {
       draft: M.draft(),
@@ -18,6 +34,9 @@
       page: 0,
       filter: '',
       message: '',
+      history: [],
+      historyLimit: 20,
+      recovery: marker(key()),
       job: null
     });
     return states.get(key());
@@ -65,6 +84,30 @@
       if (active(k, s, e) && request === s.candidateRequest) s.message = safeError(error);
     }
   }
+  async function history(s) {
+    const k = key(), e = epoch, request = (s.historyRequest || 0) + 1;
+    s.historyRequest = request;
+    try {
+      const reply = await api(url(''));
+      if (!active(k, s, e) || request !== s.historyRequest) return;
+      s.history = (reply.items || []).filter(j => typeof j.id === 'string');
+      s.historyEpoch = e;
+      s.historyError = '';
+      if (s.recovery) {
+        const found = s.history.find(j => j.request_id === s.recovery);
+        if (found) {
+          s.job = found;
+          s.detail = null;
+          s.recovery = null;
+          s.uncertain = false;
+          marker(k, null);
+          s.message = '已找回先前受理的导入；无需重复提交。请选择刷新导入状态读取最新结果。';
+        }
+      }
+    } catch (error) {
+      if (active(k, s, e) && request === s.historyRequest) s.historyError = safeError(error);
+    }
+  }
   function stop() {
     clearTimeout(timer);
     timer = null;
@@ -91,6 +134,7 @@
         if (!isCurrent()) return;
         s.detail = detail;
       }
+      s.history = s.history.map(j => j.id === s.job.id ? s.job : j);
       if (!isCurrent()) return;
       s.message = '';
       await render();
@@ -107,9 +151,11 @@
   names['input-datasets'] = '导入分析数据';
   actions['input-datasets'] = () => navigate('input-datasets');
   views['input-datasets'] = async () => {
-    const s = get();
+    const s = get(), k = key(), e = epoch;
     if (!s.catalog) await candidates(s);
-    if (state.page !== 'input-datasets') return '';
+    if (!active(k, s, e)) return '';
+    if (s.historyEpoch !== e) await history(s);
+    if (!active(k, s, e)) return '';
     stop();
     if (!document.hidden && ['queued', 'validating'].includes(s.job?.status)) timer = setTimeout(poll, 3000);
     return html(s);
@@ -154,6 +200,16 @@
       ${button('刷新来源', 'input-refresh')}${s.next ? button('加载更多来源', 'input-more') : ''}</div>
       
       <p>已加载 ${s.candidates.length} 个可选来源（不是全部项目文件）。${s.next ? '仍有下一页，即使本页无可用项也可继续加载。' : ''}</p>
+      <section class="input-history" aria-label="项目导入记录">
+      <h2>项目导入记录</h2>
+      <p>仅显示当前账户、当前项目的持久化导入。返回后可选择记录继续查看；不会自动重新提交。</p>
+      ${button('刷新导入记录', 'input-history-refresh')}
+      ${s.historyError ? `<p role="alert">记录读取失败，不能据此判定无导入：${esc(s.historyError)}</p>` : ''}
+      ${s.recovery ? '<p role="alert">先前提交的网络结果仍待确认。请刷新导入记录找回已受理任务；确认前暂停新提交，以免重复复制。原来源内容未存储。</p>' : ''}
+      <ul>${s.history.slice(0, s.historyLimit).map(j => `<li>${button((status[j.status] || '状态待确认') + ' · ' + j.id, 'input-job', `type="button" data-job="${esc(j.id)}"`)} <small>${esc(j.updated_at || j.created_at || '')}</small>${j.status === 'failed' ? `<p>${esc(safeError({message:j.error || '导入失败，请选择记录查看'}))}</p>` : ''}</li>`).join('')}</ul>
+      ${!s.history.length && !s.historyError ? '<p>暂无已加载的导入记录。</p>' : ''}
+      ${s.history.length > s.historyLimit ? button('加载更多导入记录', 'input-history-more') : ''}
+      </section>
       
       <form data-form="input-import">
       <div class="input-form-head">${field('输入类型', `<select data-input-field="kind">${[['reads', '双端 reads'], ['contigs', 'Contigs'], ['mags', 'MAG 集合'], ['matrix', '丰度矩阵']].map(([v, t]) => `<option value="${v}" ${d.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`)}${field('筛选已加载来源', `<input data-input-filter value="${esc(s.filter)}" placeholder="文件名、任务或节点；每个选择器最多显示 50 项">`)}</div>
@@ -170,12 +226,12 @@
       numeric: s.catalog?.numeric_policy
     }, null, 2))}</pre>
       </details>
-      <button class="primary" type="submit" ${s.busy || ['queued', 'validating'].includes(s.job?.status) ? 'disabled' : ''}>${s.uncertain ? '重试相同导入请求' : '校验并登记数据'}</button>
+      <button class="primary" type="submit" ${s.busy || s.recovery || ['queued', 'validating'].includes(s.job?.status) ? 'disabled' : ''}>${s.uncertain ? '重试相同导入请求' : '校验并登记数据'}</button>
       </form>
       <div role="status" aria-live="polite" data-input-status>${esc(s.message)}</div>
       ${s.job ? `<section>
       <h2>${status[s.job.status] || '状态待确认'}</h2>
-      <p>${esc(s.job.id)} · ${esc(s.job.error || '不显示虚构进度百分比')}</p>
+      <p>${esc(s.job.id)} · ${esc(s.job.error ? safeError({message:s.job.error}) : '不显示虚构进度百分比')}</p>
       ${button('刷新导入状态', 'input-poll')}${s.detail ? `<p>以下仅为导入时冻结元数据，不是当前文件完整性复检；执行前服务仍将完整校验。</p>
       
       <details>
@@ -186,8 +242,9 @@
   async function submit(confirmed = false) {
     const s = get(),
       k = key(),
-      e = epoch;
-    if (s.busy) return;
+      e = epoch,
+      endpoint = url('');
+    if (s.busy || s.recovery) return;
     let spec;
     try {
       spec = M.spec(s.draft, confirmed);
@@ -227,24 +284,36 @@
       s.request = {
         serialized,
         body: {
-          idempotency_key: crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join(''),
+          idempotency_key: 'typedimport_' + Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, '0')).join(''),
           spec
         }
       };
     }
     s.busy = true;
+    const request = s.request;
+    const digest = request.body.idempotency_key.slice('typedimport_'.length);
+    if (!active(k, s, e)) { s.busy = false; return; }
+    marker(k, digest);
     s.message = '正在提交登记请求…';
     await render();
+    if (!active(k, s, e)) {
+      s.busy = false;
+      if (marker(k) === digest) marker(k, null);
+      return;
+    }
     try {
-      const job = await api(url(''), 'POST', s.request.body);
+      const job = await api(endpoint, 'POST', request.body);
+      if (marker(k) === digest) marker(k, null);
       if (!active(k, s, e)) return;
       s.job = job;
       s.uncertain = false;
       s.detail = null;
       s.message = '已受理；校验完成后才可用于分析。';
+      s.history = [job, ...s.history.filter(j => j.id !== job.id)];
     } catch (error) {
       if (active(k, s, e)) {
         s.uncertain = error.name === 'TypeError';
+        if (!s.uncertain && marker(k) === digest) marker(k, null);
         s.message = (s.uncertain ? '网络结果不确定；保持原内容重试会复用同一幂等键。 ' : '') + safeError(error);
       }
     } finally {
@@ -275,6 +344,19 @@
     await render();
   };
   actions['input-poll'] = poll;
+  actions['input-history-refresh'] = async () => { await history(get()); await render(); };
+  actions['input-history-more'] = async () => { get().historyLimit += 20; await render(); };
+  actions['input-job'] = async el => {
+    const s = get(), job = s.history.find(j => j.id === el.dataset.job);
+    if (!job) return;
+    stop();
+    s.pollRequest = (s.pollRequest || 0) + 1;
+    s.job = job;
+    s.detail = null;
+    s.message = '';
+    await poll();
+    await render();
+  };
   actions['input-add'] = async () => {
     const s = get(),
       m = s.draft.kind === 'mags',
@@ -353,6 +435,13 @@
     ++epoch;
     actions['input-cancel']();
     states.clear();
+    try {
+      for (let i = localStorage.length - 1; i >= 0; --i) {
+        const name = localStorage.key(i);
+        if (!name?.startsWith(pendingPrefix)) continue;
+        try { if (JSON.parse(name.slice(pendingPrefix.length))[0] === bioflowUser?.id) localStorage.removeItem(name); } catch {}
+      }
+    } catch {}
     await oldSignout();
   };
 })();

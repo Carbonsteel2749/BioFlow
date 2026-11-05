@@ -197,7 +197,7 @@ class ImportGateway:
             root=assets.analysis_root()/'runtime/outputs'/tid;path=safe_path(root/relative,root)
             result={'id':reference,'name':row.get('file_name') or path.name,'size_bytes':row['size_bytes'],
                 'sha256':row['sha256'],'source_task':tid,'node':row.get('node_id'),'producer':row['producer'],'path':path,'root':root,
-                'hints':{k:row[k] for k in ('artifact_type','sample_id','sample_scope') if k in row}}
+                'hints':{k:row[k] for k in ('artifact_type','sample_id','sample_scope','cohort_id') if k in row}}
             hints=result['hints'];atype=row['artifact_type']
             if atype.startswith('reads.'):hints.update(kind='reads',processing_status=atype.split('.')[1])
             elif atype=='assembly.contigs':hints.update(kind='contigs')
@@ -221,7 +221,12 @@ class ImportGateway:
 
     @staticmethod
     def public(row):
-        return {k:row[k] for k in ('id','status','error','created_at','updated_at')}|{'dataset_id':row['id']}
+        token=row['idempotency_key']
+        # New browser keys contain only an opaque random identifier. Other
+        # clients' arbitrary keys are never exposed, only their SHA digest.
+        request_id=token[len('typedimport_'):] if re.fullmatch(r'typedimport_[a-f0-9]{64}',token) else hashlib.sha256(token.encode()).hexdigest()
+        return {k:row[k] for k in ('id','status','error','created_at','updated_at')}|{
+            'dataset_id':row['id'],'request_id':request_id}
 
     def create(self,pid,uid,body):
         self.owner(pid,uid);spec=body.spec

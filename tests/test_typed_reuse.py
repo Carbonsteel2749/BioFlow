@@ -171,3 +171,36 @@ def test_reused_rich_result_passes_real_conversion_and_private_service(reuse):
     assert 'hints' not in record['origin']['sources'][0]
     assert record['origin']['conversion']['included_rows']==1
     assert record['contract']['trust']=='external_unverified'
+
+
+def test_registered_refined_mag_is_owned_discoverable_and_reimportable(reuse,tmp_path):
+    from backend.app.artifacts import ArtifactRepository
+    from backend.app.services.artifacts import ArtifactService
+    (g,store,c,base,path,other),row,status,calls,f=reuse
+    refined=f.parent/'MAG1.fa';refined.write_text('>c\nACGT\n')
+    repository=ArtifactRepository(tmp_path/'mag-index.db');repository.initialize()
+    service=ArtifactService(repository,f.parents[2])
+    real=service.register(task_id='run1',node_id='refinement',producer='dynamic.bin_refinement',artifact_type='mag.fasta',
+        path=refined,media_type='text/plain',sample_scope='cohort',cohort_id='branch_A',metadata={'quality_status':'threshold_filtered_unverified'})
+    row.clear();row.update(real)
+    original=g.remote
+    def remote(method,path,payload=None):
+        if path=='/api/artifacts/'+real['artifact_id']:return real
+        return original(method,path,payload)
+    g.remote=remote
+    response=c.get(base+'/candidates');assert response.status_code==200,response.text
+    candidate=next(x for x in response.json()['items'] if x['id']=='artifact:'+real['artifact_id'])
+    assert candidate['hints']['cohort_id']=='branch_A'
+    response=c.post(base,json={'idempotency_key':'mag-reuse','spec':dict(kind='mags',cohort_id='branch_A',mags=[dict(mag_id='MAG1',fasta=candidate['id'])])})
+    assert response.status_code==202,response.text
+    jid=response.json()['id'];assert finish(c,base,jid)['status']=='ready'
+    detail=c.get(base+'/'+jid).json();assert detail['contract']['trust']=='external_unverified'
+    assert detail['contract']['cohort_id']=='branch_A'
+
+
+def test_import_history_exposes_only_scoped_opaque_request_digest(gateway):
+    g,store,c,base,path,other=gateway
+    response=c.post(base,json={'idempotency_key':'lost-client-key','spec':dict(kind='contigs',cohort_id='cohort',fasta='asset:a')})
+    assert response.status_code==202,response.text
+    items=c.get(base).json()['items'];assert items[0]['request_id']==hashlib.sha256(b'lost-client-key').hexdigest()
+    assert 'lost-client-key' not in c.get(base).text and 'request_json' not in c.get(base).text

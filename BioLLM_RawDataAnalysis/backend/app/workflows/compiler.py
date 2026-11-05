@@ -46,6 +46,7 @@ class CompiledWorkflow:
     node_runtime_parameters: dict[str, dict[str, object]] = field(default_factory=dict)
     node_output_roots: dict[str, str] = field(default_factory=dict)
     node_fingerprints: dict[str, str] = field(default_factory=dict)
+    node_cohorts: dict[str, str] = field(default_factory=dict)
 
 
 _OUTPUT_EMITS = {

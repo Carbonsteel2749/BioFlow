@@ -199,3 +199,86 @@ def test_external_contigs_actual_tuple_with_companion_reads(tmp_path):
     assert result.returncode==0,result.stdout+'\n'+result.stderr
     assert len(list((tmp_path/'work').glob('**/verified.txt')))==1
     assert len(list((tmp_path/'work').glob('**/quantified.tsv')))==1
+
+
+@pytest.mark.parametrize('reassembly',[False,True])
+def test_two_contig_branches_and_direct_mag_annotation_keep_actual_cohorts(tmp_path,reassembly):
+    from backend.tests.test_typed_final_lineage import branched
+    graph,_=branched(reassembly)
+    settings=Settings(input_root=tmp_path/'incoming',state_root=tmp_path/'state',workflow_path=PROJECT/'workflow/main.nf')
+    settings.prepare();datasets=InputDatasetService(settings);bindings={}
+    for node in graph.nodes:
+        if default_node_registry()[node.type].category!='input':continue
+        folder=datasets.root/node.id;folder.mkdir(parents=True)
+        if node.type in {'contigs_input','mag_input'}:
+            (folder/'c.fa').write_text('>c\nACGT\n')
+            cohort={'a':'cohort_A','b':'cohort_B','d':'direct_C'}[node.id[0]]
+            spec={'kind':'contigs','cohort_id':cohort,'fasta':'c.fa'} if node.type=='contigs_input' else {
+                'kind':'mags','cohort_id':cohort,'mags':[{'mag_id':'MAG1','fasta':'c.fa'}]}
+        else:
+            for mate in (1,2):(folder/f'r{mate}.fq').write_text(f'@r/{mate}\nACGT\n+\nIIII\n')
+            spec={'kind':'reads','processing_status':'host_removed','processing_note':'fixture unverified','confirmed':True,
+                'samples':[{'sample_id':'s1','read1':'r1.fq','read2':'r2.fq'}]}
+        bindings[node.id]={**datasets.register(node.id,spec),'source_root':str(folder)}
+    snapshot=datasets.snapshot({k:k for k in bindings},'branches')
+    compiled=compile_workflow(graph,default_node_registry(),project_root=PROJECT,input_contracts=bindings)
+    artifacts=materialize_compilation(compiled,task_id='branches',state_root=settings.state_root,workflow_root=PROJECT/'workflow')
+    modules=artifacts.root/'workflow/modules'
+    (modules/'binning.nf').write_text('''process BINNING {
+      input:
+      tuple path(assembly), path(reads)
+      output:
+      tuple path('binA'), path('binB'), path('binC'), path(assembly), path(reads), emit: bins
+      script:
+      assert reads.size() == 2
+      """
+      grep -q ACGT "${assembly}"
+      mkdir binA binB binC
+      printf '>c\\nACGT\\n' > binA/MAG1.fa
+      """
+    }''')
+    (modules/'bin_refinement.nf').write_text('''process BIN_REFINEMENT {
+      input:
+      tuple path(a), path(b), path(c), path(assembly), path(reads)
+      output:
+      tuple path(a), path(assembly), path(reads), emit: refined
+      script:
+      """
+      grep -q ACGT "${a}/MAG1.fa"
+      """
+    }''')
+    (modules/'bin_reassembly.nf').write_text('''process BIN_REASSEMBLY {
+      input:
+      tuple path(bins), path(assembly), path(reads)
+      output:
+      tuple path(bins), path(assembly), path(reads), emit: reassembled
+      script:
+      """
+      grep -q ACGT "${bins}/MAG1.fa"
+      """
+    }''')
+    expected_cohorts=', '.join("'%s':'%s'" % (compiled.node_aliases[n],v) for n,v in [('aannotation','cohort_A'),('bannotation','cohort_B'),('directann','direct_C')])
+    (modules/'bin_annotation.nf').write_text('''process BIN_ANNOTATION {
+      input:
+      tuple val(cohort_id), path(bins)
+      path database_manifest
+      output:
+      path 'mag_annotation.tsv', emit: mag_taxonomy
+      path 'mag_functions.tsv', emit: mag_functions
+      script:
+      assert cohort_id == [EXPECTED_COHORTS][task.process.tokenize(':')[-1]]
+      """
+      grep -q ACGT "${bins}/MAG1.fa"
+      printf 'cohort_id\\n${cohort_id}\\n' > mag_annotation.tsv
+      cp mag_annotation.tsv mag_functions.tsv
+      """
+    }'''.replace('EXPECTED_COHORTS',expected_cohorts))
+    database=tmp_path/'database.json';database.write_text('{}')
+    command=['nextflow','-c',str(artifacts.config_path),'run',str(artifacts.source_path),'-params-file',str(artifacts.parameters_path),
+        '-work-dir',str(tmp_path/'work'),'--input_manifest',str(snapshot),'--outdir',str(tmp_path/'output'),
+        '--database_manifest',str(database),'--task_id','branches','-ansi-log','false']
+    result=subprocess.run(command,cwd=artifacts.root,text=True,capture_output=True,timeout=180)
+    assert result.returncode==0,result.stdout+'\n'+result.stderr
+    tables=list((tmp_path/'work').glob('**/mag_annotation.tsv'))
+    assert len(tables)==3
+    assert {p.read_text().splitlines()[1] for p in tables}=={'cohort_A','cohort_B','direct_C'}

@@ -93,6 +93,7 @@ def _summary(compiled: CompiledWorkflow) -> dict[str, object]:
         "node_runtime_parameters": compiled.node_runtime_parameters,
         "node_output_roots": compiled.node_output_roots,
         "node_fingerprints": compiled.node_fingerprints,
+        "node_cohorts": compiled.node_cohorts,
         "registry_version": compiled.registry_version,
         "topological_order": list(compiled.topological_order),
     }
