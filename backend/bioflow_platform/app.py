@@ -372,3 +372,6 @@ async def proxy(service: str,path: str,request: Request):
     for cookie in response.headers.get_list('set-cookie'):
         result.headers.append('set-cookie',cookie)
     return result
+
+from .custom_charts import install as install_custom_charts
+install_custom_charts(app,lambda:store,project)

@@ -109,3 +109,12 @@ body>#ai4s-prototype{max-width:none;width:100%;margin:0;border:0;border-radius:0
 #ai4s-prototype.compact-catalogue .category-pills button,#ai4s-prototype.compact-catalogue .asset-toolbar .tabs button{border-radius:9px;padding:7px 10px;font-size:13px}
 @media(max-width:1050px){#ai4s-prototype.compact-catalogue .asset-grid,#ai4s-prototype.compact-catalogue .research-chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){#ai4s-prototype.compact-catalogue .content{padding:20px 16px}#ai4s-prototype .catalogue-view-bar{flex-wrap:wrap;gap:12px}#ai4s-prototype input.catalogue-search{width:100%;margin:0}#ai4s-prototype.compact-catalogue .asset-grid,#ai4s-prototype.compact-catalogue .research-chart-grid{grid-template-columns:1fr}}
+#ai4s-prototype>.shell>.main>.topbar{position:sticky;top:0;z-index:8;background:var(--paper)}
+#ai4s-prototype input.catalogue-search{margin-left:0;margin-right:auto;max-width:320px}
+#ai4s-prototype.compact-catalogue .chart-type-card{display:flex;flex-direction:column;align-items:stretch;gap:14px;padding:18px}
+#ai4s-prototype.compact-catalogue .chart-type-card img{width:100%;height:190px;object-fit:contain;background:transparent;border-radius:0;padding:0}
+#ai4s-prototype.compact-catalogue .chart-type-card h2{font-size:15px}
+#ai4s-prototype .modal:has([data-form=custom-chart]){width:min(1100px,95vw);display:grid;grid-template-columns:minmax(260px,1fr) minmax(300px,1.4fr);gap:24px}
+#ai4s-prototype .modal:has([data-form=custom-chart])>.row{grid-column:1/-1}
+#ai4s-prototype .custom-chart-preview{min-height:350px;padding:18px;border:1px solid var(--line);border-radius:12px;overflow:auto}
+@media(max-width:700px){#ai4s-prototype .modal:has([data-form=custom-chart]){grid-template-columns:1fr}}

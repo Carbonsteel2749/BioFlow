@@ -38,6 +38,15 @@ for chart,data in rows.items():
     if args.only and chart not in args.only:continue
     fig,ax=plt.subplots(figsize=(6,4),layout='constrained')
     importlib.import_module('backend.bioflow_platform.charts.'+chart).draw(data,fig,ax,{})
+    if chart=='gsea':
+        ax.set_position([.13,.42,.8,.5])
+        hits=fig.add_axes([.13,.28,.8,.1],sharex=ax)
+        hits.vlines([r['position'] for r in data if r['hit']],0,1,color='#386a56',lw=1)
+        hits.set_yticks([]);hits.tick_params(axis='x',labelbottom=False);hits.set_ylabel('Hits',fontsize=7)
+        rank=fig.add_axes([.13,.12,.8,.12],sharex=ax)
+        xx=np.arange(1,len(data)+1);metric=np.linspace(1,-1,len(data))**3
+        rank.fill_between(xx,metric,color='#a2b6ab');rank.axhline(0,color='#666',lw=.5);rank.set_ylabel('Rank metric',fontsize=7);rank.set_xlabel('Rank in ordered gene list',fontsize=8)
+        ax.set_xlabel('');ax.tick_params(axis='x',labelbottom=False)
     ax.set_title('')
     handles,labels=ax.get_legend_handles_labels()
     if handles and not getattr(ax,'_bioflow_custom_legend',False):ax.legend(handles,labels,fontsize=7,frameon=False)

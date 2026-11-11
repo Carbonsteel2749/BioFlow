@@ -124,13 +124,14 @@
 (() => {
   views.assets = async () => {
     const pid=state.project;
-    const groups=await api(pa('/asset-tasks'));
+    const knownTask=[...root.querySelectorAll('.task-nav-item')].find(e=>e.dataset.id===state.task);
+    const groups=knownTask?{items:[{id:state.task,name:knownTask.querySelector('span').textContent}]}:await api(pa('/asset-tasks'));
     if(state.project!==pid||state.page!=='assets')return '';
     let task=groups.items.find(t=>t.id===state.task)||(!state.task?groups.items[0]:null);
     if(!task&&state.task){
       try{const flow=await api(pa('/analysis/workflows/runs/'+id(state.task)));task={id:state.task,name:flow.run.name||state.task,pendingIndex:true};}catch{}
     }
-    if(task){state.task=task.id;root.querySelectorAll('.task-nav-item').forEach(e=>e.classList.toggle('chosen',e.dataset.id===task.id));}
+    if(task){state.task=task.id;root.querySelector('.scope').textContent='当前任务：'+task.name;root.querySelectorAll('.task-nav-item').forEach(e=>e.classList.toggle('chosen',e.dataset.id===task.id));}
     const tid=task?.id||'',key=pid+':'+tid;
     if(state.taskAssetKey!==key){state.taskAssetKey=key;state.assetPage=0;}
     state.assetTask=tid;state.assetTaskProject=pid;state.assetLegacy=false;
@@ -220,4 +221,23 @@
  }
  actions['paper-upload']=async()=>{modal('上传文献','<input type="file" id="project-file-input" multiple accept=".pdf,.bib,.ris,.enw,.txt"><p class="muted">选择文件后确认分类并上传到当前项目。</p>');state.importPurpose='literature';$('#project-file-input').click();};
  root.addEventListener('input',event=>{if(!event.target.matches('[data-catalogue-search]'))return;const term=event.target.value.trim().toLowerCase();root.querySelectorAll('.asset-card,.chart-type-card,.research-versions>.box').forEach(card=>card.hidden=!card.textContent.toLowerCase().includes(term));});
+})();
+
+(() => {
+ const oldChrome=chrome;chrome=function(){oldChrome();if(state.page==='assets')root.querySelector('.module-header-actions').innerHTML='';const selected=root.querySelector('.task-nav-item.chosen>span');root.querySelector('.scope').textContent='当前任务：'+(selected?.textContent||'尚未选择任务');};
+ for(const page of ['assets','charts']){const previous=views[page];views[page]=async()=>{const html=await previous(),t=document.createElement('template');t.innerHTML=html;t.content.querySelector('.task-assets-context')?.remove();const bar=t.content.querySelector('.catalogue-view-bar');if(bar){bar.querySelectorAll('strong,button').forEach(e=>e.remove());if(page==='assets')bar.insertAdjacentHTML('beforeend',button('＋ 上传资料','task-assets-upload','class="primary"'));else{bar.insertAdjacentHTML('beforeend',button('已有项目图表','research-existing')+button('＋ 添加图表','custom-chart-upload','class="primary"'));t.content.querySelector('.research-chart-intro')?.remove();}}return t.innerHTML;};}
+})();
+
+actions['custom-chart-upload']=async()=>{try{await api('/api/custom-charts/capabilities');}catch{return modal('添加图表 · 待启用','<p>Python / R 代码绘图已完成测试。按当前部署安排，等待运行中的分析任务结束后，再更新服务启用。</p>');}return modal('添加图表 · Python / R',`<form data-form="custom-chart"><label>绘图代码<input type="file" name="code" accept=".py,.r,.R" required></label><label>输入数据<input type="file" name="data" accept=".csv,.tsv" required></label><p>Python：os.environ['BIOFLOW_INPUT'] 读取数据，os.environ['BIOFLOW_OUTPUT'] 保存 PNG。R：使用 Sys.getenv('BIOFLOW_INPUT') 与 Sys.getenv('BIOFLOW_OUTPUT')。单次最长60秒；当前仅开发者账户可运行。</p><button class="primary">运行并生成图表</button></form><div class="custom-chart-preview" role="status"></div>`);};
+forms['custom-chart']=async form=>{const target=$('.custom-chart-preview');target.textContent='正在运行代码…';try{const result=await api(pa('/custom-charts'),'POST',new FormData(form));target.innerHTML=result.status==='failed'?`<pre class="result">${esc(result.error||result.message)}</pre>`:result.outputs.map(o=>`<div><img class="preview" src="${esc(o.url)}" alt="代码生成的图表"><a href="${esc(o.url)}" download="${esc(o.name)}">下载 ${esc(o.name)}</a></div>`).join('');}catch(e){target.textContent=e.message;}};
+
+(() => {
+ const reads=new Map(),previousApi=api;
+ api=async function(path,method='GET',body){
+  if(method!=='GET'){reads.clear();return previousApi(path,method,body);}
+  if(!/^\/api\/projects\/[^/]+\/(assets\?|figure-templates$|figures$)/.test(path))return previousApi(path,method,body);
+  const key=(bioflowUser?.id||'')+':'+path,entry=reads.get(key);if(entry&&Date.now()-entry.time<5000)return structuredClone(await entry.promise);
+  const promise=previousApi(path,method,body).catch(e=>{reads.delete(key);throw e;});reads.set(key,{time:Date.now(),promise});return structuredClone(await promise);
+ };
+ const previousRefresh=actions.refresh;actions.refresh=()=>{reads.clear();return previousRefresh();};
 })();
