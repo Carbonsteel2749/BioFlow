@@ -71,6 +71,11 @@ async def authorize(store,service,path,request,fetch):
         return
     if method=='GET' and service=='analysis' and path.startswith('api/workflows/templates/'):
         return
+    if service=='literature' and path=='v1/chat/completions' and method=='POST':
+        body=await request.json();kb=body.get('knowledgeBaseId','')
+        if not kb and user['role']!='developer':raise HTTPException(400,'请先建立当前项目知识库')
+        if kb:allowed(store,'kb',kb,user)
+        return
     if user['role']=='developer':
         return
     raise HTTPException(403,'该管理操作仅对开发者开放')
