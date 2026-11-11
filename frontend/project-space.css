@@ -179,3 +179,7 @@ body>#ai4s-prototype{max-width:none;width:100%;margin:0;border:0;border-radius:0
 #ai4s-prototype .paper-cell-ellipsis{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #ai4s-prototype .paper-title strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 #ai4s-prototype .primary:hover{background:#16482f;color:#fff;border-color:#16482f}
+/* Center and narrow catalogue bodies without changing the full-width header. */
+#ai4s-prototype.compact-catalogue>.shell>.main>.content{width:calc(100% - 96px);max-width:1200px;margin-left:auto;margin-right:auto;padding:28px 24px}
+@media(max-width:1100px){#ai4s-prototype.compact-catalogue>.shell>.main>.content{width:100%;padding:24px}}
+@media(max-width:700px){#ai4s-prototype.compact-catalogue>.shell>.main>.content{padding:20px 16px}}
