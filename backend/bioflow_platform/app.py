@@ -141,6 +141,8 @@ from .workspace import install as install_workspace
 install_workspace(app,lambda:store,project,upstream,SERVICES)
 from .ability_management import install as install_abilities
 install_abilities(app,lambda:store)
+from .shared_literature import install as install_shared_literature
+install_shared_literature(app,lambda:store)
 
 
 @app.get('/api/projects')
