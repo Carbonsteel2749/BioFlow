@@ -56,3 +56,9 @@ body>#ai4s-prototype{max-width:none;width:100%;margin:0;border:0;border-radius:0
  #ai4s-prototype .project-space-dialog,#ai4s-prototype .workspace-search-dialog{padding:20px}
  #ai4s-prototype .space-account,#ai4s-prototype .space-footer{flex-wrap:wrap}
 }
+/* The redundant description strip is removed from the total-system layout. */
+#ai4s-prototype>.shell>.main>.demo-bar{display:none}
+#ai4s-prototype .task-assets-heading{align-items:center;flex-direction:row;flex-wrap:wrap}
+#ai4s-prototype .task-assets-heading h1{margin:0}
+#ai4s-prototype .task-assets-heading p{margin:8px 0 0;font-size:14px}
+#ai4s-prototype .task-assets-heading>.primary{white-space:nowrap;flex-shrink:0}

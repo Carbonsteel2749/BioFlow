@@ -6,9 +6,13 @@ from pydantic import BaseModel,Field
 from . import assets
 
 
+def project_task_ids(store,pid,uid):
+    return set().union(*(set(store.ids(pid,kind)) & store.owned_ids(kind,uid) for kind in ('task','workflow')))
+
+
 def task_index(store,pid,uid):
     result={}
-    for tid in sorted(set(store.ids(pid,'task')) & store.owned_ids('task',uid)):
+    for tid in sorted(project_task_ids(store,pid,uid)):
         task=assets.read_snapshot(tid).get('task',{})
         result[tid]={'id':tid,'name':task.get('name') or tid,'status':task.get('status','unknown'),
                      'parameters':task.get('parameters',{}),'dataset_id':task.get('dataset_id')}

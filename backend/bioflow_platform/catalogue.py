@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 from . import assets
+from .provenance import project_task_ids
 
 JOBS={}
 
@@ -14,7 +15,7 @@ def put(store,pid,uid,collection,rows):
 
 
 def task_rows(store,pid,uid):
-    tids=set(store.ids(pid,'task'))&store.owned_ids('task',uid)
+    tids=project_task_ids(store,pid,uid)
     rows=assets.existing_outputs(tids)
     for row in rows:
         if row['status'] in {'empty','missing','integrity_error'}:row['url']=None;continue
@@ -29,7 +30,7 @@ async def refresh(service,pid,user,key):
     async def fetch(kind,path):
         return await asyncio.wait_for(service.call(kind,path),timeout=8)
     try:
-        tids=set(store.ids(pid,'task'))&store.owned_ids('task',uid)
+        tids=project_task_ids(store,pid,uid)
         semaphore=asyncio.Semaphore(3)
         async def task(tid):
             async with semaphore:
@@ -129,7 +130,7 @@ async def catalogue(service,pid,user):
             'processing':{'chart':row['chart'],'parameters':params,'template_version':result.get('template_version'),
                           'source_sha256':result.get('source_sha256'),'renderer_sha256':result.get('renderer_sha256')},
             'url':f'/api/projects/{pid}/figures/{row["id"]}/file/svg?download=true','media_type':'image/svg+xml','created_at':row['created_at']})
-    tids=set(store.ids(pid,'task'))&store.owned_ids('task',uid)
+    tids=project_task_ids(store,pid,uid)
     dids=set(store.ids(pid,'dataset'))&store.owned_ids('dataset',uid)
     sids=set(store.ids(pid,'session'))&store.owned_ids('session',uid)
     for row in cached:

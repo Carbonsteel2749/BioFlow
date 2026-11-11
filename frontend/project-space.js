@@ -57,7 +57,9 @@
     $('.content [name="name"]')?.focus();
   };
   actions['sidebar-task']=async el=>{
-    state.task=el.dataset.id;state.page='analysis';$('.overlay').hidden=true;await render();
+    const pid=state.project,tid=el.dataset.id;
+    state.task=tid;state.page='analysis';$('.overlay').hidden=true;await render();
+    if(state.page!=='analysis'||state.project!==pid||state.task!==tid)return;
     if(el.dataset.type==='workflow')await actions['unified-history']({dataset:{id:el.dataset.id}});else await showTask(el.dataset.id);
     root.querySelectorAll('.task-nav-item').forEach(e=>e.classList.toggle('chosen',e.dataset.id===state.task));
   };
@@ -90,4 +92,52 @@
     if(event.shiftKey&&event.target===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&event.target===last){event.preventDefault();first.focus();}
   });
   syncLayout();
+})();
+
+/* Task-scoped library with one upload entry. */
+(() => {
+  views.assets = async () => {
+    const pid=state.project;
+    const groups=await api(pa('/asset-tasks'));
+    let task=groups.items.find(t=>t.id===state.task)||(!state.task?groups.items[0]:null);
+    if(!task&&state.task){
+      try{const flow=await api(pa('/analysis/workflows/runs/'+id(state.task)));task={id:state.task,name:flow.run.name||state.task,pendingIndex:true};}catch{}
+    }
+    if(task){state.task=task.id;root.querySelectorAll('.task-nav-item').forEach(e=>e.classList.toggle('chosen',e.dataset.id===task.id));}
+    const tid=task?.id||'',key=pid+':'+tid;
+    if(state.taskAssetKey!==key){state.taskAssetKey=key;state.assetPage=0;}
+    state.assetTask=tid;state.assetTaskProject=pid;state.assetLegacy=false;
+    const heading=`<div class="section-head task-assets-heading"><div><h1>任务资料</h1>${task?`<p class="muted">${esc(task.name)}</p>`:''}</div>${button('＋ 上传资料','task-assets-upload',`class="primary" ${tid&&!task?.pendingIndex?'':'disabled title="请先选择任务并等待任务索引就绪"'}`)}</div>`;
+    if(task?.pendingIndex)return heading+'<div class="empty-state"><h2>任务资料索引待更新</h2><p>该流程任务的资料归属接口将在后台服务更新后启用，当前分析继续运行。</p></div>';
+    if(!tid)return heading+'<div class="empty-state"><h2>请先选择或创建任务</h2><p>从左侧选择任务，查看对应的文献、数据和成果。</p></div>';
+    const kind=state.assetKind||'data';
+    const data=await api(`/api/projects/${id(pid)}/assets?kind=${id(kind)}&limit=24&offset=${(state.assetPage||0)*24}&hide_unavailable=${!!state.assetReady}&task_id=${id(tid)}`);
+    const pages=Math.max(1,Math.ceil(data.total/24));if(state.assetPage>=pages){state.assetPage=pages-1;return views.assets();}
+    const tools=kind==='literature'?button('文献检索与问答','asset-literature'):kind==='charts'?button('新建绘图','asset-chart-editor'):'';
+    return heading+`<div class="asset-toolbar"><div class="tabs">${Object.entries(assetLabels).map(([k,label])=>button(`${label} · ${data.counts[k]||0}`,'asset-kind',`data-kind="${k}" class="${kind===k?'selected':''}"`)).join('')}</div>${tools?`<div class="row">${tools}</div>`:''}</div><input type="file" id="project-file-input" multiple hidden><div class="asset-summary"><span>已登记 ${data.counts[kind]||0} 项${data.syncing?' · 后台更新目录':''}${data.sync_error?' · 部分目录暂未更新':''}</span>${button('刷新目录','refresh')}${button(state.assetReady?'显示全部记录':'隐藏已知异常文件','asset-toggle')}</div><div class="asset-grid">${data.items.map(assetCard).join('')||'<div class="empty-state"><h2>当前任务暂无此类资料</h2><p>使用右上角“上传资料”添加文件。</p></div>'}</div><div class="asset-pagination">${state.assetPage>0?button('上一页','asset-prev'):''}<span>${(state.assetPage||0)+1} / ${pages}</span>${state.assetPage+1<pages?button('下一页','asset-next'):''}</div>`;
+  };
+  actions['task-assets-upload']=()=>{if(!state.task)throw Error('请先选择任务');state.importPurpose='auto';$('#project-file-input').click();};
+  const previousAdd=addUploads;
+  addUploads=async function(files,pid,...rest){
+    const context=state.page==='assets'&&state.task&&pid===state.project?{task:state.task,user:bioflowUser?.id,pid}:null;
+    const result=await previousAdd(files,pid,...rest);
+    const form=$('[data-form="confirm-imports"]');if(!context||!form)return result;
+    form.dataset.taskUpload=context.task;form.dataset.taskUploadUser=context.user;
+    const select=form.elements.namedItem('task_id');
+    if(![...select.options].some(o=>o.value===context.task)){const option=document.createElement('option');option.value=context.task;option.textContent=context.task;select.append(option);}select.value=context.task;select.closest('label').hidden=true;
+    const note=document.createElement('p');note.className='muted';note.textContent='文件将保存到当前任务，确认每个文件的分类后上传。';form.prepend(note);
+    return result;
+  };
+  const previousConfirm=forms['confirm-imports'];
+  forms['confirm-imports']=async form=>{
+    if(!form.dataset.taskUpload)return previousConfirm(form);
+    if(form.dataset.taskUploadUser!==bioflowUser?.id)throw Error('账户已变化，请重新选择文件');
+    const pid=researchState.pid,files=researchState.imports,tid=form.dataset.taskUpload;
+    const selections=files.map((file,i)=>({file,purpose:form.elements.namedItem('purpose-'+i).value}));
+    for(const item of selections)if(/\.(fastq|fq)(\.gz)?$/i.test(item.file.name)&&item.purpose!=='data')throw Error('FASTQ 文件请归入测序数据');
+    const details={task_id:tid,result_type:form.elements.namedItem('result_type').value,software:form.elements.namedItem('software').value};
+    $('.overlay').hidden=true;
+    for(const item of selections)await addConfirmedUploads([item.file],pid,{purpose:item.purpose,details});
+    researchState.imports=[];
+  };
 })();

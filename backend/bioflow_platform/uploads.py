@@ -13,6 +13,7 @@ import httpx
 from fastapi import HTTPException,Request
 from pydantic import BaseModel,Field,ConfigDict
 from . import assets
+from .provenance import project_task_ids
 
 LOCKS={}
 RECEIVERS=asyncio.Semaphore(2)
@@ -116,7 +117,7 @@ def install_uploads(router,get_store,check_project,files,call,urls):
     async def create(pid:str,body:UploadBody,request:Request):
         check_project(pid,request);user=request.state.user
         if fastq(body.name) and body.purpose not in {'auto','data'}:raise HTTPException(422,'FASTQ 请归入测序数据')
-        if body.details.task_id and (body.details.task_id not in get_store().ids(pid,'task') or not get_store().owns('task',body.details.task_id,user['id'])):raise HTTPException(404,'关联任务不属于当前项目')
+        if body.details.task_id and body.details.task_id not in project_task_ids(get_store(),pid,user['id']):raise HTTPException(404,'关联任务不属于当前项目')
         if '/' in body.name or '\\' in body.name or any(ord(c)<32 for c in body.name):raise HTTPException(422,'文件名无效')
         if (body.size_bytes+body.chunk_bytes-1)//body.chunk_bytes!=len(body.hashes):raise HTTPException(422,'文件分片数量不匹配')
         expected=hashlib.sha256(f"{body.size_bytes}:{body.chunk_bytes}:{':'.join(body.hashes)}".encode()).hexdigest()
@@ -127,6 +128,8 @@ def install_uploads(router,get_store,check_project,files,call,urls):
             if draft and draft['status']=='cancelled':raise HTTPException(409,'上传已取消')
             with get_store().connect() as db:
                 rows=db.execute("SELECT * FROM project_uploads WHERE project_id=? AND user_id=? AND fingerprint=? AND name=? AND purpose=? AND status!='cancelled' ORDER BY rowid DESC",(pid,user['id'],body.fingerprint,body.name,draft['purpose'] if draft else body.purpose)).fetchall()
+                task_id=json.loads(draft['details']).get('task_id','') if draft else body.details.task_id
+                rows=[r for r in rows if json.loads(r['details']).get('task_id','')==task_id]
                 if rows:
                     if draft and draft['id']!=rows[0]['id']:update(draft['id'],status='cancelled',error='已合并相同文件的上传记录')
                     return public(rows[0])
@@ -150,7 +153,7 @@ def install_uploads(router,get_store,check_project,files,call,urls):
     def draft(pid:str,body:DraftBody,request:Request):
         check_project(pid,request);user=request.state.user
         if fastq(body.name) and body.purpose not in {'auto','data'}:raise HTTPException(422,'FASTQ 请归入测序数据')
-        if body.details.task_id and (body.details.task_id not in get_store().ids(pid,'task') or not get_store().owns('task',body.details.task_id,user['id'])):raise HTTPException(404,'关联任务不属于当前项目')
+        if body.details.task_id and body.details.task_id not in project_task_ids(get_store(),pid,user['id']):raise HTTPException(404,'关联任务不属于当前项目')
         if '/' in body.name or '\\' in body.name or any(ord(c)<32 for c in body.name):raise HTTPException(422,'文件名无效')
         uid=uuid.uuid4().hex
         with get_store().connect() as db:
@@ -265,6 +268,10 @@ def install_uploads(router,get_store,check_project,files,call,urls):
                         finally:temporary.unlink(missing_ok=True)
                     sha,sample=await asyncio.to_thread(assemble)
                     asset=await files.adopt(pid,request.state.user,uid,row['name'],path,sha,row['size_bytes'],sample,headers,purpose=row['purpose'],details=json.loads(row['details']))
+                task_id=json.loads(row['details']).get('task_id')
+                if task_id:
+                    with get_store().connect() as db:
+                        db.execute('INSERT OR IGNORE INTO asset_task_links(project_id,user_id,asset_id,task_id) VALUES(?,?,?,?)',(pid,request.state.user['id'],asset['id'],task_id))
                 update(uid,status='completed',asset_id=asset['id'],error='')
                 if not row['backend_id']:
                     for i in range(len(hashes)):(directory(row)/(str(i)+'.part')).unlink(missing_ok=True)

@@ -119,9 +119,10 @@ def install(app,get_store,check_project,call,urls):
     async def preview(pid:str,aid:str,request:Request):
         check_project(pid,request)
         store=get_store()
-        tids=set(store.ids(pid,'task'))&store.owned_ids('task',request.state.user['id'])
+        from .provenance import project_task_ids
+        tids=project_task_ids(store,pid,request.state.user['id'])
         record=next((a for tid in tids for a in read_snapshot(tid).get('artifacts',[]) if a['artifact_id']==aid and a['status']=='active'),None)
-        if not record or record['task_id'] not in store.ids(pid,'task') or not store.owns('task',record['task_id'],request.state.user['id']):
+        if not record or record['task_id'] not in tids:
             raise HTTPException(404,'可用成果不存在')
         path=local_output(record['path'])
         if path is None or not path.is_file():
