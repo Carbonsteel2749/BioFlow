@@ -195,3 +195,29 @@
   const chartView=views.charts;
   views.charts=async()=>{const html=await chartView();const template=document.createElement('template');template.innerHTML=html;template.content.querySelector('.section-head')?.remove();return template.innerHTML;};
 })();
+
+/* Compact catalogue presentation. */
+(() => {
+ names.literature='文献库';
+ const previousChrome=chrome;
+ chrome=function(){previousChrome();if(state.page==='literature'){root.querySelector('.module-title').textContent='文献库';root.querySelector('.module-header-actions').innerHTML='';}root.classList.toggle('compact-catalogue',['assets','charts','literature','personal-library'].includes(state.page));};
+ for(const page of ['assets','charts','literature','personal-library']){
+  const previous=views[page];views[page]=async()=>{
+   const html=await previous(),t=document.createElement('template');t.innerHTML=html;
+   if(page==='literature'){
+    t.content.querySelector('.literature-toolbar>p')?.remove();
+    const empty=t.content.querySelector('.empty-state p');if(empty)empty.textContent='在个人文献库上传文献，再关联到当前项目。';
+   }
+   if(page==='personal-library'){
+    const upload=t.content.querySelector('[data-action="paper-upload"]');if(upload)upload.textContent='＋ 上传文献';
+   }
+   if(['assets','charts'].includes(page)){
+    const search=document.createElement('input');search.type='search';search.className='catalogue-search';search.placeholder=page==='charts'?'搜索图表':'搜索数据与结果';search.setAttribute('aria-label',search.placeholder);search.dataset.catalogueSearch='';
+    const bar=document.createElement('div');bar.className='catalogue-view-bar';bar.innerHTML=page==='charts'?'<strong>图表分类</strong><button data-action="research-existing">已生成的图表</button>':'<strong>任务资料</strong>';bar.append(search);t.content.prepend(bar);
+   }
+   return t.innerHTML;
+  };
+ }
+ actions['paper-upload']=async()=>{modal('上传文献','<input type="file" id="project-file-input" multiple accept=".pdf,.bib,.ris,.enw,.txt"><p class="muted">选择文件后确认分类并上传到当前项目。</p>');state.importPurpose='literature';$('#project-file-input').click();};
+ root.addEventListener('input',event=>{if(!event.target.matches('[data-catalogue-search]'))return;const term=event.target.value.trim().toLowerCase();root.querySelectorAll('.asset-card,.chart-type-card,.research-versions>.box').forEach(card=>card.hidden=!card.textContent.toLowerCase().includes(term));});
+})();
