@@ -1,24 +1,57 @@
 html,body{margin:0;padding:0;min-height:100%;width:100%}
 body>#ai4s-prototype{max-width:none;width:100%;margin:0;border:0;border-radius:0;box-shadow:none;min-height:100vh;min-height:100dvh}
 #ai4s-prototype>.shell{min-height:100vh;min-height:100dvh;grid-template-columns:52px 228px minmax(0,1fr)}
-#ai4s-prototype .shell>.rail{top:0;height:100vh;height:100dvh;overflow-y:auto;padding:20px 4px;gap:12px;grid-column:1;grid-row:1}
-#ai4s-prototype .rail .navitem{font-size:0!important;width:42px;min-height:44px;padding:10px 2px;gap:0}
-#ai4s-prototype .rail .navitem .symbol{font-size:23px;line-height:26px}
-#ai4s-prototype .rail .brand{width:42px;height:44px;margin-bottom:16px}
-#ai4s-prototype .rail .brand svg{width:27px;height:34px}
+#ai4s-prototype .shell>.rail{top:0;height:100vh;height:100dvh;overflow-y:auto;padding:18px 4px;gap:10px;grid-column:1;grid-row:1}
+#ai4s-prototype .rail .navitem{font-size:0!important;width:38px;min-height:40px;padding:10px 2px;gap:0}
+#ai4s-prototype .rail .navitem .symbol{font-size:18px;line-height:20px}
+#ai4s-prototype .rail .brand{width:36px;height:40px;margin-bottom:16px}
+#ai4s-prototype .rail .brand svg{width:22px;height:28px}
+#ai4s-prototype .rail .avatar{width:30px;height:30px;font-size:12px}
 #ai4s-prototype .shell>.projects{top:0;height:100vh;height:100dvh}
-#ai4s-prototype.project-space-layout>.shell>.projects{display:flex;grid-column:2;grid-row:1}
+#ai4s-prototype.project-space-layout>.shell>.projects{display:none}
 #ai4s-prototype.project-space-layout>.shell>.main{grid-column:3;grid-row:1}
+#ai4s-prototype .task-sidebar{grid-column:2;grid-row:1;position:sticky;top:0;height:100vh;height:100dvh;overflow-y:auto;background:var(--side);border-right:1px solid var(--line);padding:24px 14px;min-width:0}
+#ai4s-prototype .task-sidebar-heading{display:flex;align-items:center;gap:5px;margin-bottom:22px}
+#ai4s-prototype .task-sidebar-heading strong{font-size:21px;letter-spacing:-.6px;margin-right:auto}
+#ai4s-prototype .task-sidebar-heading button{border:0;background:transparent;width:30px;height:32px;padding:5px;display:grid;place-items:center;flex-shrink:0}
+#ai4s-prototype .task-sidebar-heading button:hover{background:var(--soft)}
+#ai4s-prototype .task-sidebar-heading svg,#ai4s-prototype .project-sidebar-toggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#ai4s-prototype .task-space-name{font-size:13px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6;padding:0 4px 16px;border-bottom:1px solid var(--line);margin-bottom:12px}
+#ai4s-prototype .task-nav-item{display:block;width:100%;text-align:left;padding:12px 10px;margin:6px 0;border:1px solid transparent;background:transparent;border-radius:10px;font-size:14px;overflow-wrap:anywhere}
+#ai4s-prototype .task-nav-item.chosen{background:var(--soft);border-color:var(--line)}
+#ai4s-prototype .task-nav-item small{display:block;font-size:12px;color:var(--muted);margin-top:6px}
+#ai4s-prototype .task-empty{padding:12px 6px;line-height:1.8}
 #ai4s-prototype.project-space-layout.projects-collapsed>.shell{grid-template-columns:52px minmax(0,1fr)}
-#ai4s-prototype.project-space-layout.projects-collapsed>.shell>.projects{display:none}
+#ai4s-prototype.project-space-layout.projects-collapsed>.shell>.task-sidebar{display:none}
 #ai4s-prototype.project-space-layout.projects-collapsed>.shell>.main{grid-column:2}
 #ai4s-prototype.project-space-layout .content{max-width:none}
 #ai4s-prototype .project-sidebar-toggle{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;padding:6px;background:transparent}
 #ai4s-prototype .topbar>.crumb{flex:1;min-width:0}
+#ai4s-prototype .project-space-dialog,#ai4s-prototype .workspace-search-dialog{width:min(760px,95vw);padding:28px}
+#ai4s-prototype .space-account,#ai4s-prototype .space-toolbar,#ai4s-prototype .space-footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:20px}
+#ai4s-prototype .space-account{padding-bottom:18px;border-bottom:1px solid var(--line)}
+#ai4s-prototype .space-account button,#ai4s-prototype .space-manage button{border:0;background:transparent;color:var(--muted)}
+#ai4s-prototype .space-toolbar input{flex:1;min-width:0;margin:0}
+#ai4s-prototype .space-toolbar button,#ai4s-prototype .space-footer button{flex-shrink:0}
+#ai4s-prototype .space-list{margin-top:18px;max-height:46vh;overflow:auto;display:grid;gap:10px}
+#ai4s-prototype .space-card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--paper)}
+#ai4s-prototype .space-card.selected{border-color:var(--green);background:var(--soft)}
+#ai4s-prototype .space-choice{display:flex;gap:12px;align-items:flex-start;margin:0;cursor:pointer;color:var(--ink);font-size:16px}
+#ai4s-prototype .space-choice input[type=radio]{width:18px;height:18px;flex:0 0 18px;margin:5px 0 0;accent-color:var(--green)}
+#ai4s-prototype .space-choice>span{min-width:0;overflow-wrap:anywhere}
+#ai4s-prototype .space-choice small{font-size:12px;margin-left:12px;color:var(--green)}
+#ai4s-prototype .space-description{display:block;font-size:14px;color:var(--muted);margin-top:6px;white-space:pre-wrap}
+#ai4s-prototype .space-manage{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+#ai4s-prototype .space-footer{border-top:1px solid var(--line);padding-top:18px;font-size:14px}
+#ai4s-prototype .workspace-search-results{max-height:55vh;overflow:auto}
+#ai4s-prototype .workspace-search-hit{display:block;text-align:left;width:100%;padding:14px;margin:9px 0;overflow-wrap:anywhere}
+#ai4s-prototype .workspace-search-hit span{display:block;color:var(--muted);font-size:13px;margin-top:6px}
 @media(max-width:700px){
  #ai4s-prototype.project-space-layout>.shell{grid-template-columns:52px minmax(0,1fr)}
- #ai4s-prototype.project-space-layout>.shell>.projects{position:relative;grid-column:2;grid-row:1;height:auto;max-height:45vh;overflow:auto}
+ #ai4s-prototype.project-space-layout>.shell>.task-sidebar{position:relative;grid-column:2;grid-row:1;height:auto;max-height:40vh;overflow:auto;padding:14px}
  #ai4s-prototype.project-space-layout>.shell>.main{grid-column:2;grid-row:2}
  #ai4s-prototype.project-space-layout>.shell>.rail{grid-row:1 / span 2}
  #ai4s-prototype.project-space-layout.projects-collapsed>.shell>.main{grid-row:1}
+ #ai4s-prototype .project-space-dialog,#ai4s-prototype .workspace-search-dialog{padding:20px}
+ #ai4s-prototype .space-account,#ai4s-prototype .space-footer{flex-wrap:wrap}
 }
