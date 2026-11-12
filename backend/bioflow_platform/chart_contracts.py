@@ -102,6 +102,13 @@ class DisplayParameters(BaseModel):
         if len(value)!=len(set(value)) or any(len(v)>240 for v in value):raise ValueError('图例顺序不能重复')
         return value
 
+class TableEdit(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    table:Literal['matrix','groups']='matrix'
+    row:int=Field(ge=0,lt=50000)
+    column:str=Field(min_length=1,max_length=200)
+    value:str=Field(max_length=5000)
+
 class FigureBody(BaseModel):
     model_config=ConfigDict(extra='forbid')
     task_id:str=Field(default='',max_length=100)
@@ -111,6 +118,7 @@ class FigureBody(BaseModel):
     parent_id:str=Field(default='',max_length=100)
     columns:dict[str,str]=Field(default_factory=dict,max_length=100)
     parameters:DisplayParameters=Field(default_factory=DisplayParameters)
+    data_edits:list[TableEdit]=Field(default_factory=list,max_length=5000)
     @field_validator('columns')
     @classmethod
     def column_mapping(cls,value):

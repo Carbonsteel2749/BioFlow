@@ -53,11 +53,19 @@ def install_workbench(router,get_store,check_project,resolve_source,folder,owned
         return {'id':aid,'name':name,'task_id':task_id,'role':role}
 
     @router.get('/chart-table')
-    def table(pid:str,request:Request,source_id:str,offset:int=0,limit:int=30,task_id:str=''):
-        check_project(pid,request);uid=request.state.user['id'];source,path=resolve_source(pid,uid,source_id)
+    def table(pid:str,request:Request,source_id:str='',offset:int=0,limit:int=30,task_id:str='',figure_id:str='',role:str='matrix'):
+        check_project(pid,request);uid=request.state.user['id']
+        if role not in {'matrix','groups'}:raise HTTPException(422,'表格类型无效')
+        if figure_id:
+            figure=owned(pid,figure_id,request);record=json.loads(figure['source_json'])
+            source=record if role=='matrix' else record.get('grouping',{})
+            path=folder(pid,uid,figure_id)/('source.csv' if role=='matrix' else 'grouping.csv')
+            if not path.is_file():raise HTTPException(404,'此版本没有对应表格')
+            if task_id and record.get('task_id')!=task_id:raise HTTPException(422,'图表不属于当前任务')
+        else:source,path=resolve_source(pid,uid,source_id)
         if task_id:
             if task_id not in project_task_ids(get_store(),pid,uid):raise HTTPException(404,'任务不属于当前项目')
-            check_source_task(get_store(),pid,uid,task_id,source)
+            if not figure_id:check_source_task(get_store(),pid,uid,task_id,source)
         if path.suffix.lower() not in {'.csv','.tsv','.txt'}:raise HTTPException(422,'请选择文本表格')
         limit=max(1,min(limit,100));offset=max(0,min(offset,50000))
         with path.open(encoding='utf-8-sig',newline='') as f:
@@ -67,4 +75,4 @@ def install_workbench(router,get_store,check_project,resolve_source,folder,owned
                 if i<offset:continue
                 if len(rows)==limit:more=True;break
                 rows.append(row)
-        return {'columns':reader.fieldnames,'rows':rows,'offset':offset,'more':more,'source':source}
+        return {'columns':reader.fieldnames,'rows':rows,'offset':offset,'more':more,'source':source,'editable':path.stat().st_size<=10*1024**2}

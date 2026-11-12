@@ -180,9 +180,25 @@ def install_figures(router,get_store,check_project,files=None):
             grouping=gpath.read_bytes()
             if hashlib.sha256(grouping).hexdigest()!=gs['sha256']:raise HTTPException(409,'分组文件校验失败')
             source['grouping']=gs
+        if body.data_edits:
+            from .chart_table_edits import edit_table
+            try:
+                matrix_edits=[e for e in body.data_edits if e.table=='matrix']
+                group_edits=[e for e in body.data_edits if e.table=='groups']
+                if matrix_edits:
+                    source['original_sha256']=source.get('original_sha256',source['sha256'])
+                    data=await asyncio.to_thread(edit_table,data,matrix_edits);source['sha256']=hashlib.sha256(data).hexdigest()
+                    source['edited']=True
+                if group_edits:
+                    if grouping is None:raise ValueError('尚未提供分组信息')
+                    grouping=await asyncio.to_thread(edit_table,grouping,group_edits)
+                    gs=source.setdefault('grouping',{})
+                    gs['original_sha256']=gs.get('original_sha256',gs.get('sha256'))
+                    gs['sha256']=hashlib.sha256(grouping).hexdigest();gs['edited']=True
+            except (ValueError,UnicodeError) as exc:raise HTTPException(422,str(exc)) from exc
         fid=uuid.uuid4().hex;directory=folder(pid,uid,fid);directory.mkdir(parents=True,exist_ok=False);(directory/'source.csv').write_bytes(data)
         if grouping is not None:(directory/'grouping.csv').write_bytes(grouping)
-        spec={'chart':body.chart,'grouping_sha256':hashlib.sha256(grouping).hexdigest() if grouping is not None else None,'source':source,'parameters':body.parameters.model_dump(),'columns':columns,'parent_id':body.parent_id,'version':VERSION}
+        spec={'chart':body.chart,'data_edits':[e.model_dump() for e in body.data_edits],'grouping_sha256':hashlib.sha256(grouping).hexdigest() if grouping is not None else None,'source':source,'parameters':body.parameters.model_dump(),'columns':columns,'parent_id':body.parent_id,'version':VERSION}
         (directory/'request.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2),encoding='utf-8')
         with get_store().connect() as db:db.execute('INSERT INTO project_figures(id,project_id,user_id,chart,status,parameters,source_json,parent_id) VALUES(?,?,?,?,?,?,?,?)',
             (fid,pid,uid,body.chart,'queued',body.parameters.model_dump_json(),json.dumps(source,ensure_ascii=False),body.parent_id or None))
