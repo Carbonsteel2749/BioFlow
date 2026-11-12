@@ -10,6 +10,7 @@ from backend.bioflow_platform.literature_query import prepare,tokens
 
 
 def fixture(tmp_path,monkeypatch):
+    monkeypatch.setenv('BIOFLOW_EVIDENCE_SEMANTIC_INDEX','0')
     store=Store(tmp_path/'test.sqlite3');initialize(store);monkeypatch.setattr(assets,'ROOT',tmp_path)
     app=FastAPI()
     @app.middleware('http')
@@ -24,6 +25,7 @@ def test_shared_read_private_collection_and_admin_removal(tmp_path,monkeypatch):
     store,c=fixture(tmp_path,monkeypatch);pid=save_paper(store,{'title':'Autism and gut microbiota','doi':'10.1/test','authors':'A','year':'2026'},'Gut microbiota in autism.','abstract')
     for uid in ['one','two']:
         assert c.get('/api/public-literature/search',headers={'user':uid}).json()['total']==1
+        assert c.get(f'/api/public-literature/papers/{pid}/content',headers={'user':uid}).json()['text']=='Gut microbiota in autism.'
         assert c.post(f'/api/public-literature/papers/{pid}/collect',headers={'user':uid}).status_code==200
     assert c.post(f'/api/public-literature/papers/{pid}/collect').json()['already_saved']
     with store.connect() as db:
@@ -32,6 +34,7 @@ def test_shared_read_private_collection_and_admin_removal(tmp_path,monkeypatch):
     assert c.delete(f'/api/public-literature/papers/{pid}').status_code==403
     assert c.delete(f'/api/public-literature/papers/{pid}',headers={'role':'developer'}).status_code==200
     assert c.get('/api/public-literature/search').json()['total']==0
+    assert c.get(f'/api/public-literature/papers/{pid}/content').status_code==404
     with store.connect() as db:assert db.execute('SELECT count(*) FROM personal_documents').fetchone()[0]==2
 
 

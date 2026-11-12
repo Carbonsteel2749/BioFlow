@@ -59,3 +59,27 @@ cd /home/xh/BioFlow-plot
 真实浏览器已验证每页 20/3 条的分页、英文查询展示、27 条旧文献审核列表、个人库和提交表单。真实模型的首段输出由 CPU 约 167 秒降低到 GPU 约 7 秒，约 13 秒完整结束；完整流式记录保存在 `runtime/public-literature-qa-stream.json`。
 
 最终 12 项隔离与权限回归测试通过。浏览器已验证真实流式问答、编号引用和证据片段查看；8804 入口从用户电脑直接访问返回 200。分页复用查询向量，新增或移除论文仍即时重新读取目录。
+
+## 2026-11-12：证据边界与语义优化
+
+此前证据按 600 字符窗口、450 字符步长直接切片，会出现半个词和半句话。现改为：
+
+- 短摘要作为自然完整单元优先保留，避免只抽到背景而遗漏结果和局限性。
+- 长摘要和正文先按原始段落、完整句子确定边界；使用原有 multilingual 模型的句向量，在主题变化处组织语义段。长度是软限制，不切开句子。
+- 处理科学缩写、菌名首字母、`e.g.`、`et al.`、小数和中英文句号；保留 heading 与随后内容、转折句与前面的论断。
+- 证据选择结合词法与语义匹配；背景或方法段命中时补充结果证据。模型上下文按论文分配预算，只选择完整语义单元，展示的引用文字与实际送入模型的文字一致。
+- “查看证据”提供“查看完整摘要／查看已入库原文”。全文只在点击后读取；原文起止位置和内容标识随证据返回。
+
+新增 `backend/bioflow_platform/literature_evidence.py`；句向量及分段缓存在 SQLite `public_evidence_index` 表，按内容摘要与版本校验。管理员审核或发布新文献后后台构建；索引未就绪时仍使用完整段落和句子。此次为 21 篇可用摘要／正文构建了证据索引；2 篇仅题录不参与问答。原论文检索向量和原文没有重写。
+
+手动重建仅证据索引：
+
+```bash
+cd /home/xh/BioFlow-plot
+/home/xh/BioLLM_RawDataAnalysis/.venv/bin/python deploy/index_literature_evidence.py \
+  --database runtime/bioflow.sqlite3 --report runtime/evidence-semantic-index-20261112.json
+```
+
+验证：20 项边界、完整性、缓存、权限与原功能测试通过；六组问题优化前后前十篇论文及顺序完全相同。目标论文排名分别为 1、1、1、7、1、1，这是保持检索结果的回归证据，不代表已完成全面相关性评测。实际问答 4 篇引用均通过原文区间和完整句子边界核验，系统综述的行为结局局限性仍在证据中；首段约 2.5 秒，约 7.6 秒完整结束。浏览器已核对 Neuronutrition 同一文献的完整引用和摘要展开。
+
+运行记录：`runtime/evidence-search-before.json`、`runtime/evidence-search-after.json`、`runtime/evidence-qa-after-20261112.json`、`runtime/evidence-acceptance-20261112.json`。仅更新 8804 独立入口，原分析服务和定时抓取设置保持原状。

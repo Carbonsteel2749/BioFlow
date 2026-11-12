@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import logging
 import re
 import time
 import uuid
@@ -11,11 +12,12 @@ from pathlib import Path
 from collections import Counter
 
 import httpx
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from .literature_query import prepare, tokens
 from .ability_management import enabled
+from . import literature_evidence as passages
 
 TITLE='自闭症与肠道菌群文献库'
 QUERY_VECTORS={}
@@ -41,6 +43,7 @@ def initialize(store):
           id INTEGER PRIMARY KEY,user_id TEXT NOT NULL,action TEXT NOT NULL,
           target TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
         ''')
+    passages.initialize(store)
 
 
 def doi(value):
@@ -95,17 +98,62 @@ async def embed(texts):
         r.raise_for_status();return r.json()['embeddings']
 
 
-def evidence(rows,query,limit=4):
-    q=set(tokens(query));output=[]
+def evidence(rows,query,limit=4,store=None,query_vector=None):
+    output=[]
     for row in rows:
         if row['quality'] not in {'abstract','fulltext'}:continue
-        text=row['content'].strip()
-        if not text:continue
-        # Windows are independent of paper pagination; never use title-only records as evidence.
-        windows=[text[i:i+600] for i in range(0,len(text),450)]
-        best=sorted(enumerate(windows),key=lambda p:-len(q.intersection(tokens(p[1]))))[:1]
-        output.append({**metadata(row),'passages':[{'offset':i*450,'text':value} for i,value in best]})
+        text=row['content']
+        if not text.strip():continue
+        blocks=passages.cached(store,row) if store else passages.chunks(text)
+        if row['quality']=='abstract' and len(text)<=3500:
+            start=len(text)-len(text.lstrip());end=len(text.rstrip())
+            chosen=[{'offset':start,'end':end,'text':text[start:end],'method':'complete_abstract'}]
+        else:chosen=passages.select(text,query,blocks,query_vector)
+        if not chosen:continue
+        output.append({**metadata(row),'passages':chosen,'content_hash':passages.digest(text),'content_url':'/api/public-literature/papers/'+row['id']+'/content'})
         if len(output)>=limit:break
+    return output
+
+
+def token_cost(text):
+    return math.ceil(len(re.findall(r'[A-Za-z0-9_]+|[^\w\s]',text))*1.8+len(re.findall(r'[\u3400-\u9fff]',text))*2)
+
+
+def fit_sources(sources,question,budget=2600,query=None):
+    """Share the context budget and retain contiguous, complete evidence units."""
+    remaining=budget-token_cost(question)-140;output=[];q=set(tokens(query or question))
+    for index,source in enumerate(sources):
+        overhead=token_cost(source['title']+' '+source.get('doi',''))+30
+        allowance=max(0,int(remaining/(len(sources)-index))-overhead);selected=[]
+        for passage in source['passages']:
+            if token_cost(passage['text'])<=allowance:
+                selected.append(passage);allowance-=token_cost(passage['text'])
+            else:
+                units=passages.coherent_units(passage['text']);bags=[set(tokens(passage['text'][u['start']:u['end']])) for u in units]
+                df=Counter(term for bag in bags for term in bag)
+                candidates=[]
+                for j,(u,bag) in enumerate(zip(units,bags)):
+                    value=passage['text'][u['start']:u['end']]
+                    if token_cost(value)>allowance:continue
+                    score=sum(math.log(1+(len(units)+1)/(df[t]+1)) for t in q.intersection(bag))
+                    if 'evidence' in q and re.search(r'\b(results?|improv\w*|effective|inconsistent|unclear|limited)\b',value,re.I):score+=1
+                    candidates.append((score,-j,j))
+                if not candidates:continue
+                anchor=max(candidates)[2];lo=hi=anchor
+                while True:
+                    options=[]
+                    for left,right in ((lo-1,hi),(lo,hi+1)):
+                        if left<0 or right>=len(units):continue
+                        value=passage['text'][units[left]['start']:units[right]['end']]
+                        if token_cost(value)<=allowance:options.append((len(q.intersection(tokens(value))),-token_cost(value),left,right))
+                    if not options:break
+                    _,_,lo,hi=max(options)
+                start,end=units[lo]['start'],units[hi]['end'];value=passage['text'][start:end]
+                selected.append({**passage,'offset':passage['offset']+start,'end':passage['offset']+end,'text':value,'method':'complete_sentences'})
+                allowance-=token_cost(value)
+        if selected:
+            remaining-=overhead+sum(token_cost(p['text']) for p in selected)
+            output.append({**source,'passages':selected})
     return output
 
 
@@ -131,6 +179,12 @@ class Question(BaseModel):
 
 def install(app,get_store):
     initialize(get_store())
+
+    async def index_evidence(identifier):
+        if os.getenv('BIOFLOW_EVIDENCE_SEMANTIC_INDEX','1')=='0':return
+        try:await passages.index_paper(get_store(),identifier,embed)
+        except (httpx.HTTPError,ValueError,KeyError):
+            logging.getLogger(__name__).warning('Semantic indexing unavailable for public paper %s; sentence boundaries retained',identifier)
 
     def admin(request):
         if request.state.user['role'] not in {'admin','developer'}:raise HTTPException(403,'仅管理员可管理公共库')
@@ -194,7 +248,9 @@ def install(app,get_store):
     async def qa(body:Question,request:Request):
         if not enabled(get_store(),'models','literature-chat'):raise HTTPException(409,'文献问答模型已停用')
         provider=os.getenv('BIOFLOW_PUBLIC_QA_PROVIDER','ollama')
-        plan,rows=await search_rows(body.query);sources=evidence(rows,plan['english'],limit=4 if provider=='openai' else 2)
+        plan,rows=await search_rows(body.query)
+        vector=QUERY_VECTORS.get(plan['english'],(None,None))[1]
+        sources=fit_sources(evidence(rows,plan['english'],limit=4 if provider=='openai' else 2,store=get_store(),query_vector=vector),body.query,budget=2600 if provider=='openai' else 1000,query=plan['english'])
         if not sources:return {'answer':'公共库中没有找到可支持回答的摘要或正文证据，请调整问题或提交相关文献。','sources':[],'query':plan}
         context='\n\n'.join(f'[{i+1}] {p["title"]} DOI:{p.get("doi","")} ({p["evidenceKind"]})\n'+ '\n'.join(s['text'] for s in p['passages']) for i,p in enumerate(sources))
         payload={'model':'qwen3:14b','stream':body.stream,'think':False,
@@ -229,6 +285,12 @@ def install(app,get_store):
                 r.raise_for_status();data=r.json();answer=data['choices'][0]['message']['content'] if provider=='openai' else data['message']['content']
             except (httpx.HTTPError,KeyError,ValueError) as exc:raise HTTPException(503,'问答模型暂不可用，检索结果仍可查看') from exc
         return {'answer':answer,'sources':sources,'query':plan}
+
+    @app.get('/api/public-literature/papers/{identifier}/content')
+    def content(identifier:str,request:Request):
+        with get_store().connect() as db:row=db.execute("SELECT * FROM public_papers WHERE id=? AND status='active'",(identifier,)).fetchone()
+        if not row:raise HTTPException(404,'公共文献不存在')
+        return {**metadata(dict(row)),'text':row['content'],'label':{'abstract':'完整摘要','fulltext':'已入库原文'}.get(row['quality'],'仅题录'),'content_hash':passages.digest(row['content'])}
 
     @app.post('/api/public-literature/papers/{identifier}/collect')
     def collect(identifier:str,request:Request):
@@ -282,17 +344,18 @@ def install(app,get_store):
         return {'items':[metadata(dict(r)) for r in rows]}
 
     @app.post('/api/public-literature/papers/{identifier}/publish')
-    def publish(identifier:str,body:Review,request:Request):
+    def publish(identifier:str,body:Review,request:Request,background:BackgroundTasks):
         admin(request)
         with get_store().connect() as db:
             row=db.execute("SELECT id FROM public_papers WHERE id=? AND status='quarantine'",(identifier,)).fetchone()
             if not row:raise HTTPException(404,'待复核文献不存在')
             db.execute('UPDATE public_papers SET status=? WHERE id=?',('active' if body.decision=='approve' else 'removed',identifier))
         event(request,'publish' if body.decision=='approve' else 'reject_import',identifier,body.reason)
+        if body.decision=='approve':background.add_task(index_evidence,identifier)
         return {'ok':True}
 
     @app.post('/api/public-literature/submissions/{identifier}/review')
-    def review(identifier:str,body:Review,request:Request):
+    def review(identifier:str,body:Review,request:Request,background:BackgroundTasks):
         admin(request);store=get_store()
         with store.connect() as db:
             # Serialize moderation and catalogue insertion so duplicate review cannot race.
@@ -308,6 +371,7 @@ def install(app,get_store):
             db.execute('UPDATE public_paper_submissions SET status=?,reviewer=?,reason=?,paper_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',
                 ('approved' if body.decision=='approve' else 'rejected',request.state.user['id'],body.reason,pid,identifier))
         event(request,body.decision,identifier,body.reason)
+        if body.decision=='approve':background.add_task(index_evidence,pid)
         return {'ok':True,'paper_id':pid}
 
     @app.delete('/api/public-literature/papers/{identifier}')

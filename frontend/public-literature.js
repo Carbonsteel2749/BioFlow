@@ -59,7 +59,8 @@
  forms['public-paper-review']=async form=>{await api('/api/public-literature/submissions/'+id(form.dataset.id)+'/review','POST',Object.fromEntries(new FormData(form)));return actions['paper-review-list']();};
  actions['paper-public-remove']=async el=>modal('移出公共库',`<form data-form="public-paper-remove" data-id="${esc(el.dataset.id)}"><p>移除后不再参与公共检索和问答，已有个人收藏保留。</p><button class="primary">确认移除</button></form>`);
  forms['public-paper-remove']=async form=>{await api('/api/public-literature/papers/'+id(form.dataset.id),'DELETE');modal('已移除','<p>公共库已更新，重新检索即可查看。</p>');};
- actions['paper-evidence']=el=>{const p=research.results[Number(el.dataset.index)];if(p)modal(p.title,`<p>${esc(p.evidenceKind||p.quality)} · DOI: ${esc(p.doi||'')}</p>${(p.passages||[]).map(s=>`<blockquote>${esc(s.text)}</blockquote>`).join('')}`);};
+ actions['paper-evidence']=el=>{const p=research.results[Number(el.dataset.index)];if(p)modal(p.title,`<p>${esc(p.evidenceKind||p.quality)} · DOI: ${esc(p.doi||'')}</p><h3>本次回答使用的证据</h3>${(p.passages||[]).map(s=>`<blockquote class="evidence-passage">${esc(s.text)}</blockquote>`).join('')}${p.public_id?button(p.quality==='abstract'?'查看完整摘要':'查看已入库原文','paper-evidence-context',`data-id="${esc(p.public_id)}"`):''}<div class="evidence-context"></div>`);};
+ actions['paper-evidence-context']=async el=>{const p=await api('/api/public-literature/papers/'+id(el.dataset.id)+'/content');const host=document.querySelector('.evidence-context');if(host)host.innerHTML=`<h3>${esc(p.label)}</h3><div class="evidence-full-text">${esc(p.text)}</div>`;};
  actions['paper-prev']=async()=>{if(research.page>0){research.page--;research.paging=true;return forms['paper-research'](root.querySelector('[data-form=paper-research]'));}};
  actions['paper-next']=async()=>{if(research.page+1<research.pages){research.page++;research.paging=true;return forms['paper-research'](root.querySelector('[data-form=paper-research]'));}};
  actions['paper-result-add']=async el=>{
