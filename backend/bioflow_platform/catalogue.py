@@ -35,19 +35,7 @@ async def refresh(service,pid,user,key):
         async def task(tid):
             async with semaphore:
                 try:
-                    data,records=await asyncio.gather(fetch('analysis','/api/tasks/'+tid),fetch('analysis','/api/tasks/'+tid+'/artifacts'))
-                    previous={a['artifact_id']:a for a in assets.read_snapshot(tid).get('artifacts',[])}
-                    for record in records:
-                        old=previous.get(record['artifact_id'],{})
-                        if not record.get('path') and old.get('path'):record['path']=old['path']
-                        path=assets.local_output(record.get('path',''))
-                        if path is not None:
-                            try:
-                                record['local_size']=path.stat().st_size
-                                record['local_status']='empty' if not record['local_size'] else 'ready' if old.get('local_status')=='ready' and old.get('sha256')==record.get('sha256') else 'not_checked'
-                            except OSError:record['local_size']=0;record['local_status']='missing'
-                    # Keep registered relative locations; discovery/hashing is deferred to opening a file.
-                    await asyncio.to_thread(assets.write_snapshot,tid,data,records)
+                    await sync_task_snapshot(service,store,pid,uid,tid)
                 except Exception:errors.append('部分任务目录暂未同步')
         await asyncio.gather(*(task(tid) for tid in tids))
         await asyncio.to_thread(put,store,pid,uid,'tasks',task_rows(store,pid,uid))
@@ -125,7 +113,7 @@ async def catalogue(service,pid,user):
         result=json.loads(row['result']);params=json.loads(row['parameters']);template=chart_template(row['chart'])
         rows.append({'id':'figure:'+row['id'],'figure_id':row['id'],'name':params.get('title') or (template or {}).get('name',row['chart']),
             'kind':'charts','status':'ready','size_bytes':result.get('outputs',{}).get('png',{}).get('size_bytes',0),'source':'BioFlow 绘图 · 已保存版本',
-            'source_id':json.loads(row['source_json']).get('id'),
+            'task_id':json.loads(row['source_json']).get('task_id'),'source_id':json.loads(row['source_json']).get('id'),
             'source_record':json.loads(row['source_json']),
             'processing':{'chart':row['chart'],'parameters':params,'template_version':result.get('template_version'),
                           'source_sha256':result.get('source_sha256'),'renderer_sha256':result.get('renderer_sha256')},
@@ -145,3 +133,32 @@ async def catalogue(service,pid,user):
         rows.append({'id':'dataset:'+did,'dataset_id':did,'kind':'datasets','name':metadata.get(did,{}).get('name') or '已关联数据集','sample_count':None,'status':'not_checked','source':'项目数据集'})
     from .provenance import decorate
     return decorate(store,pid,uid,rows)
+
+
+async def sync_task_snapshot(service,store,pid,uid,tid):
+    # Refresh only metadata, never hash or copy large result files while listing.
+    path=assets.snapshot_path(tid)
+    if path.is_file() and time.time()-path.stat().st_mtime<30:return
+    async def fetch(kind,path):return await asyncio.wait_for(service.call(kind,path),timeout=8)
+    if tid in store.ids(pid,'workflow'):
+        data=await fetch('analysis','/api/workflows/runs/'+tid)
+        data={**data,'id':tid,'manifest_path':data.get('input_manifest','')}
+    else:data=await fetch('analysis','/api/tasks/'+tid)
+    records=await fetch('analysis','/api/tasks/'+tid+'/artifacts?metadata_only=true')
+    previous={a['artifact_id']:a for a in assets.read_snapshot(tid).get('artifacts',[])}
+    for record in records:
+        old=previous.get(record['artifact_id'],{})
+        relative=record.get('source_file') or record.get('metadata',{}).get('relative_path')
+        if relative and not record.get('path'):
+            candidate=(assets.analysis_root()/'runtime/outputs'/tid/relative).resolve()
+            if not candidate.is_relative_to((assets.analysis_root()/'runtime/outputs'/tid).resolve()):raise ValueError('成果路径超出任务目录')
+            record['path']=str(candidate)
+        if not record.get('path') and old.get('path'):record['path']=old['path']
+        path=assets.local_output(record.get('path',''))
+        if path is not None:
+            try:
+                record['local_size']=path.stat().st_size
+                record['local_status']='empty' if not record['local_size'] else 'ready' if old.get('local_status')=='ready' and old.get('sha256')==record.get('sha256') else 'not_checked'
+            except OSError:record['local_size']=0;record['local_status']='missing'
+    # Keep registered relative locations; discovery/hashing is deferred to opening a file.
+    await asyncio.to_thread(assets.write_snapshot,tid,data,records)

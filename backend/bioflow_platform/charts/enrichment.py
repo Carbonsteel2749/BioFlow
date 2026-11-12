@@ -70,7 +70,7 @@ def draw(rows,fig,ax,params):
     handles=[];tick_labels=[]
     for i,value in enumerate(ticks):
         handle=Line2D([],[],marker='o',linestyle='',markerfacecolor='#262626',markeredgecolor='none',markersize=float(np.sqrt(area(value))))
-        label=f'{value:.4g}';handles.append(handle);tick_labels.append(label);series(ax,'bubble-size:'+str(i),label,handle)
+        label=params.get('legend_labels',{}).get('bubble-size:'+str(i),f'{value:.4g}');handles.append(handle);tick_labels.append(label);series(ax,'bubble-size:'+str(i),label,handle)
     size_title=params.get('enrichment_size_title') or labels[size_key]
     legend_ax.legend(handles,tick_labels,title=size_title,loc='center left',frameon=False,labelspacing=1.15,handletextpad=1,borderaxespad=0)
     color_holder=fig.add_subplot(sidebar[1]);color_holder.set_axis_off();cax=color_holder.inset_axes([.08,.15,.24,.7])

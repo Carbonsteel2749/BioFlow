@@ -29,6 +29,8 @@ def render(directory):
         rows.append(item)
         if len(rows)>50000:raise ValueError('绘图预览最多支持 50000 行，请先筛选结果')
     if not rows:raise ValueError('输入表没有数据')
+    from .chart_display import prepare,display
+    rows=prepare(rows,spec,directory)
     entry=get(spec['chart'])
     if not entry:raise ValueError('图型未登记')
     plt.rcParams.update({'svg.fonttype':'none','font.size':10,'axes.spines.top':False,'axes.spines.right':False})
@@ -37,6 +39,9 @@ def render(directory):
             font_manager.fontManager.addfont(font);plt.rcParams['font.family']=font_manager.FontProperties(fname=font).get_name();break
     params=spec['parameters']
     plt.rcParams['font.size']=params.get('font_size',10)
+    from cycler import cycler
+    import numpy as np
+    plt.rcParams['axes.prop_cycle']=cycler(color=plt.get_cmap(params.get('series_palette','tab20'))(np.linspace(0,1,12)))
     fig,ax=plt.subplots(figsize=(params.get('width',9),params.get('height',6)),layout='constrained')
     params=spec['parameters'];module=importlib.import_module('.charts.'+entry['id'],package='backend.bioflow_platform')
     try:
@@ -56,11 +61,21 @@ def render(directory):
         for artist in fig.findobj():
             if hasattr(artist,'set_parse_math'):artist.set_parse_math(False)
             if hasattr(artist,'set_fontsize'):artist.set_fontsize(params.get('font_size',10))
+        display(fig,ax,params)
         outputs={}
         for extension in ('png','svg','pdf'):
-            path=directory/('figure.'+extension);fig.savefig(path,dpi=180,bbox_inches='tight');outputs[extension]={'name':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size_bytes':path.stat().st_size}
-        result={'outputs':outputs,'legend':[{'id':k,'label':label} for k,label,_ in series],'defaults':defaults,'template_version':VERSION,
-            'renderer_sha256':hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),'source_sha256':spec['source']['sha256'],'rows':len(rows),
+            path=directory/('figure.'+extension);fig.savefig(path,dpi=180,bbox_inches='tight',transparent=params.get('transparent',False));outputs[extension]={'name':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size_bytes':path.stat().st_size}
+        from matplotlib.colors import to_hex
+        def series_color(artist):
+            if hasattr(artist,'patches'):artist=artist.patches[0]
+            if hasattr(artist,'get_color'):color=artist.get_color()
+            elif hasattr(artist,'get_facecolor'):
+                color=artist.get_facecolor()
+                if getattr(color,'ndim',0)==2:color=color[0]
+            else:return '#527d60'
+            return to_hex(color)
+        result={'outputs':outputs,'legend':[{'id':k,'label':label,'color':series_color(artist)} for k,label,artist in series],'defaults':defaults,'template_version':VERSION,
+            'renderer_sha256':hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),'source_sha256':spec['source']['sha256'],'rows':len(rows),'grouping_sha256':spec.get('grouping_sha256'),
             'legend_config':getattr(ax,'_bioflow_legend_config',{}),'data_mapping':getattr(ax,'_bioflow_mapping',{}),'canvas':{'width':fig.get_figwidth(),'height':fig.get_figheight(),'font_size':params.get('font_size',10)}}
         (directory/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     finally:plt.close(fig)

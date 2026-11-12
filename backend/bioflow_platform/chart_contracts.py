@@ -9,6 +9,47 @@ class DisplayParameters(BaseModel):
     legend_labels:dict[str,str]=Field(default_factory=dict,max_length=80)
     legend_order:list[str]=Field(default_factory=list,max_length=80)
     legend_position:Literal['best','upper right','upper left','lower right','lower left','outside_right','outside_bottom']='best'
+    title_size:float=Field(default=16,ge=6,le=48)
+    axis_title_size:float=Field(default=12,ge=6,le=36)
+    x_tick_size:float=Field(default=10,ge=6,le=30)
+    y_tick_size:float=Field(default=10,ge=6,le=30)
+    legend_size:float=Field(default=10,ge=6,le=30)
+    show_title:bool=True
+    show_legend:bool=True
+    show_grid:bool=False
+    transparent:bool=False
+    title_x:float=Field(default=.5,ge=-.5,le=1.5)
+    title_y:float=Field(default=1.02,ge=-.5,le=1.8)
+    legend_x:float|None=Field(default=None,ge=-1,le=2)
+    legend_y:float|None=Field(default=None,ge=-1,le=2)
+    series_colors:dict[str,str]=Field(default_factory=dict,max_length=100)
+    matrix_format:Literal['wide','long']='wide'
+    feature_column:str=Field(default='taxonomy',max_length=200)
+    value_column:str=Field(default='abundance',max_length=200)
+    matrix_top_n:int=Field(default=50,ge=2,le=150)
+    matrix_orientation:Literal['samples_rows','samples_columns']='samples_rows'
+    sample_column:str=Field(default='sample',max_length=200)
+    group_column:str=Field(default='group',max_length=200)
+    pca_transform:Literal['none','log1p','clr']='none'
+    pca_pseudocount:float=Field(default=.5,gt=0,le=100)
+    heatmap_scale:Literal['none','row','column']='none'
+    heatmap_log:Literal['none','log1p','log2']='none'
+    heatmap_row_cluster:bool=True
+    heatmap_col_cluster:bool=True
+    heatmap_distance:Literal['euclidean','cityblock','correlation']='euclidean'
+    heatmap_linkage:Literal['average','complete','single','ward']='average'
+    heatmap_palette:Literal['viridis','RdBu_r','coolwarm','YlGnBu','magma']='viridis'
+    heatmap_show_rows:bool=True
+    heatmap_show_columns:bool=True
+    volcano_fc:float=Field(default=1,gt=0,le=20)
+    volcano_p:float=Field(default=.05,gt=0,le=1)
+    plot_point_size:float=Field(default=22,ge=1,le=300)
+    line_width:float=Field(default=2,ge=.2,le=10)
+    gsea_show_hits:bool=True
+    ppi_node_size:float=Field(default=100,ge=5,le=1000)
+    ppi_min_weight:float=Field(default=0,ge=0,le=1000)
+    ppi_show_labels:bool=True
+    fill_alpha:float=Field(default=.4,ge=.05,le=1)
     standardize:bool=False
     width:float=Field(default=9,ge=4,le=20)
     height:float=Field(default=6,ge=3,le=16)
@@ -35,6 +76,12 @@ class DisplayParameters(BaseModel):
     enrichment_size_ticks:list[float]|None=Field(default=None,min_length=1,max_length=8)
     enrichment_bubble_min:float=Field(default=20,ge=1,le=800)
     enrichment_bubble_max:float=Field(default=320,ge=10,le=1600)
+    @field_validator('series_colors')
+    @classmethod
+    def colors(cls,value):
+        import re
+        if any(not re.fullmatch(r'#[0-9a-fA-F]{6}',v) for v in value.values()):raise ValueError('颜色必须为 #RRGGBB')
+        return value
     @model_validator(mode='after')
     def enrichment_values(self):
         import math
@@ -57,6 +104,8 @@ class DisplayParameters(BaseModel):
 
 class FigureBody(BaseModel):
     model_config=ConfigDict(extra='forbid')
+    task_id:str=Field(default='',max_length=100)
+    grouping_source_id:str=Field(default='',max_length=100)
     chart:str=Field(min_length=1,max_length=50)
     source_id:str=Field(default='',max_length=100)
     parent_id:str=Field(default='',max_length=100)

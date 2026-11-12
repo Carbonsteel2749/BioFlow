@@ -164,3 +164,9 @@ root.addEventListener('change',event=>{if(event.target.name==='enrichment_x'){co
 root.addEventListener('change',async event=>{if(event.target.name!=='source_id'||!event.target.value)return;const input=event.target;try{const data=await api(pa('/figure-sources/'+id(input.value)));if(!input.isConnected)return;const list=$('#research-source-columns');if(list)list.innerHTML=data.columns.map(c=>`<option value="${esc(c)}"></option>`).join('');}catch(error){researchFeedback('error','读取表头失败：'+error.message);}});
 
 root.addEventListener('change',event=>{if(event.target.name==='enrichment_size'){const f=event.target.form;if(f?.elements.namedItem('enrichment_size_ticks'))f.elements.namedItem('enrichment_size_ticks').value='';}});
+
+/* Load after all native workspace integrations have registered their routes. */
+document.addEventListener('DOMContentLoaded',()=>{
+ const css=document.createElement('link');css.rel='stylesheet';css.href='/static/chart-workbench.css?v=20261112a';document.head.append(css);
+ const script=document.createElement('script');script.src='/static/chart-workbench.js?v=20261112a';document.head.append(script);
+});

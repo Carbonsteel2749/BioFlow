@@ -13,7 +13,7 @@ def draw(rows,fig,ax,params):
         if (sample,taxon) in seen:raise ValueError('同一样本的 taxon 出现重复，请先合并或检查数据')
         if sample in sample_groups and sample_groups[sample]!=group:raise ValueError('同一样本的 group 不一致')
         seen.add((sample,taxon));sample_groups[sample]=group;samples.setdefault(sample,{})[taxon]=value;taxa[taxon]=None
-    if len(samples)>200 or len(taxa)>500:raise ValueError('堆叠图最多支持 200 个样本、500 个分类')
+    if len(samples)>200 or len(taxa)>10000:raise ValueError('堆叠图最多支持 200 个样本、10000 个分类')
     labels=list(samples);taxon_names=list(taxa);matrix=np.array([[samples[s].get(t,0) for t in taxon_names] for s in labels]);totals=matrix.sum(axis=1)
     if np.any(totals<=0):raise ValueError('每个样本的 abundance 总和必须大于零')
     normalized=params.get('stacked_normalize',True)

@@ -25,3 +25,8 @@ def pvalue(row):
     p=number(row,'pvalue')
     if not 0<=p<=1:raise ValueError('P 值必须位于 0–1')
     return max(p,np.finfo(float).tiny)
+
+
+def palette(params,n):
+    import matplotlib.pyplot as plt
+    return plt.get_cmap(params.get('series_palette','Set2'))(np.linspace(0,1,max(n,2)))[:n]

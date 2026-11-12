@@ -16,7 +16,7 @@ def draw(rows,fig,ax,params):
         x,y,low,high=np.array(points).T
         line,=ax.plot(x,y,color=color,lw=params.get('shannon_line_width',2),marker='o' if params.get('shannon_show_points',False) else None,markersize=3)
         series(ax,'group:'+name,name,line)
-        if params.get('shannon_show_band',True):ax.fill_between(x,low,high,color=color,alpha=params.get('shannon_band_alpha',.18),linewidth=0)
+        if params.get('shannon_show_band',True):line._bioflow_band=ax.fill_between(x,low,high,color=color,alpha=params.get('shannon_band_alpha',.18),linewidth=0)
     if params.get('shannon_log_depth',False):ax.set_xscale('log')
     ax.set(title='Shannon rarefaction',xlabel='Sequencing depth (reads)',ylabel='Shannon diversity (ln)');ax.grid(axis='y',alpha=.2)
     ax._bioflow_mapping={'x':'depth','y':'shannon','band':['lower','upper'],'interval':'provided bounds, not recomputed'}

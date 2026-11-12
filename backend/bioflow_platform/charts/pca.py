@@ -3,7 +3,11 @@ import matplotlib.pyplot as plt
 from .common import matrix,series
 def draw(rows,fig,ax,params):
     x,_=matrix(rows)
-    if params.get('pca_log1p',False):
+    if params.get('pca_transform')=='clr':
+        if np.any(x<0):raise ValueError('CLR 转换要求非负丰度')
+        x=np.where(x==0,params.get('pca_pseudocount',.5),x)
+        x=np.log(x);x-=x.mean(axis=1,keepdims=True)
+    if params.get('pca_log1p',False) or params.get('pca_transform')=='log1p':
         if np.any(x<0):raise ValueError('log1p 转换要求特征数值非负')
         x=np.log1p(x)
     x-=x.mean(axis=0)
