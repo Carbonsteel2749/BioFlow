@@ -8,6 +8,7 @@ import logging
 import re
 import time
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from collections import Counter
 
@@ -15,7 +16,7 @@ import httpx
 from fastapi import HTTPException, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from .literature_query import prepare, tokens
+from .literature_query import prepare, tokens,normalize
 from .ability_management import enabled
 from . import literature_evidence as passages
 
@@ -72,11 +73,16 @@ def metadata(row):
         'source':TITLE,'pdf':False,'evidenceKind':'全文片段' if row['quality']=='fulltext' else '摘要' if row['quality']=='abstract' else '仅题录'}
 
 
-def rank(rows,query,vector=None):
+@lru_cache(maxsize=2048)
+def paper_features(title,abstract,content,bibliography):
+    return Counter(tokens(title)*3+tokens(abstract+' '+content)+tokens(bibliography)*2)
+
+
+def rank(rows,query,vector=None,terms=None):
     """Rank papers, not chunks. Lexical and dense representations share the same scope."""
     q=set(tokens(query));prepared=[];df=Counter()
     for row in rows:
-        m=json.loads(row['metadata']);title=tokens(m['title']);body=tokens(m.get('abstract','')+' '+row['content'][:12000]);bibliography=tokens(' '.join(str(m.get(k,'')) for k in ('doi','authors','year','pmid')));bag=Counter(title*3+body+bibliography*2)
+        m=json.loads(row['metadata']);bag=paper_features(m['title'],m.get('abstract',''),row['content'][:12000],' '.join(str(m.get(k,'')) for k in ('doi','authors','year','pmid')))
         prepared.append((row,bag));df.update(bag.keys())
     average=sum(sum(bag.values()) for _,bag in prepared)/max(len(prepared),1);result=[]
     for row,bag in prepared:
@@ -87,6 +93,17 @@ def rank(rows,query,vector=None):
         dense=json.loads(row['vector']);similarity=0
         if vector and dense and len(vector)==len(dense):
             similarity=sum(a*b for a,b in zip(vector,dense))/max(math.sqrt(sum(a*a for a in vector)*sum(b*b for b in dense)),1e-10)
+        specific=[term for term in terms or [] if term.get('priority') and not term.get('negated')]
+        if specific:
+            m=json.loads(row['metadata'])
+            title_text=' '+' '.join(normalize(m['title']).split())+' '
+            abstract_text=' '+' '.join(normalize(m.get('abstract','')).split())+' '
+            body_text=' '+' '.join(normalize(row['content'][:12000]).split())+' '
+            for term in specific:
+                phrase=' '+term['canonical']+' '
+                if phrase in title_text:score+=35
+                elif phrase in abstract_text:score+=22
+                elif phrase in body_text:score+=8
         if not q or matched or similarity>.65:result.append((score+max(similarity,0)*2,row))
     return [row for _,row in sorted(result,key=lambda p:(-p[0],p[1]['id']))]
 
@@ -204,7 +221,7 @@ def install(app,get_store):
                     if len(QUERY_VECTORS)>=256:QUERY_VECTORS.pop(next(iter(QUERY_VECTORS)))
                     QUERY_VECTORS[plan['english']]=(time.monotonic(),v)
             except (httpx.HTTPError,KeyError,ValueError):plan['issues'].append('语义检索暂不可用，已使用医学术语检索。')
-        return plan,rank(rows,plan['english'],v) if plan['english'] or not query.strip() else []
+        return plan,rank(rows,plan['english'],v,plan.get('medical_terms')) if plan['english'] or not query.strip() else []
 
     @app.post('/api/library/references')
     def save_reference(body:Submission,request:Request):
@@ -249,6 +266,8 @@ def install(app,get_store):
         if not enabled(get_store(),'models','literature-chat'):raise HTTPException(409,'文献问答模型已停用')
         provider=os.getenv('BIOFLOW_PUBLIC_QA_PROVIDER','ollama')
         plan,rows=await search_rows(body.query)
+        if plan.get('unresolved_medical_terms'):
+            return {'answer':'以下医学术语尚未确认标准英文：'+'、'.join(plan['unresolved_medical_terms'])+'。请补充英文名或标准名称后重试，以免依据不准确的检索词作答。','sources':[],'query':plan}
         vector=QUERY_VECTORS.get(plan['english'],(None,None))[1]
         sources=fit_sources(evidence(rows,plan['english'],limit=4 if provider=='openai' else 2,store=get_store(),query_vector=vector),body.query,budget=2600 if provider=='openai' else 1000,query=plan['english'])
         if not sources:return {'answer':'公共库中没有找到可支持回答的摘要或正文证据，请调整问题或提交相关文献。','sources':[],'query':plan}

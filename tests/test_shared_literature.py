@@ -159,3 +159,25 @@ def test_translation_cannot_replace_known_medical_concepts(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient,'post',translate)
     result=asyncio.run(prepare('自闭症糖基化'))
     assert set(tokens(result['english']))=={'autism','glycosylation'}
+
+
+def test_xylitol_mouse_query_keeps_all_specific_concepts(monkeypatch):
+    import httpx
+    async def unexpected_translation(*args,**kwargs):
+        raise AssertionError('Known terms should not require machine translation')
+    monkeypatch.setattr(httpx.AsyncClient,'post',unexpected_translation)
+    result=asyncio.run(prepare('在遗传性自闭症小鼠模型中，木糖醇是否会影响肠道菌群、神经递质和突触结构？'))
+    assert result['method']=='domain_dictionary'
+    assert not result['issues']
+    assert set(result['english'].split())=={'genetic','autism','mouse','model','xylitol','gut','microbiota','neurotransmitter','synaptic','structure'}
+    assert tokens('mice')==tokens('小鼠')==['mouse']
+
+
+def test_unknown_translation_fragments_keep_term_boundaries(monkeypatch):
+    import httpx
+    async def translate(self,url,**kwargs):
+        assert kwargs['json']['text']=='糖基化 磷酸化'
+        return httpx.Response(200,json={'translation':'glycosylation phosphorylation'},request=httpx.Request('POST',url))
+    monkeypatch.setattr(httpx.AsyncClient,'post',translate)
+    result=asyncio.run(prepare('自闭症糖基化与肠道菌群磷酸化'))
+    assert {'autism','gut','microbiota','glycosylation','phosphorylation'}==set(tokens(result['english']))
