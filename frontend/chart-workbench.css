@@ -9,3 +9,6 @@
 #ai4s-prototype .cw-drag-outline{fill:transparent;stroke:#639e77;stroke-width:1;stroke-dasharray:4 3;opacity:.32;pointer-events:all}#ai4s-prototype [data-cw-draggable]{cursor:grab;user-select:none}#ai4s-prototype [data-cw-draggable]:hover>.cw-drag-outline,#ai4s-prototype .cw-dragging>.cw-drag-outline{opacity:1}#ai4s-prototype .cw-dragging{cursor:grabbing}#ai4s-prototype .cw-plot [data-cw-draggable] text{cursor:grab}
 
 #ai4s-prototype .cw-plot{overflow:visible;padding:12px;user-select:none}#ai4s-prototype .cw-plot svg{overflow:visible!important;user-select:none}
+
+/* Dialogs cover the fixed workspace context; guests have no task footer. */
+#ai4s-prototype .overlay{position:relative;z-index:3000}#ai4s-prototype .footer{z-index:30}#ai4s-prototype:has(.overlay:not([hidden]) [data-auth-modal]) .footer{display:none!important}

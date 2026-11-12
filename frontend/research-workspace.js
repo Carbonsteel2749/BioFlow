@@ -167,6 +167,6 @@ root.addEventListener('change',event=>{if(event.target.name==='enrichment_size')
 
 /* Load after all native workspace integrations have registered their routes. */
 document.addEventListener('DOMContentLoaded',()=>{
- const css=document.createElement('link');css.rel='stylesheet';css.href='/static/chart-workbench.css?v=20261112b';document.head.append(css);
- const script=document.createElement('script');script.src='/static/chart-workbench.js?v=20261112b';document.head.append(script);
+ const css=document.createElement('link');css.rel='stylesheet';css.href='/static/chart-workbench.css?v=20261112c';document.head.append(css);
+ const script=document.createElement('script');script.src='/static/chart-workbench.js?v=20261112c';document.head.append(script);
 });
