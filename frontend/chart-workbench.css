@@ -12,3 +12,12 @@
 
 /* Dialogs cover the fixed workspace context; guests have no task footer. */
 #ai4s-prototype .overlay{position:relative;z-index:3000}#ai4s-prototype .footer{z-index:30}#ai4s-prototype:has(.overlay:not([hidden]) [data-auth-modal]) .footer{display:none!important}
+/* One viewport, one content scroller: empty pages never move the application frame. */
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body>#ai4s-prototype{height:100dvh;min-height:0;overflow:hidden}
+#ai4s-prototype>.shell{height:100dvh;min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr)}
+#ai4s-prototype>.shell>.main{height:100%;min-height:0;overflow:hidden;padding-bottom:var(--bioflow-footer-height,48px)}
+#ai4s-prototype>.shell>.main>.topbar{flex:0 0 auto;position:relative;top:auto}
+#ai4s-prototype>.shell>.main>.content{flex:1 1 0%;height:auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scroll-padding-bottom:24px}
+#ai4s-prototype .cw-canvas-panel{top:12px}
+@media(max-width:700px){#ai4s-prototype.project-space-layout:not(.projects-collapsed)>.shell{grid-template-rows:minmax(0,auto) minmax(0,1fr)}#ai4s-prototype.project-space-layout>.shell>.main{height:auto;min-height:0}}
