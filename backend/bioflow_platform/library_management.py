@@ -42,10 +42,13 @@ def automatic_folders(store,pid,uid,tid,items):
    elif row['id'].startswith('archive:'):process='deliverables';name='交付包'
    if not process:continue
    fid=uuid.uuid5(uuid.NAMESPACE_URL,':'.join((pid,uid,tid,row['kind'],process))).hex
-   db.execute('INSERT OR IGNORE INTO library_folders VALUES(?,?,?,?,?,?,?)',(fid,pid,uid,tid,row['kind'],name,''));db.execute('UPDATE library_folders SET name=? WHERE id=?',(name,fid));row['_automatic_folder']=fid
+   deleted=db.execute('SELECT parent_id FROM library_folder_deleted WHERE id=?',(fid,)).fetchone()
+   if deleted:row['_automatic_folder']=deleted['parent_id'];continue
+   db.execute('INSERT OR IGNORE INTO library_folders VALUES(?,?,?,?,?,?,?)',(fid,pid,uid,tid,row['kind'],name,''));row['_automatic_folder']=fid
 
 def install(app,router,get_store,check_project,files):
  with get_store().connect() as db:
+  db.execute('CREATE TABLE IF NOT EXISTS library_folder_deleted(id TEXT PRIMARY KEY,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_folders(id TEXT PRIMARY KEY,project_id TEXT,user_id TEXT,task_id TEXT,kind TEXT,name TEXT,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_members(project_id TEXT,user_id TEXT,task_id TEXT,asset_id TEXT,folder_id TEXT,PRIMARY KEY(project_id,user_id,task_id,asset_id))')
  def scope(pid,tid,request):
@@ -108,19 +111,32 @@ def install(app,router,get_store,check_project,files):
  @router.patch('/library-folders/{fid}')
  def rename_folder(pid:str,fid:str,body:FolderBody,request:Request):
   scope(pid,body.task_id,request);folder(pid,request.state.user['id'],body.task_id,body.kind,fid)
-  if uuid.UUID(fid).version==5:raise HTTPException(409,'系统文件夹名称由分析进程管理')
   name=body.name.strip()
   if not name or name in {'.','..'} or '/' in name or '\\' in name:raise HTTPException(422,'文件夹名称无效')
-  with get_store().connect() as db:db.execute('UPDATE library_folders SET name=? WHERE id=?',(name,fid))
+  uid=request.state.user['id'];current=folder(pid,uid,body.task_id,body.kind,fid);parent=body.parent_id if 'parent_id' in body.model_fields_set else current['parent_id'];ancestor=parent
+  for _ in range(100):
+   if not ancestor:break
+   if ancestor==fid:raise HTTPException(422,'不能移动到自己或自己的子文件夹中')
+   ancestor=folder(pid,uid,body.task_id,body.kind,ancestor)['parent_id']
+  else:raise HTTPException(422,'文件夹层级过深')
+  with get_store().connect() as db:
+   if db.execute('SELECT 1 FROM library_folders WHERE project_id=? AND user_id=? AND task_id=? AND kind=? AND parent_id=? AND name=? AND id!=?',(pid,uid,body.task_id,body.kind,parent,name,fid)).fetchone():raise HTTPException(409,'目标目录已有同名文件夹')
+   db.execute('UPDATE library_folders SET name=?,parent_id=? WHERE id=?',(name,parent,fid))
   return {'ok':True}
  @router.delete('/library-folders/{fid}')
  async def delete_folder(pid:str,fid:str,task_id:str,kind:Kind,request:Request):
   items=await rows(pid,task_id,request);uid=request.state.user['id'];folder(pid,uid,task_id,kind,fid);automatic_folders(get_store(),pid,uid,task_id,items)
-  if uuid.UUID(fid).version==5:raise HTTPException(409,'系统文件夹随分析进程保留')
   with get_store().connect() as db:
+   folders=[dict(r) for r in db.execute('SELECT * FROM library_folders WHERE project_id=? AND user_id=? AND task_id=? AND kind=?',(pid,uid,task_id,kind))];parent=next(f['parent_id'] for f in folders if f['id']==fid);removed={fid}
+   while True:
+    children={f['id'] for f in folders if f['parent_id'] in removed};before=len(removed);removed.update(children)
+    if len(removed)==before:break
    members={r['asset_id']:r['folder_id'] for r in db.execute('SELECT asset_id,folder_id FROM library_members WHERE project_id=? AND user_id=? AND task_id=?',(pid,uid,task_id))}
-   if db.execute('SELECT 1 FROM library_folders WHERE parent_id=?',(fid,)).fetchone() or any(members.get(r['id'],r.get('metadata',{}).get('folder_id') or r.get('_automatic_folder',''))==fid for r in items):raise HTTPException(409,'请先移出文件并删除子文件夹，再删除空文件夹')
-   db.execute('DELETE FROM library_folders WHERE id=?',(fid,))
+   for r in items:
+    origin=members.get(r['id'],r.get('metadata',{}).get('folder_id') or r.get('_automatic_folder',''))
+    if origin in removed:db.execute('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',(pid,uid,task_id,r['id'],parent))
+   db.executemany('INSERT OR REPLACE INTO library_folder_deleted VALUES(?,?)',[(f,parent) for f in removed])
+   for old in removed:db.execute('UPDATE library_folder_deleted SET parent_id=? WHERE parent_id=?',(parent,old));db.execute('DELETE FROM library_folders WHERE id=?',(old,))
   return {'ok':True}
  @router.post('/library-folders/move')
  async def move(pid:str,body:MoveBody,request:Request):

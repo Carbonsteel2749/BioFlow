@@ -51,14 +51,14 @@ def test_personal_add_stores_without_project_or_vector_index(setup):
  body={'url':'https://example.org/paper','title':'Study'};r=c.post('/api/library/literature/add-url',json=body);assert r.status_code==201
  assert c.post('/api/library/literature/add-url',json=body).json()['already_saved']
 
-def test_user_folders_can_rename_and_only_delete_when_empty(setup):
+def test_folder_delete_preserves_files_in_parent(setup):
  c,store,pid,records,p=setup;url=f'/p/{pid}';body={'task_id':'t','kind':'results','name':'手动整理'}
  fid=c.post(url+'/library-folders',json=body).json()['id']
  assert c.patch(url+'/library-folders/'+fid,json={**body,'name':'新名称'}).status_code==200
  c.post(url+'/library-folders/move',json={'task_id':'t','kind':'results','folder_id':fid,'asset_ids':['artifact:a']})
- assert c.delete(url+f'/library-folders/{fid}?task_id=t&kind=results').status_code==409
- c.post(url+'/library-folders/move',json={'task_id':'t','kind':'results','folder_id':'','asset_ids':['artifact:a']})
  assert c.delete(url+f'/library-folders/{fid}?task_id=t&kind=results').status_code==200
+ assert c.get(url+'/library-browser?task_id=t&kind=results').json()['items'][0]['id']=='artifact:a'
+ assert p.is_file()
 
 
 def test_editing_personal_title_preserves_link_and_index_state(setup):
@@ -83,3 +83,20 @@ def test_new_analysis_artifact_is_synced_into_process_folder(setup):
  outputs.append(artifact('b','new-result.tsv'));os.utime(assets.snapshot_path('t'),(0,0))
  second=c.get(url).json();assert sum(f['count'] for f in second['folders'])==2
  assert {f['id'] for f in first['folders']}=={f['id'] for f in second['folders']}
+
+
+def test_process_folder_rename_move_and_delete_persist(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}'
+ fid=c.get(url+'/library-browser?task_id=t&kind=results').json()['folders'][0]['id']
+ body={'task_id':'t','kind':'results','name':'分类结果'}
+ assert c.patch(url+'/library-folders/'+fid,json=body).status_code==200
+ parent=c.post(url+'/library-folders',json={**body,'name':'归档'}).json()['id']
+ assert c.patch(url+'/library-folders/'+fid,json={**body,'parent_id':parent}).status_code==200
+ folders=c.get(url+'/library-browser?task_id=t&kind=results').json()['folders']
+ assert next(f for f in folders if f['id']==fid)['name']=='分类结果'
+ assert next(f for f in folders if f['id']==fid)['parent_id']==parent
+ assert c.patch(url+'/library-folders/'+parent,json={**body,'name':'归档','parent_id':fid}).status_code==422
+ assert c.delete(url+f'/library-folders/{fid}?task_id=t&kind=results').status_code==200
+ data=c.get(url+f'/library-browser?task_id=t&kind=results&folder_id={parent}').json()
+ assert data['items'][0]['id']=='artifact:a' and all(f['id']!=fid for f in data['folders'])
+ assert p.is_file()
