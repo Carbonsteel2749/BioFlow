@@ -17,7 +17,7 @@ def setup(tmp_path,monkeypatch):
  app=FastAPI()
  @app.middleware('http')
  async def user(request,call_next):request.state.user={'id':request.headers.get('test-user','u')};return await call_next(request)
- router=APIRouter(prefix='/p/{pid}');install(app,router,lambda:store,lambda p,r:None,SimpleNamespace(catalogue=catalogue));app.include_router(router)
+ service=SimpleNamespace(catalogue=catalogue);app.state.files=service;router=APIRouter(prefix='/p/{pid}');install(app,router,lambda:store,lambda p,r:None,service);app.include_router(router)
  return TestClient(app),store,pid,records,p
 
 def test_process_archive_and_manual_override_survive_refresh(setup):
@@ -67,3 +67,19 @@ def test_editing_personal_title_preserves_link_and_index_state(setup):
  assert c.patch('/api/library/literature/'+aid,json={'title':'New','tags':'Edited tag'}).status_code==200
  with store.connect() as db:m=json.loads(db.execute('SELECT metadata FROM personal_documents WHERE id=?',(aid,)).fetchone()['metadata'])
  assert m['url']=='https://example.org/article' and m['index_status']=='not_indexed' and m['title']=='New'
+
+
+def test_new_analysis_artifact_is_synced_into_process_folder(setup):
+ import os
+ from backend.bioflow_platform import catalogue
+ c,store,pid,records,p=setup
+ def artifact(aid,name):return {'artifact_id':aid,'task_id':'t','artifact_type':'taxonomy.species_abundance','status':'active','path':str(p.parent/name),'file_name':name,'size_bytes':10,'sha256':'a'*64,'media_type':'text/tab-separated-values'}
+ outputs=[artifact('a','result.tsv')]
+ async def call(service,path):return list(outputs) if '/artifacts?' in path else {'id':'t','name':'Analysis','status':'succeeded'}
+ async def live_catalogue(pid,user):return await catalogue.catalogue(c.app.state.files,pid,user)
+ c.app.state.files.call=call;c.app.state.files.get_store=lambda:store;c.app.state.files.catalogue=live_catalogue
+ url=f'/p/{pid}/library-browser?task_id=t&kind=results'
+ first=c.get(url).json();assert sum(f['count'] for f in first['folders'])==1
+ outputs.append(artifact('b','new-result.tsv'));os.utime(assets.snapshot_path('t'),(0,0))
+ second=c.get(url).json();assert sum(f['count'] for f in second['folders'])==2
+ assert {f['id'] for f in first['folders']}=={f['id'] for f in second['folders']}

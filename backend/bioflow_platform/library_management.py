@@ -58,6 +58,12 @@ def install(app,router,get_store,check_project,files):
   return dict(r)
  async def rows(pid,tid,request):
   scope(pid,tid,request)
+  if hasattr(files,'call'):
+   from .catalogue import sync_task_snapshot,put,task_rows
+   try:
+    await sync_task_snapshot(files,get_store(),pid,request.state.user['id'],tid)
+    await asyncio.to_thread(put,get_store(),pid,request.state.user['id'],'tasks',task_rows(get_store(),pid,request.state.user['id']))
+   except (HTTPException,TimeoutError):pass
   return [r for r in await files.catalogue(pid,request.state.user) if tid in r.get('task_ids',[])]
  @app.post('/api/library/literature/add-url',status_code=201)
  async def reference(body:ReferenceBody,request:Request):
