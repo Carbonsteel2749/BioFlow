@@ -167,8 +167,8 @@ root.addEventListener('change',event=>{if(event.target.name==='enrichment_size')
 
 /* Load after all native workspace integrations have registered their routes. */
 document.addEventListener('DOMContentLoaded',()=>{
- const css=document.createElement('link');css.rel='stylesheet';css.href='/static/chart-workbench.css?v=20261115a';document.head.append(css);
- const script=document.createElement('script');script.src='/static/chart-workbench.js?v=20261115a';document.head.append(script);
+ const css=document.createElement('link');css.rel='stylesheet';css.href='/static/chart-workbench.css?v=20261115b';document.head.append(css);
+ const script=document.createElement('script');script.src='/static/chart-workbench.js?v=20261115b';document.head.append(script);
 });
 
-document.addEventListener('DOMContentLoaded',()=>{const css=document.createElement('link');css.rel='stylesheet';css.href='/static/asset-browser.css?v=20261115g';document.head.append(css);const js=document.createElement('script');js.src='/static/asset-browser.js?v=20261115g';document.head.append(js);});
+document.addEventListener('DOMContentLoaded',()=>{const css=document.createElement('link');css.rel='stylesheet';css.href='/static/asset-browser.css?v=20261115h';document.head.append(css);const js=document.createElement('script');js.src='/static/asset-browser.js?v=20261115h';document.head.append(js);});

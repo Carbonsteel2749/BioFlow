@@ -37,6 +37,7 @@ def prepare(rows,spec,directory):
 def display(fig,ax,p):
     for a in fig.axes:
         a.title.set_fontsize(p.get('title_size',16));a.title.set_visible(p.get('show_title',True))
+        a.xaxis.label.set_visible(p.get('show_x_label',True));a.yaxis.label.set_visible(p.get('show_y_label',True))
         a.xaxis.label.set_fontsize(p.get('axis_title_size',12));a.yaxis.label.set_fontsize(p.get('axis_title_size',12))
         a.tick_params(axis='x',labelsize=p.get('x_tick_size',10));a.tick_params(axis='y',labelsize=p.get('y_tick_size',10))
         a.grid(p.get('show_grid',False),alpha=.2) if p.get('show_grid',False) else a.grid(False)
@@ -70,7 +71,7 @@ def display(fig,ax,p):
     if legend:
         handles=getattr(legend,'legend_handles',getattr(legend,'legendHandles',[]))
         all_series=getattr(ax,'_bioflow_series',[]);by_id={s[0]:s for s in all_series};order=p.get('legend_order',[])+[s[0] for s in all_series if s[0] not in p.get('legend_order',[])]
-        for (key,_,_),handle in zip([by_id[k] for k in order],handles):
+        for (key,_,_),handle in zip([by_id[k] for k in dict.fromkeys(order) if k in by_id and k not in p.get('legend_hidden',[])],handles):
             color=p.get('series_colors',{}).get(key)
             if color and hasattr(handle,'set_color'):handle.set_color(color)
             elif color and hasattr(handle,'set_facecolor'):handle.set_facecolor(color)

@@ -114,3 +114,26 @@ def test_selected_read_mates_generate_deduplicated_metadata(setup):
  assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r1']},headers={'test-user':'other'}).status_code==404
  records.append({'id':'bad','kind':'data','name':'table.csv','status':'ready','task_ids':['t']})
  assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['bad']}).status_code==422
+
+def test_folder_metadata_recurses_and_deduplicates_samples(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}'
+ parent=c.post(url+'/library-folders',json={'task_id':'t','kind':'data','name':'原始数据'}).json()['id'];child=c.post(url+'/library-folders',json={'task_id':'t','kind':'data','name':'子目录','parent_id':parent}).json()['id']
+ records[:]=[{'id':'r1','kind':'data','name':'ERR1_R1.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR1','metadata':{'folder_id':child}},{'id':'r2','kind':'data','name':'ERR1_R2.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR1','metadata':{'folder_id':child}},{'id':'r3','kind':'data','name':'ERR2_R1.fastq.gz','status':'ready','task_ids':['t'],'metadata':{'folder_id':parent}},{'id':'not-sample','kind':'data','name':'metadata.csv','status':'ready','task_ids':['t'],'metadata':{'folder_id':parent}}]
+ r=c.post(url+'/library-metadata',json={'task_id':'t','folder_ids':[parent],'asset_ids':['r1']});assert r.status_code==201;assert r.json()['sample_count']==2
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r.json()['id'],)).fetchone());meta=json.loads(row['metadata']);assert set(meta['parent_refs'])=={'r1','r2','r3'}
+ assert c.post(url+'/library-metadata',json={'task_id':'t','folder_ids':['unowned']}).status_code==404
+
+
+def test_unified_file_operations_and_edit_preserve_source(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}';original=p.read_text();body={'task_id':'t','kind':'results','asset_ids':['artifact:a']}
+ assert c.post(url+'/library-selection',json={**body,'action':'rename','name':'新名称.tsv'}).status_code==200
+ data=c.get(url+'/library-browser?task_id=t&kind=results&q=新名称').json();assert data['items'][0]['name']=='新名称.tsv'
+ assert c.get(url+'/library-edit?task_id=t&asset_id=artifact:a').json()['text']==original
+ r=c.post(url+'/library-edit',json={'task_id':'t','asset_id':'artifact:a','text':'sample\tvalue\nA\t99\n'});assert r.status_code==201;assert p.read_text()==original
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r.json()['id'],)).fetchone());assert '99' in assets.uploaded_path(row,pid,'u').read_text(encoding='utf-8-sig')
+ assert c.post(url+'/library-selection',json={**body,'action':'delete'}).status_code==200
+ assert c.get(url+'/library-browser?task_id=t&kind=results').json()['counts']['results']==0
+ assert p.is_file()
+ assert c.post(url+'/library-selection',json={**body,'action':'delete'},headers={'test-user':'other'}).status_code==404

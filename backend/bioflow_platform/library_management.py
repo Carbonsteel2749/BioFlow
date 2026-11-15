@@ -22,7 +22,22 @@ class MoveBody(BaseModel):
  asset_ids:list[str]=Field(min_length=1,max_length=2000)
 class MetadataBody(BaseModel):
  task_id:str
- asset_ids:list[str]=Field(min_length=1,max_length=2000)
+ asset_ids:list[str]=Field(default_factory=list,max_length=2000)
+ folder_ids:list[str]=Field(default_factory=list,max_length=2000)
+
+class SelectionBody(BaseModel):
+ task_id:str
+ kind:Kind
+ asset_ids:list[str]=Field(default_factory=list,max_length=2000)
+ folder_ids:list[str]=Field(default_factory=list,max_length=2000)
+ action:Literal['move','rename','delete']
+ folder_id:str=''
+ name:str=Field(default='',max_length=240)
+
+class EditBody(BaseModel):
+ task_id:str
+ asset_id:str
+ text:str=Field(max_length=2*1024**2)
 
 class ReferenceBody(BaseModel):
  url:str=Field(min_length=1,max_length=2000)
@@ -52,6 +67,7 @@ def automatic_folders(store,pid,uid,tid,items):
 
 def install(app,router,get_store,check_project,files):
  with get_store().connect() as db:
+  db.execute('CREATE TABLE IF NOT EXISTS library_item_overrides(project_id TEXT,user_id TEXT,task_id TEXT,asset_id TEXT,name TEXT,hidden INTEGER DEFAULT 0,PRIMARY KEY(project_id,user_id,task_id,asset_id))')
   db.execute('CREATE TABLE IF NOT EXISTS library_folder_deleted(id TEXT PRIMARY KEY,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_folders(id TEXT PRIMARY KEY,project_id TEXT,user_id TEXT,task_id TEXT,kind TEXT,name TEXT,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_members(project_id TEXT,user_id TEXT,task_id TEXT,asset_id TEXT,folder_id TEXT,PRIMARY KEY(project_id,user_id,task_id,asset_id))')
@@ -71,7 +87,15 @@ def install(app,router,get_store,check_project,files):
     await sync_task_snapshot(files,get_store(),pid,request.state.user['id'],tid)
     await asyncio.to_thread(put,get_store(),pid,request.state.user['id'],'tasks',task_rows(get_store(),pid,request.state.user['id']))
    except (HTTPException,TimeoutError):pass
-  return [r for r in await files.catalogue(pid,request.state.user) if tid in r.get('task_ids',[])]
+  with get_store().connect() as db:overrides={r['asset_id']:dict(r) for r in db.execute('SELECT * FROM library_item_overrides WHERE project_id=? AND user_id=? AND task_id=?',(pid,request.state.user['id'],tid))}
+  result=[]
+  for r in await files.catalogue(pid,request.state.user):
+   if tid not in r.get('task_ids',[]):continue
+   override=overrides.get(r['id'],{})
+   if override.get('hidden'):continue
+   if override.get('name'):r={**r,'name':override['name']}
+   result.append(r)
+  return result
  @app.post('/api/library/literature/add-url',status_code=201)
  async def reference(body:ReferenceBody,request:Request):
   url=body.url.strip();parsed=urlsplit(url)
@@ -148,10 +172,52 @@ def install(app,router,get_store,check_project,files):
   if any(a not in items or items[a]['kind']!=body.kind for a in body.asset_ids):raise HTTPException(404,'所选文件不属于当前任务分类')
   with get_store().connect() as db:db.executemany('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',[(pid,uid,body.task_id,a,body.folder_id) for a in body.asset_ids])
   return {'ok':True}
+ @router.post('/library-selection')
+ async def selection(pid:str,body:SelectionBody,request:Request):
+  scope(pid,body.task_id,request);uid=request.state.user['id'];items={r['id']:r for r in await rows(pid,body.task_id,request)}
+  if not body.asset_ids and not body.folder_ids:raise HTTPException(422,'请先选择文件或文件夹')
+  if any(a not in items or items[a]['kind']!=body.kind for a in body.asset_ids):raise HTTPException(404,'所选文件不属于当前分类')
+  selected=[folder(pid,uid,body.task_id,body.kind,fid) for fid in body.folder_ids]
+  if body.action=='rename':
+   if len(body.asset_ids)+len(body.folder_ids)!=1:raise HTTPException(422,'每次请选择一项重命名')
+   if not body.name.strip() or '/' in body.name or '\\' in body.name:raise HTTPException(422,'名称无效')
+   if selected:return rename_folder(pid,selected[0]['id'],FolderBody(task_id=body.task_id,kind=body.kind,name=body.name),request)
+   with get_store().connect() as db:db.execute('INSERT INTO library_item_overrides VALUES(?,?,?,?,?,0) ON CONFLICT(project_id,user_id,task_id,asset_id) DO UPDATE SET name=excluded.name',(pid,uid,body.task_id,body.asset_ids[0],body.name.strip()))
+  elif body.action=='move':
+   folder(pid,uid,body.task_id,body.kind,body.folder_id)
+   parents={f['id']:f['parent_id'] for f in selected}
+   for fid in body.folder_ids:
+    ancestor=body.folder_id
+    for _ in range(100):
+     if not ancestor:break
+     if ancestor==fid:raise HTTPException(422,'不能移动到自身或子目录')
+     ancestor=folder(pid,uid,body.task_id,body.kind,ancestor)['parent_id']
+   for f in selected:rename_folder(pid,f['id'],FolderBody(task_id=body.task_id,kind=body.kind,name=f['name'],parent_id=body.folder_id),request)
+   if body.asset_ids:await move(pid,MoveBody(task_id=body.task_id,kind=body.kind,folder_id=body.folder_id,asset_ids=body.asset_ids),request)
+  else:
+   selected_ids={f['id'] for f in selected};roots=[f for f in selected if f['parent_id'] not in selected_ids]
+   for f in roots:await delete_folder(pid,f['id'],body.task_id,body.kind,request)
+   with get_store().connect() as db:
+    for aid in body.asset_ids:db.execute('INSERT INTO library_item_overrides VALUES(?,?,?,?,NULL,1) ON CONFLICT(project_id,user_id,task_id,asset_id) DO UPDATE SET hidden=1',(pid,uid,body.task_id,aid))
+  return {'ok':True}
  @router.post('/library-metadata',status_code=201)
  async def generate_metadata(pid:str,body:MetadataBody,request:Request):
-  uid=request.state.user['id'];items={r['id']:r for r in await rows(pid,body.task_id,request)};samples=[]
-  for aid in body.asset_ids:
+  uid=request.state.user['id'];all_rows=await rows(pid,body.task_id,request);items={r['id']:r for r in all_rows};samples=[];selected_ids=list(body.asset_ids)
+  if body.folder_ids:
+   automatic_folders(get_store(),pid,uid,body.task_id,all_rows)
+   selected_folders=set(body.folder_ids)
+   for fid in selected_folders:folder(pid,uid,body.task_id,'data',fid)
+   with get_store().connect() as db:
+    folders=[dict(r) for r in db.execute("SELECT id,parent_id FROM library_folders WHERE project_id=? AND user_id=? AND task_id=? AND kind='data'",(pid,uid,body.task_id))]
+    members={r['asset_id']:r['folder_id'] for r in db.execute('SELECT asset_id,folder_id FROM library_members WHERE project_id=? AND user_id=? AND task_id=?',(pid,uid,body.task_id))}
+   for _ in range(len(folders)+1):
+    before=len(selected_folders);selected_folders.update(f['id'] for f in folders if f['parent_id'] in selected_folders)
+    if len(selected_folders)==before:break
+   for row in all_rows:
+    fid=members.get(row['id'],row.get('metadata',{}).get('folder_id') or row.get('_automatic_folder',''))
+    if row['kind']=='data' and fid in selected_folders and (row.get('sample_id') or re.search(r'\.(fastq|fq)(\.gz)?$',row['name'],re.I)) and row['id'] not in selected_ids:selected_ids.append(row['id'])
+  if not selected_ids:raise HTTPException(422,'所选目录中没有测序样本文件')
+  for aid in selected_ids:
    row=items.get(aid)
    if not row or row['kind']!='data':raise HTTPException(404,'所选测序数据不属于当前任务')
    sample=row.get('sample_id') or row.get('metadata',{}).get('sample_id')
@@ -168,10 +234,10 @@ def install(app,router,get_store,check_project,files):
    for row in previous:
     meta=json.loads(row['metadata'])
     if meta.get('origin')=='sample_metadata' and meta.get('task_id')==body.task_id:
-     meta['folder_id']=fid;meta['parent_refs']=sorted(set(meta.get('parent_refs',[]))|set(body.asset_ids));db.execute('UPDATE assets SET metadata=? WHERE id=?',(json.dumps(meta,ensure_ascii=False),row['id']));db.execute('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',(pid,uid,body.task_id,row['id'],fid))
+     meta['folder_id']=fid;meta['parent_refs']=sorted(set(meta.get('parent_refs',[]))|set(selected_ids));db.execute('UPDATE assets SET metadata=? WHERE id=?',(json.dumps(meta,ensure_ascii=False),row['id']));db.execute('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',(pid,uid,body.task_id,row['id'],fid))
      return {'id':row['id'],'name':meta['file_name'],'folder_id':fid,'sample_count':len(samples),'already_exists':True}
    aid=uuid.uuid4().hex;name='sample_metadata_'+aid[:8]+'.csv';relative=Path(uid)/pid/(aid+'.csv');path=assets.ROOT/'runtime/assets'/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
-   meta={'origin':'sample_metadata','file_name':name,'task_id':body.task_id,'folder_id':fid,'chart_role':'groups','sample_count':len(samples),'parent_refs':body.asset_ids}
+   meta={'origin':'sample_metadata','file_name':name,'task_id':body.task_id,'folder_id':fid,'chart_role':'groups','sample_count':len(samples),'parent_refs':selected_ids}
    db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',(aid,pid,uid,name,'data',relative.as_posix(),len(data),digest,'ready',json.dumps(meta,ensure_ascii=False)))
   get_store().event(pid,'生成元数据',{'id':aid,'task_id':body.task_id,'sample_count':len(samples)})
   return {'id':aid,'name':name,'folder_id':fid,'sample_count':len(samples)}
@@ -211,6 +277,24 @@ def install(app,router,get_store,check_project,files):
    if not a:return r,None
    p=assets.uploaded_path(dict(a),pid,uid)
   return r,p
+ @router.get('/library-edit')
+ async def edit_info(pid:str,task_id:str,asset_id:str,request:Request):
+  row,path=await owned_path(pid,task_id,asset_id,request)
+  if path is None or not path.is_file():raise HTTPException(409,'文件尚未挂载')
+  if path.suffix.lower() not in {'.csv','.tsv','.txt','.md','.json','.log','.py','.r'}:raise HTTPException(422,'该格式不支持文本编辑')
+  if path.stat().st_size>2*1024**2:raise HTTPException(413,'编辑上限2 MB，请先筛选或下载编辑')
+  return {'name':row['name'],'text':await asyncio.to_thread(path.read_text,encoding='utf-8-sig')}
+ @router.post('/library-edit',status_code=201)
+ async def edit_save(pid:str,body:EditBody,request:Request):
+  await edit_info(pid,body.task_id,body.asset_id,request);row,path=await owned_path(pid,body.task_id,body.asset_id,request);uid=request.state.user['id'];data=body.text.encode('utf-8-sig')
+  if not body.text.strip():raise HTTPException(422,'内容不能为空')
+  if len(data)>2*1024**2:raise HTTPException(413,'编辑上限2 MB')
+  all_rows=await rows(pid,body.task_id,request);automatic_folders(get_store(),pid,uid,body.task_id,all_rows);current=next(r for r in all_rows if r['id']==body.asset_id)
+  with get_store().connect() as db:
+   member=db.execute('SELECT folder_id FROM library_members WHERE project_id=? AND user_id=? AND task_id=? AND asset_id=?',(pid,uid,body.task_id,body.asset_id)).fetchone();fid=member['folder_id'] if member else current.get('metadata',{}).get('folder_id') or current.get('_automatic_folder','')
+   aid=uuid.uuid4().hex;name=Path(row['name']).stem+'_edited'+path.suffix;relative=Path(uid)/pid/(aid+path.suffix);target=assets.ROOT/'runtime/assets'/relative;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data);meta={'origin':'file_edit','task_id':body.task_id,'folder_id':fid,'parent_refs':[body.asset_id],'chart_role':current.get('metadata',{}).get('chart_role')}
+   db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',(aid,pid,uid,name,row['kind'],relative.as_posix(),len(data),hashlib.sha256(data).hexdigest(),'ready',json.dumps(meta,ensure_ascii=False)))
+  return {'id':aid,'name':name}
  @router.get('/library-preview')
  async def preview(pid:str,task_id:str,asset_id:str,request:Request,content:bool=False):
   r,p=await owned_path(pid,task_id,asset_id,request)

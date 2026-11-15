@@ -1,6 +1,11 @@
 from typing import Literal
 from pydantic import BaseModel,Field,ConfigDict,field_validator,model_validator
 
+class CustomLegendItem(BaseModel):
+    id:str=Field(pattern=r'^custom:[a-f0-9]{32}$')
+    label:str=Field(min_length=1,max_length=200)
+    color:str=Field(default='#527d60',pattern=r'^#[a-fA-F0-9]{6}$')
+
 class DisplayParameters(BaseModel):
     model_config=ConfigDict(extra='forbid')
     title:str|None=Field(default=None,max_length=300)
@@ -8,6 +13,8 @@ class DisplayParameters(BaseModel):
     y_label:str|None=Field(default=None,max_length=200)
     legend_labels:dict[str,str]=Field(default_factory=dict,max_length=80)
     legend_order:list[str]=Field(default_factory=list,max_length=80)
+    legend_hidden:list[str]=Field(default_factory=list,max_length=100)
+    extra_legends:list[CustomLegendItem]=Field(default_factory=list,max_length=20)
     legend_position:Literal['best','upper right','upper left','lower right','lower left','outside_right','outside_bottom']='best'
     title_size:float=Field(default=16,ge=6,le=48)
     axis_title_size:float=Field(default=12,ge=6,le=36)
@@ -15,6 +22,8 @@ class DisplayParameters(BaseModel):
     y_tick_size:float=Field(default=10,ge=6,le=30)
     legend_size:float=Field(default=10,ge=6,le=30)
     show_title:bool=True
+    show_x_label:bool=True
+    show_y_label:bool=True
     show_legend:bool=True
     show_grid:bool=False
     transparent:bool=False

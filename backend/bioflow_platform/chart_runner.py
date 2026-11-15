@@ -46,18 +46,11 @@ def render(directory):
     params=spec['parameters'];module=importlib.import_module('.charts.'+entry['id'],package='backend.bioflow_platform')
     try:
         module.draw(rows,fig,ax,params)
-        series=getattr(ax,'_bioflow_series',[]);ids=[r[0] for r in series]
-        if not getattr(ax,'_bioflow_custom_legend',False) and (any(k not in ids for k in params.get('legend_labels',{})) or any(k not in ids for k in params.get('legend_order',[]))):raise ValueError('图例标识与原图不一致，请重新打开编辑器')
+        from .chart_legend import configure
+        series=configure(fig,ax,params)
         defaults={'title':getattr(ax,'_bioflow_title',ax.get_title()),'x_label':ax.get_xlabel(),'y_label':ax.get_ylabel()}
         for key,setter in [('title',ax.set_title),('x_label',ax.set_xlabel),('y_label',ax.set_ylabel)]:
             if params.get(key) is not None and not getattr(ax,'_bioflow_managed_display',False):setter(params[key])
-        if series and not getattr(ax,'_bioflow_custom_legend',False):
-            lookup={r[0]:r for r in series};order=params.get('legend_order',[])+[k for k in ids if k not in params.get('legend_order',[])]
-            arranged=[lookup[k] for k in order];labels=[params.get('legend_labels',{}).get(k,label) for k,label,_ in arranged]
-            position=params.get('legend_position','best');kwargs={'loc':position}
-            if position=='outside_right':kwargs={'loc':'upper left','bbox_to_anchor':(1.02,1)}
-            elif position=='outside_bottom':kwargs={'loc':'upper center','bbox_to_anchor':(.5,-.18),'ncol':min(4,len(arranged))}
-            ax.legend([r[2] for r in arranged],labels,**kwargs)
         for artist in fig.findobj():
             if hasattr(artist,'set_parse_math'):artist.set_parse_math(False)
             if hasattr(artist,'set_fontsize'):artist.set_fontsize(params.get('font_size',10))
