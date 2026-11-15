@@ -22,6 +22,7 @@ Purpose=Literal['auto','literature','data','results','charts','drafts']
 
 class ImportDetails(BaseModel):
     model_config=ConfigDict(extra='forbid')
+    folder_id:str=Field(default='',max_length=100)
     result_type:str=Field(default='',max_length=120)
     software:str=Field(default='',max_length=120)
     task_id:str=Field(default='',max_length=128)
