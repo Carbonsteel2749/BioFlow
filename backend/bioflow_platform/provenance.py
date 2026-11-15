@@ -54,6 +54,9 @@ def graph(store,pid,uid,rows):
             doi=normal_doi(row.get('metadata',{}).get('doi'))
             if doi:dois.setdefault(doi,[]).append(row['id'])
     for row in rows:
+        for parent in row.get('metadata',{}).get('parent_refs',[]):
+            if parent.startswith('artifact:'):parent=artifacts.get(parent.split(':',1)[1])
+            edge(row['id'],parent,'derived_from','recorded')
         source=row.get('source_id')
         if source:
             if source.startswith('artifact:'):source=artifacts.get(source.split(':',1)[1])

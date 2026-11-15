@@ -138,13 +138,16 @@ async def catalogue(service,pid,user):
 async def sync_task_snapshot(service,store,pid,uid,tid):
     # Refresh only metadata, never hash or copy large result files while listing.
     path=assets.snapshot_path(tid)
-    if path.is_file() and time.time()-path.stat().st_mtime<30:return
+    if path.is_file() and time.time()-path.stat().st_mtime<30 and assets.read_snapshot(tid).get('task',{}).get('_report_index_version')==1:return
     async def fetch(kind,path):return await asyncio.wait_for(service.call(kind,path),timeout=8)
     if tid in store.ids(pid,'workflow'):
         data=await fetch('analysis','/api/workflows/runs/'+tid)
         data={**data,'id':tid,'manifest_path':data.get('input_manifest','')}
     else:data=await fetch('analysis','/api/tasks/'+tid)
     records=await fetch('analysis','/api/tasks/'+tid+'/artifacts?metadata_only=true')
+    from .report_outputs import report_outputs
+    records+=await asyncio.to_thread(report_outputs,tid,records)
+    data['_report_index_version']=1
     previous={a['artifact_id']:a for a in assets.read_snapshot(tid).get('artifacts',[])}
     for record in records:
         old=previous.get(record['artifact_id'],{})

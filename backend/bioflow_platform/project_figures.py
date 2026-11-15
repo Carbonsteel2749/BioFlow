@@ -118,19 +118,22 @@ def install_figures(router,get_store,check_project,files=None):
         if task_id and files:
             from .catalogue import sync_task_snapshot
             await sync_task_snapshot(files,get_store(),pid,uid,task_id)
-        with get_store().connect() as db:rows=[{'id':r['id'],'name':r['name'],'source':'任务上传','kind':r['kind'],'metadata':json.loads(r['metadata'])} for r in db.execute("SELECT id,name,kind,metadata FROM assets WHERE project_id=? AND user_id=? AND kind IN ('data','results') AND status!='archived' ORDER BY rowid DESC",(pid,uid)) if Path(r['name']).suffix.lower() in {'.csv','.tsv','.txt'}]
+        with get_store().connect() as db:rows=[{'id':r['id'],'name':r['name'],'source':'任务上传','kind':r['kind'],'metadata':json.loads(r['metadata']),'path':r['path'],'size_bytes':r['size_bytes']} for r in db.execute("SELECT id,name,kind,metadata,path,size_bytes FROM assets WHERE project_id=? AND user_id=? AND kind IN ('data','results') AND status!='archived' ORDER BY rowid DESC",(pid,uid)) if Path(r['name']).suffix.lower() in {'.csv','.tsv','.txt'}]
         tids=project_task_ids(get_store(),pid,uid)
         for tid in tids:
             snapshot=assets.read_snapshot(tid)
             for a in snapshot.get('artifacts',[]):
                 name=a.get('file_name') or Path(a.get('path','')).name
                 if a['status']=='active' and Path(name).suffix.lower() in {'.csv','.tsv','.txt'} and not a.get('artifact_type','').startswith('reads.'):
-                    rows.append({'id':'artifact:'+a['artifact_id'],'name':name,'source':snapshot.get('task',{}).get('name',tid),'sample_id':a.get('sample_id'),'kind':'results','task_id':tid})
+                    rows.append({'id':'artifact:'+a['artifact_id'],'name':name,'source':snapshot.get('task',{}).get('name',tid),'sample_id':a.get('sample_id'),'kind':'results','task_id':tid,'artifact_type':a.get('artifact_type'),'relative_path':a.get('path'),'size_bytes':a.get('size_bytes',0)})
         if task_id:
             if task_id not in project_task_ids(get_store(),pid,uid):raise HTTPException(404,'任务不属于当前项目')
             from .provenance import decorate
             rows=decorate(get_store(),pid,uid,rows)
             rows=[r for r in rows if task_id in r.get('task_ids',[])]
+        from .plot_inputs import describe_source
+        for row in rows:row.update(describe_source(row))
+        rows.sort(key=lambda r:(not r.get('recommended',False),r.get('label',r['name'])))
         return {'items':rows}
 
     @router.get('/figures')
@@ -225,4 +228,6 @@ def install_figures(router,get_store,check_project,files=None):
             headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; sandbox",'X-Content-Type-Options':'nosniff'})
     from .chart_workbench import install_workbench
     install_workbench(router,get_store,check_project,resolve_source,folder,owned)
+    from .plot_inputs import install_preparation
+    install_preparation(router,get_store,check_project,files)
     return create
