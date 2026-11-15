@@ -1,5 +1,5 @@
 """Lazy personal-paper storage and task-scoped logical file folders."""
-import asyncio,csv,hashlib,io,json,mimetypes,uuid
+import asyncio,csv,hashlib,io,json,mimetypes,re,uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import File,HTTPException,Request,UploadFile
@@ -20,6 +20,10 @@ class MoveBody(BaseModel):
  kind:Kind
  folder_id:str=''
  asset_ids:list[str]=Field(min_length=1,max_length=2000)
+class MetadataBody(BaseModel):
+ task_id:str
+ asset_ids:list[str]=Field(min_length=1,max_length=2000)
+
 class ReferenceBody(BaseModel):
  url:str=Field(min_length=1,max_length=2000)
  title:str=Field(default='',max_length=500)
@@ -144,6 +148,33 @@ def install(app,router,get_store,check_project,files):
   if any(a not in items or items[a]['kind']!=body.kind for a in body.asset_ids):raise HTTPException(404,'所选文件不属于当前任务分类')
   with get_store().connect() as db:db.executemany('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',[(pid,uid,body.task_id,a,body.folder_id) for a in body.asset_ids])
   return {'ok':True}
+ @router.post('/library-metadata',status_code=201)
+ async def generate_metadata(pid:str,body:MetadataBody,request:Request):
+  uid=request.state.user['id'];items={r['id']:r for r in await rows(pid,body.task_id,request)};samples=[]
+  for aid in body.asset_ids:
+   row=items.get(aid)
+   if not row or row['kind']!='data':raise HTTPException(404,'所选测序数据不属于当前任务')
+   sample=row.get('sample_id') or row.get('metadata',{}).get('sample_id')
+   if not sample:
+    match=re.match(r'^(.+?)(?:[_.-]R?[12](?:_\d+)?)?\.(?:fastq|fq)(?:\.gz)?$',row['name'],re.I)
+    if match:sample=match[1]
+   if not sample:raise HTTPException(422,'无法确定样本编号：'+row['name']+'；请选择测序样本文件')
+   if any(ch in str(sample) for ch in '\r\n\t'):raise HTTPException(422,'样本编号含无效字符')
+   if str(sample) not in samples:samples.append(str(sample))
+  samples.sort();out=io.StringIO(newline='');writer=csv.writer(out);writer.writerow(['sample','group','batch']);writer.writerows((sample,'','') for sample in samples);data=out.getvalue().encode('utf-8-sig');digest=hashlib.sha256(data).hexdigest()
+  fid=create_folder(pid,FolderBody(task_id=body.task_id,kind='data',name='元数据'),request)['id']
+  with get_store().connect() as db:
+   previous=db.execute("SELECT id,metadata FROM assets WHERE project_id=? AND user_id=? AND sha256=? AND status!='archived'",(pid,uid,digest)).fetchall()
+   for row in previous:
+    meta=json.loads(row['metadata'])
+    if meta.get('origin')=='sample_metadata' and meta.get('task_id')==body.task_id:
+     meta['folder_id']=fid;meta['parent_refs']=sorted(set(meta.get('parent_refs',[]))|set(body.asset_ids));db.execute('UPDATE assets SET metadata=? WHERE id=?',(json.dumps(meta,ensure_ascii=False),row['id']));db.execute('INSERT OR REPLACE INTO library_members VALUES(?,?,?,?,?)',(pid,uid,body.task_id,row['id'],fid))
+     return {'id':row['id'],'name':meta['file_name'],'folder_id':fid,'sample_count':len(samples),'already_exists':True}
+   aid=uuid.uuid4().hex;name='sample_metadata_'+aid[:8]+'.csv';relative=Path(uid)/pid/(aid+'.csv');path=assets.ROOT/'runtime/assets'/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+   meta={'origin':'sample_metadata','file_name':name,'task_id':body.task_id,'folder_id':fid,'chart_role':'groups','sample_count':len(samples),'parent_refs':body.asset_ids}
+   db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',(aid,pid,uid,name,'data',relative.as_posix(),len(data),digest,'ready',json.dumps(meta,ensure_ascii=False)))
+  get_store().event(pid,'生成元数据',{'id':aid,'task_id':body.task_id,'sample_count':len(samples)})
+  return {'id':aid,'name':name,'folder_id':fid,'sample_count':len(samples)}
  @router.post('/library-browser/refresh')
  def refresh(pid:str,request:Request):
   check_project(pid,request)

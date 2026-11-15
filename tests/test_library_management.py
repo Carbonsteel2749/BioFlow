@@ -100,3 +100,17 @@ def test_process_folder_rename_move_and_delete_persist(setup):
  data=c.get(url+f'/library-browser?task_id=t&kind=results&folder_id={parent}').json()
  assert data['items'][0]['id']=='artifact:a' and all(f['id']!=fid for f in data['folders'])
  assert p.is_file()
+
+
+def test_selected_read_mates_generate_deduplicated_metadata(setup):
+ c,store,pid,records,p=setup
+ records[:]=[{'id':'r1','kind':'data','name':'ERR123_R1.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR123'},{'id':'r2','kind':'data','name':'ERR123_R2.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR123'},{'id':'r3','kind':'data','name':'ERR456_R1.fastq.gz','status':'ready','task_ids':['t']}]
+ r=c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r1','r2','r3']});assert r.status_code==201;r=r.json();assert r['sample_count']==2
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r['id'],)).fetchone());assert row['kind']=='data'
+  folder=db.execute('SELECT name FROM library_folders WHERE id=?',(r['folder_id'],)).fetchone();assert folder['name']=='元数据'
+  path=assets.uploaded_path(row,pid,'u');data=list(csv.DictReader(path.read_text(encoding='utf-8-sig').splitlines()));assert data==[{'sample':'ERR123','group':'','batch':''},{'sample':'ERR456','group':'','batch':''}]
+ duplicate=c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r3','r2','r1']}).json();assert duplicate['id']==r['id']
+ assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r1']},headers={'test-user':'other'}).status_code==404
+ records.append({'id':'bad','kind':'data','name':'table.csv','status':'ready','task_ids':['t']})
+ assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['bad']}).status_code==422
