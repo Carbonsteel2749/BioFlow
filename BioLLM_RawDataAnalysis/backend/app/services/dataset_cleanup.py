@@ -121,7 +121,15 @@ class DatasetCleanup:
         for sample in db.execute('SELECT * FROM dataset_samples WHERE dataset_id<>?', (dataset['id'],)):
             if any(overlaps(json.loads(sample[c])['path']) for c in ('read1_json', 'read2_json')):
                 raise ValueError(f"原始文件仍被数据集 {sample['dataset_id']} 引用，保留数据")
-        manifests = {Path(path) for _, path in refs}
+        from .input_datasets import InputDatasetService
+        typed=set()
+        for task_id,path in refs:
+            if Path(path).suffix.lower()=='.json':
+                references=InputDatasetService(self.settings).snapshot_reference_paths(Path(path),task_id)
+                if any(overlaps(value) for value in references):
+                    raise ValueError(f'原始文件仍被类型化任务 {task_id} 引用，保留数据')
+                typed.add(Path(path))
+        manifests = {Path(path) for _, path in refs}-typed
         manifests.update(Path(r[0]) for r in db.execute('SELECT manifest_path FROM datasets WHERE id<>?', (dataset['id'],)))
         manifests.update((self.root / 'manifests').glob('*.csv'))
         for other in sorted(manifests):

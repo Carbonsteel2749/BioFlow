@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-REGISTRY_VERSION = "2.1.0"
+REGISTRY_VERSION = "2.2.0"
 
 PARAMETER_DESCRIPTIONS = {
     '计算线程': '此节点允许使用的 CPU 线程数量，不是同时运行的任务数；提高线程会增加资源竞争。',
@@ -392,9 +392,9 @@ def default_node_registry() -> NodeRegistry:
             ),
             default_cpus=8,
             default_memory_gb=32,
-            method_id="coverm_quantification",
-            method_version="0.7",
-            tool_requirements=("CoverM",),
+            method_id="metawrap_quant_bins",
+            method_version="existing_adapter_1.0",
+            tool_requirements=("metaWRAP",),
         ),
         NodeDefinition(
             type="bin_reassembly",
@@ -471,7 +471,25 @@ def default_node_registry() -> NodeRegistry:
             tool_requirements=("BioLLM report",),
         ),
     )
-    return {definition.type: definition for definition in definitions}
+    from dataclasses import replace
+    result = {definition.type: definition for definition in definitions}
+    result['binning'] = replace(result['binning'], inputs=(*result['binning'].inputs,
+        InputPort('reads', ('paired_clean_reads','paired_host_removed_reads'), required=False, collect=True)))
+    for kind, port, data_type, scope in (
+        ('clean_reads_input','reads','paired_clean_reads','sample'),
+        ('host_removed_reads_input','reads','paired_host_removed_reads','sample'),
+        ('contigs_input','assembly','assembly_fasta','cohort'),
+        ('mag_input','mags','mag_fasta','cohort'),
+        ('abundance_input','matrix','abundance_matrix','cohort'),
+    ):
+        result[kind] = NodeDefinition(type=kind, version='1.0.0', label=kind, category='input',
+            nextflow_module='workflow/modules/input_datasets.nf', process_name='INPUT_DATASET',
+            outputs=(OutputPort(port,data_type,scope),), tool_requirements=('Python3',))
+    result['matrix_summary'] = NodeDefinition(type='matrix_summary', version='1.0.0', label='外部矩阵描述性分析',
+        category='analysis', nextflow_module='workflow/modules/input_datasets.nf', process_name='MATRIX_SUMMARY',
+        inputs=(InputPort('matrix',('abundance_matrix',),('cohort',)),),
+        outputs=(OutputPort('report','analysis_report','cohort'),), tool_requirements=('Python3','matplotlib',))
+    return result
 
 
 def standard_task_parameters_schema() -> dict[str, dict[str, Any]]:

@@ -25,10 +25,11 @@
         "artifact_type": {
           "enum": [
             "reads.raw", "reads.clean", "reads.host_removed",
+            "assembly.contigs", "matrix.canonical", "matrix.descriptive_summary", "figure.matrix",
             "qc.read_counts", "qc.report",
             "taxonomy.species_abundance", "taxonomy.kraken_report", "taxonomy.bracken_abundance",
             "functional.gene_families", "functional.ko_abundance", "functional.ec_abundance", "functional.pathway_abundance", "functional.pathway_coverage",
-            "mag.fasta", "mag.annotation", "mag.function_annotation", "mag.sample_abundance", "mag.sample_function_abundance",
+            "mag.fasta", "mag.candidate_fasta", "mag.quality_report", "mag.annotation", "mag.function_annotation", "mag.sample_abundance", "mag.sample_function_abundance",
             "figure.qc", "figure.taxonomy", "figure.functional", "figure.mag", "figure.data", "figure.catalog",
             "report.multiqc", "report.summary", "provenance.run"
           ]

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import csv
 import json
+import re
 from pathlib import Path
 
 from .artifacts import ArtifactService, SAFE_IDENTIFIER
@@ -28,6 +29,27 @@ TABLES = {
 
 def _kind(path: Path, node_type: str):
     name = path.name
+    # Native publishDir flattens each declared output under these exact roots.
+    parts=path.parts
+    if node_type=='binning' and len(parts)==4 and parts[:2]==('mag','binning') and parts[2] in {'metabat2_bins','maxbin2_bins','concoct_bins'} and path.suffix in {'.fa','.fna','.fasta'}:
+        return 'mag.candidate_fasta','text/plain'
+    if node_type=='bin_refinement' and parts[:2]==('mag','bin_refinement'):
+        if len(parts)==4 and re.fullmatch(r'metawrap_\d+(?:\.\d+)?_\d+(?:\.\d+)?_bins',parts[2]) and path.suffix in {'.fa','.fna','.fasta'}:
+            return 'mag.fasta','text/plain'
+        if len(parts)==3 and re.fullmatch(r'metawrap_\d+(?:\.\d+)?_\d+(?:\.\d+)?_bins\.stats',name):
+            return 'mag.quality_report','text/plain'
+    if name.endswith(('.fastq','.fq','.fastq.gz','.fq.gz')):
+        kind={'fastp':'reads.clean','host_depletion':'reads.host_removed'}.get(node_type)
+        if kind:return kind,'application/gzip' if name.endswith('.gz') else 'text/plain'
+    if name.endswith(('.fa','.fna','.fasta')):
+        if node_type=='assembly':return 'assembly.contigs','text/plain'
+        if node_type=='bin_reassembly' and 'reassembled_bins' in path.parts:return 'mag.fasta','text/plain'
+    if node_type=='matrix_summary':
+        if name=='canonical.tsv':return 'matrix.canonical','text/tab-separated-values'
+        if name.endswith('.tsv'):return 'matrix.descriptive_summary','text/tab-separated-values'
+        if name.endswith('.png'):return 'figure.matrix','image/png'
+        if name.endswith('.caption.md'):return 'figure.data','text/markdown'
+        if name=='summary.txt':return 'report.summary','text/plain'
     if name in TABLES:
         return TABLES[name], 'text/tab-separated-values'
     if node_type == 'taxonomy' and name.endswith('.species.tsv'):
@@ -68,8 +90,12 @@ def publish_dynamic_artifacts(settings, repository, service: ArtifactService, ta
                 for row in service.repository.list_for_task(task_id)}
     sample_ids = set()
     try:
-        with Path(run['input_manifest']).open(encoding='utf-8', newline='') as stream:
-            sample_ids = {row['sample_id'] for row in csv.DictReader(stream) if row.get('sample_id')}
+        if Path(run['input_manifest']).suffix.lower()=='.json':
+            from .input_datasets import InputDatasetService
+            sample_ids=set(InputDatasetService(settings).snapshot_sample_identifiers(task_id))
+        else:
+            with Path(run['input_manifest']).open(encoding='utf-8', newline='') as stream:
+                sample_ids = {row['sample_id'] for row in csv.DictReader(stream) if row.get('sample_id')}
     except (OSError, TypeError, ValueError):
         pass
     published = []
@@ -85,7 +111,7 @@ def publish_dynamic_artifacts(settings, repository, service: ArtifactService, ta
         for path in sorted(folder.rglob('*')):
             if not path.is_file() or path.resolve() != path:
                 continue
-            kind = _kind(path, node['node_type'])
+            kind = _kind(path.relative_to(folder), node['node_type'])
             if kind is None:
                 continue
             artifact_type, media = kind
@@ -117,21 +143,27 @@ def publish_dynamic_artifacts(settings, repository, service: ArtifactService, ta
                 published.append(service.get(existing[key]['artifact_id']))
                 continue
             record = service.register(task_id=task_id, node_id=node['node_id'],
-                **_scope(path, folder, node['node_type'], sample_ids, task_id),
+                **_scope(path, folder, node['node_type'], sample_ids,
+                    summary.get('node_cohorts',{}).get(node['node_id']),
+                    legacy=not summary.get('node_cohorts')),
                 producer='dynamic.' + node['node_type'], artifact_type=artifact_type,
                 path=path, media_type=media,
                 expected_sha256=sha, metadata={'stage_result': True, 'node_type': node['node_type'],
                     'node_id': node['node_id'], 'attempt': run.get('attempt', 1),
+                    **({'quality_status':'candidate_unverified'} if artifact_type=='mag.candidate_fasta' else
+                       {'quality_status':'threshold_filtered_unverified'} if node['node_type']=='bin_refinement' else {}),
                     'run_status_at_publication': run['status'], 'relative_path': path.relative_to(output).as_posix()})
             published.append(record)
     return published
 
 
-def _scope(path, folder, node_type, sample_ids, task_id):
+def _scope(path, folder, node_type, sample_ids, cohort_id, legacy=False):
     # Only sample-wise processes publish into an exact manifest sample folder.
     # MAG annotation remains cohort-level even if an identifier happens to match.
     if node_type in {'fastqc','fastp','host_depletion','taxonomy','functional_annotation'}:
         parts = path.relative_to(folder).parts
         if len(parts) >= 3 and parts[1] in sample_ids:
             return {'sample_scope':'sample', 'sample_id':parts[1]}
-    return {'sample_scope':'cohort', 'cohort_id':task_id}
+    if cohort_id:return {'sample_scope':'cohort', 'cohort_id':cohort_id}
+    if legacy:return {'sample_scope':'cohort', 'cohort_id':'coassembly'}
+    return {'sample_scope':'global'}
