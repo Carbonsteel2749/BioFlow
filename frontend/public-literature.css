@@ -1,0 +1,5 @@
+.paper-pagination{display:flex;justify-content:center;align-items:center;gap:16px;margin:24px 0}.paper-query-explanation{font-size:14px;color:#53685c;line-height:1.6;overflow-wrap:anywhere}.paper-pagination button{min-height:36px;padding:6px 16px}.paper-pagination button:disabled{opacity:.45;cursor:default}
+
+.evidence-passage,.evidence-full-text{white-space:pre-wrap;line-height:1.8;overflow-wrap:anywhere}.evidence-full-text{padding:18px;background:#f6f8f4;border-radius:10px}.evidence-context{margin-top:18px}
+
+.paper-medical-terms{font-size:14px;margin:12px 0;color:#365746}.paper-medical-terms summary{cursor:pointer}.paper-medical-terms>div{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:10px}

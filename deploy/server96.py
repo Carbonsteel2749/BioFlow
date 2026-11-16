@@ -29,6 +29,7 @@ LITERATURE_URL=os.getenv('BIOFLOW_LITERATURE_URL','http://127.0.0.1:8080').rstri
 MODEL_URL=os.getenv('BIOFLOW_QWEN_URL','http://127.0.0.1:11434').rstrip('/')
 WRITING_PORT=int(os.getenv('BIOFLOW_WRITING_PORT','8765'))
 GATEWAY_PORT=int(os.getenv('BIOFLOW_PORT','8800'))
+GATEWAY_APP=os.getenv('BIOFLOW_GATEWAY_APP','deploy.public_literature_preview:app')
 WRITING_URL='http://127.0.0.1:'+str(WRITING_PORT)
 GATEWAY_URL='http://127.0.0.1:'+str(GATEWAY_PORT)
 
@@ -122,6 +123,10 @@ def supervise():
         if not report['ready']:raise RuntimeError(json.dumps(report,ensure_ascii=False))
         if healthy(GATEWAY_URL+'/api/auth/me'):raise RuntimeError('统一入口端口已被其他实例占用')
         configure()
+        from deploy.start_literature_translation import ensure as ensure_literature_translation
+        ensure_literature_translation()
+        from deploy.start_literature_inference import ensure as ensure_literature_inference
+        os.environ.update(ensure_literature_inference())
         PIDFILE.write_text(str(os.getpid()))
         children=[];stopping=False
         def stop(signum,frame):
@@ -144,7 +149,10 @@ def supervise():
             if not healthy(WRITING_URL+'/api/health'):
                 child=subprocess.Popen([sys.executable,'-m','uvicorn','backend.bioflow_platform.writing_api:app','--host','127.0.0.1','--port',str(WRITING_PORT)],cwd=ROOT,env=env)
                 children.append(child);wait_ready(child,WRITING_URL+'/api/health')
-            child=subprocess.Popen([sys.executable,'-m','uvicorn','backend.bioflow_platform.app:app','--host',os.getenv('BIOFLOW_BIND_HOST','0.0.0.0'),'--port',str(GATEWAY_PORT)],cwd=ROOT,env=env)
+            if not healthy('http://172.17.0.1:11435/api/tags'):
+                child=subprocess.Popen([sys.executable,str(ROOT/'deploy/literature_model_bridge.py')],cwd=ROOT,env=env)
+                children.append(child);wait_ready(child,'http://172.17.0.1:11435/api/tags')
+            child=subprocess.Popen([sys.executable,'-m','uvicorn',GATEWAY_APP,'--host',os.getenv('BIOFLOW_BIND_HOST','0.0.0.0'),'--port',str(GATEWAY_PORT)],cwd=ROOT,env=env)
             children.append(child);wait_ready(child,GATEWAY_URL+'/api/auth/me')
             print('BioFlow ready: http://219.224.3.96:'+str(GATEWAY_PORT)+'/',flush=True)
             while not stopping:

@@ -35,6 +35,8 @@ class PaperDetails(BaseModel):
 
 
 def install_library(app,router,get_store,check_project,files):
+    from .library_management import install
+    install(app,router,get_store,check_project,files)
     def paper(identifier,user):
         with get_store().connect() as db:row=db.execute('SELECT * FROM personal_documents WHERE id=? AND user_id=?',(identifier,user['id'])).fetchone()
         if not row:raise HTTPException(404,'文献不存在')
@@ -66,8 +68,8 @@ def install_library(app,router,get_store,check_project,files):
 
     @app.patch('/api/library/literature/{identifier}')
     def edit(identifier:str,body:PaperDetails,request:Request):
-        paper(identifier,request.state.user)
-        with get_store().connect() as db:db.execute('UPDATE personal_documents SET metadata=? WHERE id=? AND user_id=?',(body.model_dump_json(),identifier,request.state.user['id']))
+        row=paper(identifier,request.state.user);metadata=json.loads(row['metadata']);metadata.update(body.model_dump())
+        with get_store().connect() as db:db.execute('UPDATE personal_documents SET metadata=? WHERE id=? AND user_id=?',(json.dumps(metadata,ensure_ascii=False),identifier,request.state.user['id']))
         return {'ok':True}
 
     @app.get('/api/library/literature/{identifier}/download')

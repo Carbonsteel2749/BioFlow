@@ -14,6 +14,7 @@ from fastapi import BackgroundTasks,HTTPException,Request
 from fastapi.responses import FileResponse,Response
 from . import assets
 from .chart_contracts import FigureBody
+from .provenance import project_task_ids
 from .charts.registry import CHARTS,get,VERSION
 
 SLOTS=asyncio.Semaphore(2)
@@ -39,21 +40,29 @@ def run_renderer(directory):
         raise ValueError(message[:500])
     return json.loads((directory/'result.json').read_text(encoding='utf-8'))
 
-def install_figures(router,get_store,check_project):
+def install_figures(router,get_store,check_project,files=None):
     def resolve_source(pid,uid,identifier):
+        if identifier.startswith('example:'):
+            parts=identifier.split(':');chart=parts[1];grouped=len(parts)>2 and parts[2]=='groups'
+            from .chart_examples import example_files
+            try:text=example_files(chart)[int(grouped)]
+            except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+            root=assets.ROOT/'runtime/chart-examples';root.mkdir(parents=True,exist_ok=True)
+            path=root/(chart+('-groups' if grouped else '')+'.csv');path.write_text(text,encoding='utf-8')
+            return {'id':identifier,'name':chart+'-example.csv','sha256':hashlib.sha256(text.encode()).hexdigest(),'simulated':True},path
         if identifier.startswith('artifact:'):
-            aid=identifier.split(':',1)[1];tids=set(get_store().ids(pid,'task'))&get_store().owned_ids('task',uid)
+            aid=identifier.split(':',1)[1];tids=project_task_ids(get_store(),pid,uid)
             for tid in tids:
                 record=next((a for a in assets.read_snapshot(tid).get('artifacts',[]) if a['artifact_id']==aid and a['status']=='active'),None)
                 if not record:continue
                 path=assets.local_output(record.get('path',''))
                 if path is None or not path.is_file():path=Path(assets.resolve_catalogue_paths(tid,[dict(record)])[0]['path'])
                 if not path.resolve().is_relative_to((assets.analysis_root()/'runtime/outputs'/tid).resolve()):raise HTTPException(409,'来源路径无效')
-                return {'id':identifier,'name':record.get('file_name',path.name),'sha256':record['sha256']},path
+                return {'id':identifier,'name':record.get('file_name',path.name),'sha256':record['sha256'],'task_id':tid},path
             raise HTTPException(404,'来源成果不属于当前项目')
         with get_store().connect() as db:row=db.execute("SELECT * FROM assets WHERE id=? AND project_id=? AND user_id=? AND kind IN ('data','results') AND status!='archived'",(identifier,pid,uid)).fetchone()
         if not row:raise HTTPException(404,'请选择当前项目的数据或分析结果表')
-        return {'id':row['id'],'name':row['name'],'sha256':row['sha256']},assets.uploaded_path(dict(row),pid,uid)
+        return {'id':row['id'],'name':row['name'],'sha256':row['sha256'],'task_id':json.loads(row['metadata']).get('task_id')},assets.uploaded_path(dict(row),pid,uid)
     def folder(pid,uid,fid):
         base=(assets.ROOT/'runtime/figures'/uid/pid).resolve();target=(base/fid).resolve()
         if not target.is_relative_to(base):raise HTTPException(404,'图表不存在')
@@ -103,16 +112,28 @@ def install_figures(router,get_store,check_project):
         return {'columns':reader.fieldnames,'preview':[r for _,r in zip(range(5),reader)]}
 
     @router.get('/figure-sources')
-    def sources(pid:str,request:Request):
+    async def sources(pid:str,request:Request,task_id:str=''):
         check_project(pid,request);uid=request.state.user['id']
-        with get_store().connect() as db:rows=[{'id':r['id'],'name':r['name'],'source':'项目上传','kind':r['kind']} for r in db.execute("SELECT id,name,kind FROM assets WHERE project_id=? AND user_id=? AND kind IN ('data','results') AND status!='archived' ORDER BY rowid DESC",(pid,uid)) if Path(r['name']).suffix.lower() in {'.csv','.tsv','.txt'}]
-        tids=set(get_store().ids(pid,'task'))&get_store().owned_ids('task',uid)
+        if task_id and task_id not in project_task_ids(get_store(),pid,uid):raise HTTPException(404,'任务不属于当前项目')
+        if task_id and files:
+            from .catalogue import sync_task_snapshot
+            await sync_task_snapshot(files,get_store(),pid,uid,task_id)
+        with get_store().connect() as db:rows=[{'id':r['id'],'name':r['name'],'source':'任务上传','kind':r['kind'],'metadata':json.loads(r['metadata']),'path':r['path'],'size_bytes':r['size_bytes']} for r in db.execute("SELECT id,name,kind,metadata,path,size_bytes FROM assets WHERE project_id=? AND user_id=? AND kind IN ('data','results') AND status!='archived' ORDER BY rowid DESC",(pid,uid)) if Path(r['name']).suffix.lower() in {'.csv','.tsv','.txt'}]
+        tids=project_task_ids(get_store(),pid,uid)
         for tid in tids:
             snapshot=assets.read_snapshot(tid)
             for a in snapshot.get('artifacts',[]):
                 name=a.get('file_name') or Path(a.get('path','')).name
                 if a['status']=='active' and Path(name).suffix.lower() in {'.csv','.tsv','.txt'} and not a.get('artifact_type','').startswith('reads.'):
-                    rows.append({'id':'artifact:'+a['artifact_id'],'name':name,'source':snapshot.get('task',{}).get('name',tid),'sample_id':a.get('sample_id'),'kind':'results'})
+                    rows.append({'id':'artifact:'+a['artifact_id'],'name':name,'source':snapshot.get('task',{}).get('name',tid),'sample_id':a.get('sample_id'),'kind':'results','task_id':tid,'artifact_type':a.get('artifact_type'),'relative_path':a.get('path'),'size_bytes':a.get('size_bytes',0)})
+        if task_id:
+            if task_id not in project_task_ids(get_store(),pid,uid):raise HTTPException(404,'任务不属于当前项目')
+            from .provenance import decorate
+            rows=decorate(get_store(),pid,uid,rows)
+            rows=[r for r in rows if task_id in r.get('task_ids',[])]
+        from .plot_inputs import describe_source
+        for row in rows:row.update(describe_source(row))
+        rows.sort(key=lambda r:(not r.get('recommended',False),r.get('label',r['name'])))
         return {'items':rows}
 
     @router.get('/figures')
@@ -142,8 +163,45 @@ def install_figures(router,get_store,check_project):
             data=await asyncio.to_thread(path.read_bytes)
             if hashlib.sha256(data).hexdigest()!=source['sha256']:raise HTTPException(409,'来源文件校验失败')
             columns=body.columns
+        if body.task_id:
+            if body.task_id not in project_task_ids(get_store(),pid,uid):raise HTTPException(404,'任务不属于当前项目')
+            from .chart_workbench import check_source_task
+            check_source_task(get_store(),pid,uid,body.task_id,source)
+            source['task_id']=body.task_id
+        grouping=None
+        if body.parent_id:
+            oldfolder=folder(pid,uid,body.parent_id)
+            if (oldfolder/'grouping.csv').is_file():
+                grouping=(oldfolder/'grouping.csv').read_bytes()
+                if hashlib.sha256(grouping).hexdigest()!=old.get('grouping_sha256'):raise HTTPException(409,'原版本分组快照校验失败')
+        elif body.grouping_source_id:
+            gs,gpath=resolve_source(pid,uid,body.grouping_source_id)
+            if body.task_id:
+                from .chart_workbench import check_source_task
+                check_source_task(get_store(),pid,uid,body.task_id,gs)
+            if gpath.stat().st_size>10*1024**2:raise HTTPException(422,'分组信息文件请小于 10 MB')
+            grouping=gpath.read_bytes()
+            if hashlib.sha256(grouping).hexdigest()!=gs['sha256']:raise HTTPException(409,'分组文件校验失败')
+            source['grouping']=gs
+        if body.data_edits:
+            from .chart_table_edits import edit_table
+            try:
+                matrix_edits=[e for e in body.data_edits if e.table=='matrix']
+                group_edits=[e for e in body.data_edits if e.table=='groups']
+                if matrix_edits:
+                    source['original_sha256']=source.get('original_sha256',source['sha256'])
+                    data=await asyncio.to_thread(edit_table,data,matrix_edits);source['sha256']=hashlib.sha256(data).hexdigest()
+                    source['edited']=True
+                if group_edits:
+                    if grouping is None:raise ValueError('尚未提供分组信息')
+                    grouping=await asyncio.to_thread(edit_table,grouping,group_edits)
+                    gs=source.setdefault('grouping',{})
+                    gs['original_sha256']=gs.get('original_sha256',gs.get('sha256'))
+                    gs['sha256']=hashlib.sha256(grouping).hexdigest();gs['edited']=True
+            except (ValueError,UnicodeError) as exc:raise HTTPException(422,str(exc)) from exc
         fid=uuid.uuid4().hex;directory=folder(pid,uid,fid);directory.mkdir(parents=True,exist_ok=False);(directory/'source.csv').write_bytes(data)
-        spec={'chart':body.chart,'source':source,'parameters':body.parameters.model_dump(),'columns':columns,'parent_id':body.parent_id,'version':VERSION}
+        if grouping is not None:(directory/'grouping.csv').write_bytes(grouping)
+        spec={'chart':body.chart,'data_edits':[e.model_dump() for e in body.data_edits],'grouping_sha256':hashlib.sha256(grouping).hexdigest() if grouping is not None else None,'source':source,'parameters':body.parameters.model_dump(),'columns':columns,'parent_id':body.parent_id,'version':VERSION}
         (directory/'request.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2),encoding='utf-8')
         with get_store().connect() as db:db.execute('INSERT INTO project_figures(id,project_id,user_id,chart,status,parameters,source_json,parent_id) VALUES(?,?,?,?,?,?,?,?)',
             (fid,pid,uid,body.chart,'queued',body.parameters.model_dump_json(),json.dumps(source,ensure_ascii=False),body.parent_id or None))
@@ -168,4 +226,8 @@ def install_figures(router,get_store,check_project):
         if assets.availability(path,result.get('outputs',{}).get(extension,{}).get('sha256'))[0]!='ready':raise HTTPException(409,'图表文件校验失败')
         return FileResponse(path,media_type={'png':'image/png','svg':'image/svg+xml','pdf':'application/pdf'}[extension],filename='figure.'+extension if download else None,
             headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; sandbox",'X-Content-Type-Options':'nosniff'})
+    from .chart_workbench import install_workbench
+    install_workbench(router,get_store,check_project,resolve_source,folder,owned)
+    from .plot_inputs import install_preparation
+    install_preparation(router,get_store,check_project,files)
     return create

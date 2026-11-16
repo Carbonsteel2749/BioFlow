@@ -1,12 +1,13 @@
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch,Rectangle
-from .common import required,number,series
+from .common import required,number,series,palette
 def draw(rows,fig,ax,params):
     required(rows,'source','target','value');values=[number(r,'value') for r in rows]
     if min(values)<0 or sum(values)<=0:raise ValueError('流量必须非负，合计大于零')
     left={};right={}
     for r,v in zip(rows,values):left[r['source']]=left.get(r['source'],0)+v;right[r['target']]=right.get(r['target'],0)+v
     if max(len(left),len(right))>30 or len(rows)>200:raise ValueError('桑基图每层最多 30 个节点和 200 条流向')
+    colors={key:params.get('series_colors',{}).get('source:'+key,color) for key,color in zip(left,palette(params,len(left)))};registered=set()
     scale=.8/sum(values)
     def layout(groups,x):
         offset=.05;pos={}
@@ -19,5 +20,7 @@ def draw(rows,fig,ax,params):
         y=a[row['source']];z=b[row['target']];h=value*scale
         vertices=[(.14,y),(.42,y),(.57,z),(.85,z),(.85,z+h),(.57,z+h),(.42,y+h),(.14,y+h),(.14,y)]
         codes=[Path.MOVETO,Path.CURVE4,Path.CURVE4,Path.CURVE4,Path.LINETO,Path.CURVE4,Path.CURVE4,Path.CURVE4,Path.CLOSEPOLY]
-        ax.add_patch(PathPatch(Path(vertices,codes),facecolor='#79ab8d',alpha=.45,edgecolor='none'));a[row['source']]+=h;b[row['target']]+=h
+        band=PathPatch(Path(vertices,codes),facecolor=colors[row['source']],alpha=params.get('fill_alpha',.4),edgecolor='none');ax.add_patch(band)
+        if row['source'] not in registered:series(ax,'source:'+row['source'],row['source'],band);registered.add(row['source'])
+        a[row['source']]+=h;b[row['target']]+=h
     ax.set(title='Sankey · source to target',xlim=(-.2,1.2),ylim=(0,1.1),xticks=[],yticks=[])

@@ -1,0 +1,139 @@
+import csv,hashlib,json
+from pathlib import Path
+from types import SimpleNamespace
+import pytest
+from fastapi import APIRouter,FastAPI
+from fastapi.testclient import TestClient
+from backend.bioflow_platform import assets
+from backend.bioflow_platform.store import Store
+from backend.bioflow_platform.personal_library import install_library as install
+
+@pytest.fixture
+def setup(tmp_path,monkeypatch):
+ monkeypatch.setattr(assets,'ROOT',tmp_path);store=Store(tmp_path/'db.sqlite3');pid=store.create('P','',owner_id='u')['id'];store.claim('workflow','t','u');store.link(pid,'workflow','t')
+ p=tmp_path/'BioLLM_RawDataAnalysis/runtime/outputs/t/nodes/WF_TAXONOMY_ABCDEF/taxonomy/result.tsv';p.parent.mkdir(parents=True);p.write_text('sample\tvalue\nA\t2\nB\t3\n')
+ records=[{'id':'artifact:a','artifact_id':'a','kind':'results','name':'result.tsv','status':'ready','size_bytes':p.stat().st_size,'task_ids':['t'],'relative_path':p.relative_to(tmp_path/'BioLLM_RawDataAnalysis/runtime/outputs').as_posix(),'storage_root':'analysis_outputs'}]
+ async def catalogue(pid,user):return [dict(r) for r in records]
+ app=FastAPI()
+ @app.middleware('http')
+ async def user(request,call_next):request.state.user={'id':request.headers.get('test-user','u')};return await call_next(request)
+ service=SimpleNamespace(catalogue=catalogue);app.state.files=service;router=APIRouter(prefix='/p/{pid}');install(app,router,lambda:store,lambda p,r:None,service);app.include_router(router)
+ return TestClient(app),store,pid,records,p
+
+def test_process_archive_and_manual_override_survive_refresh(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}'
+ d=c.get(url+'/library-browser?task_id=t&kind=results').json();assert d['folders'][0]['name']=='物种分类';fid=d['folders'][0]['id'];assert d['items']==[]
+ assert len(c.get(url+f'/library-browser?task_id=t&kind=results&folder_id={fid}').json()['items'])==1
+ new=c.post(url+'/library-folders',json={'task_id':'t','kind':'results','name':'我整理的文件'}).json()['id']
+ assert c.post(url+'/library-folders/move',json={'task_id':'t','kind':'results','folder_id':new,'asset_ids':['artifact:a']}).status_code==200
+ assert len(c.get(url+f'/library-browser?task_id=t&kind=results&folder_id={new}').json()['items'])==1
+ assert c.get(url+'/library-browser?task_id=t&kind=charts').json()['folders']==[]
+
+def test_folder_category_and_account_boundaries(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}';body={'task_id':'t','kind':'data','name':'Uploads'};fid=c.post(url+'/library-folders',json=body).json()['id']
+ assert c.post(url+'/library-folders/move',json={'task_id':'t','kind':'results','folder_id':fid,'asset_ids':['artifact:a']}).status_code==404
+ assert c.get(url+'/library-browser?task_id=t',headers={'test-user':'other'}).status_code==404
+ assert c.post(url+'/library-folders',json={**body,'name':'../bad'}).status_code==422
+
+def test_preview_is_bounded_and_scoped(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}/library-preview?task_id=t&asset_id=artifact:a'
+ d=c.get(url).json();assert d['mode']=='table' and d['rows'][0]==['A','2']
+ p.write_bytes(b'x'*(6*1024**2));d=c.get(url).json();assert d['mode']=='unavailable' and '上限' in d['reason']
+ assert c.get(url.replace('artifact:a','artifact:other')).status_code==404
+
+def test_personal_add_stores_without_project_or_vector_index(setup):
+ c,store,pid,records,p=setup
+ r=c.post('/api/library/literature/add-file',files={'file':('paper.md',b'# Study\nEvidence','text/markdown')});assert r.status_code==201;aid=r.json()['id']
+ with store.connect() as db:
+  row=db.execute('SELECT * FROM personal_documents WHERE id=?',(aid,)).fetchone();assert json.loads(row['metadata'])['index_status']=='not_indexed';assert (assets.ROOT/'runtime/personal-library'/row['path']).read_bytes()==b'# Study\nEvidence';assert db.execute('SELECT count(*) FROM assets').fetchone()[0]==0
+ assert c.post('/api/library/literature/add-file',files={'file':('paper.md',b'# Study\nEvidence')}).json()['id']==aid
+ assert c.post('/api/library/literature/add-url',json={'url':'javascript:alert(1)'}).status_code==422
+ body={'url':'https://example.org/paper','title':'Study'};r=c.post('/api/library/literature/add-url',json=body);assert r.status_code==201
+ assert c.post('/api/library/literature/add-url',json=body).json()['already_saved']
+
+def test_folder_delete_preserves_files_in_parent(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}';body={'task_id':'t','kind':'results','name':'手动整理'}
+ fid=c.post(url+'/library-folders',json=body).json()['id']
+ assert c.patch(url+'/library-folders/'+fid,json={**body,'name':'新名称'}).status_code==200
+ c.post(url+'/library-folders/move',json={'task_id':'t','kind':'results','folder_id':fid,'asset_ids':['artifact:a']})
+ assert c.delete(url+f'/library-folders/{fid}?task_id=t&kind=results').status_code==200
+ assert c.get(url+'/library-browser?task_id=t&kind=results').json()['items'][0]['id']=='artifact:a'
+ assert p.is_file()
+
+
+def test_editing_personal_title_preserves_link_and_index_state(setup):
+ c,store,pid,records,p=setup
+ aid=c.post('/api/library/literature/add-url',json={'url':'https://example.org/article','title':'Old'}).json()['id']
+ assert c.patch('/api/library/literature/'+aid,json={'title':'New','tags':'Edited tag'}).status_code==200
+ with store.connect() as db:m=json.loads(db.execute('SELECT metadata FROM personal_documents WHERE id=?',(aid,)).fetchone()['metadata'])
+ assert m['url']=='https://example.org/article' and m['index_status']=='not_indexed' and m['title']=='New'
+
+
+def test_new_analysis_artifact_is_synced_into_process_folder(setup):
+ import os
+ from backend.bioflow_platform import catalogue
+ c,store,pid,records,p=setup
+ def artifact(aid,name):return {'artifact_id':aid,'task_id':'t','artifact_type':'taxonomy.species_abundance','status':'active','path':str(p.parent/name),'file_name':name,'size_bytes':10,'sha256':'a'*64,'media_type':'text/tab-separated-values'}
+ outputs=[artifact('a','result.tsv')]
+ async def call(service,path):return list(outputs) if '/artifacts?' in path else {'id':'t','name':'Analysis','status':'succeeded'}
+ async def live_catalogue(pid,user):return await catalogue.catalogue(c.app.state.files,pid,user)
+ c.app.state.files.call=call;c.app.state.files.get_store=lambda:store;c.app.state.files.catalogue=live_catalogue
+ url=f'/p/{pid}/library-browser?task_id=t&kind=results'
+ first=c.get(url).json();assert sum(f['count'] for f in first['folders'])==1
+ outputs.append(artifact('b','new-result.tsv'));os.utime(assets.snapshot_path('t'),(0,0))
+ second=c.get(url).json();assert sum(f['count'] for f in second['folders'])==2
+ assert {f['id'] for f in first['folders']}=={f['id'] for f in second['folders']}
+
+
+def test_process_folder_rename_move_and_delete_persist(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}'
+ fid=c.get(url+'/library-browser?task_id=t&kind=results').json()['folders'][0]['id']
+ body={'task_id':'t','kind':'results','name':'分类结果'}
+ assert c.patch(url+'/library-folders/'+fid,json=body).status_code==200
+ parent=c.post(url+'/library-folders',json={**body,'name':'归档'}).json()['id']
+ assert c.patch(url+'/library-folders/'+fid,json={**body,'parent_id':parent}).status_code==200
+ folders=c.get(url+'/library-browser?task_id=t&kind=results').json()['folders']
+ assert next(f for f in folders if f['id']==fid)['name']=='分类结果'
+ assert next(f for f in folders if f['id']==fid)['parent_id']==parent
+ assert c.patch(url+'/library-folders/'+parent,json={**body,'name':'归档','parent_id':fid}).status_code==422
+ assert c.delete(url+f'/library-folders/{fid}?task_id=t&kind=results').status_code==200
+ data=c.get(url+f'/library-browser?task_id=t&kind=results&folder_id={parent}').json()
+ assert data['items'][0]['id']=='artifact:a' and all(f['id']!=fid for f in data['folders'])
+ assert p.is_file()
+
+
+def test_selected_read_mates_generate_deduplicated_metadata(setup):
+ c,store,pid,records,p=setup
+ records[:]=[{'id':'r1','kind':'data','name':'ERR123_R1.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR123'},{'id':'r2','kind':'data','name':'ERR123_R2.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR123'},{'id':'r3','kind':'data','name':'ERR456_R1.fastq.gz','status':'ready','task_ids':['t']}]
+ r=c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r1','r2','r3']});assert r.status_code==201;r=r.json();assert r['sample_count']==2
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r['id'],)).fetchone());assert row['kind']=='data'
+  folder=db.execute('SELECT name FROM library_folders WHERE id=?',(r['folder_id'],)).fetchone();assert folder['name']=='元数据'
+  path=assets.uploaded_path(row,pid,'u');data=list(csv.DictReader(path.read_text(encoding='utf-8-sig').splitlines()));assert data==[{'sample':'ERR123','group':'','batch':''},{'sample':'ERR456','group':'','batch':''}]
+ duplicate=c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r3','r2','r1']}).json();assert duplicate['id']==r['id']
+ assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['r1']},headers={'test-user':'other'}).status_code==404
+ records.append({'id':'bad','kind':'data','name':'table.csv','status':'ready','task_ids':['t']})
+ assert c.post(f'/p/{pid}/library-metadata',json={'task_id':'t','asset_ids':['bad']}).status_code==422
+
+def test_folder_metadata_recurses_and_deduplicates_samples(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}'
+ parent=c.post(url+'/library-folders',json={'task_id':'t','kind':'data','name':'原始数据'}).json()['id'];child=c.post(url+'/library-folders',json={'task_id':'t','kind':'data','name':'子目录','parent_id':parent}).json()['id']
+ records[:]=[{'id':'r1','kind':'data','name':'ERR1_R1.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR1','metadata':{'folder_id':child}},{'id':'r2','kind':'data','name':'ERR1_R2.fastq.gz','status':'ready','task_ids':['t'],'sample_id':'ERR1','metadata':{'folder_id':child}},{'id':'r3','kind':'data','name':'ERR2_R1.fastq.gz','status':'ready','task_ids':['t'],'metadata':{'folder_id':parent}},{'id':'not-sample','kind':'data','name':'metadata.csv','status':'ready','task_ids':['t'],'metadata':{'folder_id':parent}}]
+ r=c.post(url+'/library-metadata',json={'task_id':'t','folder_ids':[parent],'asset_ids':['r1']});assert r.status_code==201;assert r.json()['sample_count']==2
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r.json()['id'],)).fetchone());meta=json.loads(row['metadata']);assert set(meta['parent_refs'])=={'r1','r2','r3'}
+ assert c.post(url+'/library-metadata',json={'task_id':'t','folder_ids':['unowned']}).status_code==404
+
+
+def test_unified_file_operations_and_edit_preserve_source(setup):
+ c,store,pid,records,p=setup;url=f'/p/{pid}';original=p.read_text();body={'task_id':'t','kind':'results','asset_ids':['artifact:a']}
+ assert c.post(url+'/library-selection',json={**body,'action':'rename','name':'新名称.tsv'}).status_code==200
+ data=c.get(url+'/library-browser?task_id=t&kind=results&q=新名称').json();assert data['items'][0]['name']=='新名称.tsv'
+ assert c.get(url+'/library-edit?task_id=t&asset_id=artifact:a').json()['text']==original
+ r=c.post(url+'/library-edit',json={'task_id':'t','asset_id':'artifact:a','text':'sample\tvalue\nA\t99\n'});assert r.status_code==201;assert p.read_text()==original
+ with store.connect() as db:
+  row=dict(db.execute('SELECT * FROM assets WHERE id=?',(r.json()['id'],)).fetchone());assert '99' in assets.uploaded_path(row,pid,'u').read_text(encoding='utf-8-sig')
+ assert c.post(url+'/library-selection',json={**body,'action':'delete'}).status_code==200
+ assert c.get(url+'/library-browser?task_id=t&kind=results').json()['counts']['results']==0
+ assert p.is_file()
+ assert c.post(url+'/library-selection',json={**body,'action':'delete'},headers={'test-user':'other'}).status_code==404

@@ -30,7 +30,7 @@ def install(app,get_store,check_project,call,urls):
     from .personal_library import install_library
     install_library(app,router,get_store,check_project,files)
     from .project_figures import install_figures
-    create_figure=install_figures(router,get_store,check_project)
+    create_figure=install_figures(router,get_store,check_project,files)
     app.state.create_project_figure=create_figure
     from .provenance import install_provenance
     install_provenance(router,get_store,check_project,files)
@@ -124,9 +124,10 @@ def install(app,get_store,check_project,call,urls):
     async def preview(pid:str,aid:str,request:Request):
         check_project(pid,request)
         store=get_store()
-        tids=set(store.ids(pid,'task'))&store.owned_ids('task',request.state.user['id'])
+        from .provenance import project_task_ids
+        tids=project_task_ids(store,pid,request.state.user['id'])
         record=next((a for tid in tids for a in read_snapshot(tid).get('artifacts',[]) if a['artifact_id']==aid and a['status']=='active'),None)
-        if not record or record['task_id'] not in store.ids(pid,'task') or not store.owns('task',record['task_id'],request.state.user['id']):
+        if not record or record['task_id'] not in tids:
             raise HTTPException(404,'可用成果不存在')
         path=local_output(record['path'])
         if path is None or not path.is_file():
@@ -149,7 +150,8 @@ def install(app,get_store,check_project,call,urls):
         with store.connect() as db:row=db.execute('SELECT payload FROM catalogue_entries WHERE project_id=? AND user_id=? AND id=?',(pid,uid,cid)).fetchone()
         if not row:raise HTTPException(404,'资料不存在')
         record=json.loads(row['payload']);tid=record.get('task_id')
-        if not tid or not store.owns('task',tid,uid) or tid not in store.ids(pid,'task'):raise HTTPException(404,'资料不属于当前项目')
+        from .provenance import project_task_ids
+        if not tid or tid not in project_task_ids(store,pid,uid):raise HTTPException(404,'资料不属于当前项目')
         if record.get('storage_root')!='analysis_inputs':raise HTTPException(422,'该类型请使用对应资料入口')
         base=(analysis_root()/'runtime/incoming').resolve();path=(base/record['relative_path']).resolve()
         if not path.is_relative_to(base) or availability(path)[0]!='ready':raise HTTPException(409,'原始文件未挂载、缺失或为空')
@@ -158,7 +160,8 @@ def install(app,get_store,check_project,call,urls):
     @router.get('/tasks/{tid}/archive')
     def owned_archive(pid:str,tid:str,request:Request):
         check_project(pid,request);store=get_store();uid=request.state.user['id']
-        if not store.owns('task',tid,uid) or tid not in store.ids(pid,'task'):raise HTTPException(404,'任务不属于当前项目')
+        from .provenance import project_task_ids
+        if tid not in project_task_ids(store,pid,uid):raise HTTPException(404,'任务不属于当前项目')
         from .project_archive import result_archive
         try:path=result_archive(pid,uid,tid,read_snapshot(tid))
         except ValueError as exc:raise HTTPException(409,str(exc)) from exc

@@ -11,5 +11,5 @@ def draw(rows,fig,ax,params):
         ends=np.r_[np.flatnonzero(np.diff(scores)),len(scores)-1];tp=np.cumsum(labels)[ends];fp=(ends+1)-tp
         tpr=np.r_[0,tp/labels.sum()];fpr=np.r_[0,fp/(len(labels)-labels.sum())]
         area=float(np.sum(np.diff(fpr)*(tpr[1:]+tpr[:-1])/2))
-        line,=ax.plot(fpr,tpr,lw=2);series(ax,'model:'+name,f'{name} (AUC={area:.3f})',line)
+        line,=ax.plot(fpr,tpr,lw=params.get('line_width',2));series(ax,'model:'+name,f'{name} (AUC={area:.3f})',line)
     ax.plot([0,1],[0,1],ls='--',color='#aaa');ax.set(xlabel='False positive rate',ylabel='True positive rate',title='ROC',xlim=(0,1),ylim=(0,1.02))

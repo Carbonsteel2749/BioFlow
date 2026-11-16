@@ -6,9 +6,13 @@ from pydantic import BaseModel,Field
 from . import assets
 
 
+def project_task_ids(store,pid,uid):
+    return set().union(*(set(store.ids(pid,kind)) & store.owned_ids(kind,uid) for kind in ('task','workflow')))
+
+
 def task_index(store,pid,uid):
     result={}
-    for tid in sorted(set(store.ids(pid,'task')) & store.owned_ids('task',uid)):
+    for tid in sorted(project_task_ids(store,pid,uid)):
         task=assets.read_snapshot(tid).get('task',{})
         result[tid]={'id':tid,'name':task.get('name') or tid,'status':task.get('status','unknown'),
                      'parameters':task.get('parameters',{}),'dataset_id':task.get('dataset_id')}
@@ -50,6 +54,9 @@ def graph(store,pid,uid,rows):
             doi=normal_doi(row.get('metadata',{}).get('doi'))
             if doi:dois.setdefault(doi,[]).append(row['id'])
     for row in rows:
+        for parent in row.get('metadata',{}).get('parent_refs',[]):
+            if parent.startswith('artifact:'):parent=artifacts.get(parent.split(':',1)[1])
+            edge(row['id'],parent,'derived_from','recorded')
         source=row.get('source_id')
         if source:
             if source.startswith('artifact:'):source=artifacts.get(source.split(':',1)[1])
