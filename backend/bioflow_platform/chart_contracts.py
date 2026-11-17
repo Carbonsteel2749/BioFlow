@@ -85,6 +85,15 @@ class DisplayParameters(BaseModel):
     enrichment_size_ticks:list[float]|None=Field(default=None,min_length=1,max_length=8)
     enrichment_bubble_min:float=Field(default=20,ge=1,le=800)
     enrichment_bubble_max:float=Field(default=320,ge=10,le=1600)
+    @model_validator(mode='before')
+    @classmethod
+    def legacy_plot_controls(cls, value):
+        if isinstance(value, dict):
+            value = dict(value)
+            for old, new in [('volcano_fc_threshold','volcano_fc'),('volcano_p_threshold','volcano_p'),('heatmap_cluster_rows','heatmap_row_cluster'),('heatmap_cluster_columns','heatmap_col_cluster')]:
+                if old in value and new not in value:
+                    value[new] = value[old]
+        return value
     @field_validator('series_colors')
     @classmethod
     def colors(cls,value):

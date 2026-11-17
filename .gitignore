@@ -29,3 +29,8 @@ BioLLM_RawDataAnalysis/workflow/graphify-out/
 build/
 dist/
 *.egg-info/
+
+# Machine configuration and user-generated writing sessions
+*.local.json
+article_writing/outputs/
+R3/

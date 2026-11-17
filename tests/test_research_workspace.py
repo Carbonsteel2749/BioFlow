@@ -142,7 +142,8 @@ def test_queued_chart_rechecks_ability_before_rendering(client,monkeypatch):
 def test_registered_chart_skill_dispatches_to_same_versioned_program(client,monkeypatch):
     monkeypatch.setattr(project_figures,'run_renderer',fake_render)
     source=upload(client,'matrix.csv',b'sample,f1,f2\nA,1,2\nB,2,1\n','data')
-    response=client.post(client.base+'/skills/chart:pca',json={'version':'1.0.0','payload':{'source_id':source['id']}})
+    from backend.bioflow_platform.charts.registry import VERSION
+    response=client.post(client.base+'/skills/chart:pca',json={'version':VERSION,'payload':{'source_id':source['id']}})
     assert response.status_code==200,response.text
     fid=response.json()['result']['id'];assert client.get(client.base+'/figures/'+fid).json()['status']=='completed'
     assert client.post(client.base+'/skills/chart:pca',json={'version':'99','payload':{'source_id':source['id']}}).status_code==409

@@ -10,6 +10,8 @@ from backend.bioflow_platform.store import Store
 @pytest.fixture
 def client(tmp_path,monkeypatch):
     monkeypatch.setattr(gateway,'store',Store(tmp_path/'portal.sqlite3'))
+    from backend.bioflow_platform.input_datasets import ImportGateway
+    ImportGateway(lambda: gateway.store, tmp_path/'input-imports', None)
     monkeypatch.setattr(assets,'ROOT',tmp_path)
     monkeypatch.setattr(workspace,'ROOT',tmp_path)
     c=TestClient(gateway.app)
