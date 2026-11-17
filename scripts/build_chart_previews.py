@@ -29,6 +29,14 @@ rows['go']=[dict(term=t,count=35-i*3,ontology=['BP','CC','MF'][i//3]) for i,t in
 rows['sankey']=[dict(source=a,target=b,value=int(rng.integers(8,35))) for a in ['Control','Treatment','Recovery'] for b in ['Metabolism','Signaling','Immunity']]
 rows['stacked']=[dict(sample=f'S{i}',group=f'Group {i//3+1}',taxon=f'Taxon {j+1}',abundance=float(rng.uniform(.05,1))) for i in range(12) for j in range(7)]
 rows['shannon']=[dict(depth=float(d),group=name,shannon=float(scale*(1-np.exp(-d/1400))),lower=float(max(0,scale*(1-np.exp(-d/1400))-.09)),upper=float(scale*(1-np.exp(-d/1400))+.09)) for name,scale in [('Group A',1.6),('Group B',2.1),('Group C',2.6)] for d in np.linspace(100,10000,25)]
+rows['lefse']=[
+    dict(taxon='Feature A',lda_score=3.8,group='Control'),
+    dict(taxon='Feature B',lda_score=3.1,group='Treatment'),
+    dict(taxon='Feature C',lda_score=2.6,group='Control'),
+    dict(taxon='Feature D',lda_score=2.2,group='Treatment'),
+    dict(taxon='Feature E',lda_score=1.8,group='Control'),
+    dict(taxon='Feature F',lda_score=1.5,group='Treatment'),
+]
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':9,'axes.spines.top':False,'axes.spines.right':False,'axes.prop_cycle':plt.cycler(color=['#246750','#83bda5','#c59d65','#7195ac']),'savefig.facecolor':'white'})
 from matplotlib import font_manager
 font=Path('/mnt/c/Windows/Fonts/msyh.ttc')

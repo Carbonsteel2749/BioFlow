@@ -47,7 +47,7 @@ class DisplayParameters(BaseModel):
     heatmap_col_cluster:bool=True
     heatmap_distance:Literal['euclidean','cityblock','correlation']='euclidean'
     heatmap_linkage:Literal['average','complete','single','ward']='average'
-    heatmap_palette:Literal['viridis','RdBu_r','coolwarm','YlGnBu','magma']='viridis'
+    heatmap_palette:Literal['viridis','RdBu_r','coolwarm','YlGnBu','magma','PuRd']='viridis'
     heatmap_show_rows:bool=True
     heatmap_show_columns:bool=True
     volcano_fc:float=Field(default=1,gt=0,le=20)
@@ -100,6 +100,17 @@ class DisplayParameters(BaseModel):
             if any(not math.isfinite(v) or v<=0 for v in ticks) or ticks!=sorted(set(ticks)):raise ValueError('大小图例刻度必须为递增、不重复的正数')
             if self.enrichment_size=='ratio' and max(ticks)>1:raise ValueError('GeneRatio 图例刻度不能大于 1')
         return self
+    volcano_fc_threshold:float=Field(default=1.0,ge=0.1,le=10)
+    volcano_p_threshold:float=Field(default=0.05,gt=0,le=1)
+    volcano_p_label:Literal['P value','FDR']='P value'
+    volcano_label_top_n:int=Field(default=0,ge=0,le=50)
+    volcano_show_fc_lines:bool=True
+    volcano_show_p_line:bool=True
+    heatmap_color_limit:float=Field(default=2.5,ge=0.5,le=10)
+    heatmap_center_zero:bool=False
+    heatmap_cluster_rows:bool=True
+    heatmap_cluster_columns:bool=True
+    heatmap_show_group:bool=True
     @field_validator('legend_labels')
     @classmethod
     def labels(cls,value):
