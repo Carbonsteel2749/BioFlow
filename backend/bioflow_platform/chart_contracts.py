@@ -15,6 +15,18 @@ class DisplayParameters(BaseModel):
     font_size:float=Field(default=10,ge=6,le=24)
     enrichment_x:Literal['ratio','count']='ratio'
     enrichment_size:Literal['count','ratio']='count'
+    volcano_fc_threshold:float=Field(default=1.0,ge=0.1,le=10)
+    volcano_p_threshold:float=Field(default=0.05,gt=0,le=1)
+    volcano_p_label:Literal['P value','FDR']='P value'
+    volcano_label_top_n:int=Field(default=0,ge=0,le=50)
+    volcano_show_fc_lines:bool=True
+    volcano_show_p_line:bool=True
+    heatmap_palette:Literal['RdBu_r','coolwarm','PuRd','viridis','magma']='RdBu_r'
+    heatmap_color_limit:float=Field(default=2.5,ge=0.5,le=10)
+    heatmap_center_zero:bool=True
+    heatmap_cluster_rows:bool=True
+    heatmap_cluster_columns:bool=True
+    heatmap_show_group:bool=True
     @field_validator('legend_labels')
     @classmethod
     def labels(cls,value):
