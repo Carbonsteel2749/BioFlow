@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tarfile
@@ -169,12 +170,27 @@ class LiveAnalysisPort(AnalysisPort):
                 with destination.open("wb") as handle:
                     shutil.copyfileobj(response, handle)
         except OSError as exc:
+            local = self._local_task_archive()
+            if local is not None:
+                return local
             raise BioLLMPackageError(
                 f"failed to download BioLLM result archive from {url}: {exc}"
             ) from exc
         if destination.stat().st_size == 0:
             raise BioLLMPackageError(f"downloaded archive is empty: {url}")
         return destination
+
+    def _local_task_archive(self) -> Path | None:
+        """Use the task directory already on this machine when HTTP download is refused."""
+
+        configured = os.getenv("ARTICLE_WRITING_ANALYSIS_ROOT", "").strip()
+        if not configured or not SAFE_TASK_ID.fullmatch(self.task_id):
+            return None
+        base = Path(configured).expanduser().resolve()
+        task = (base / self.task_id).resolve()
+        if not task.is_relative_to(base) or not task.is_dir():
+            return None
+        return deliverable_archive(task)
 
 
 def _safe_extract(archive: Path, destination: Path) -> None:

@@ -20,6 +20,11 @@ async def authorize(store,service,path,request,fetch):
     user=request.state.user
     method=request.method
     parts=path.split('/')
+    if service=='analysis' and parts[:3]==['api','workflows','templates'] and len(parts)>3:
+        tid=parts[3]
+        if tid.startswith('builtin-') and method=='GET':return
+        if template_visible(store,tid,user):return
+        raise HTTPException(404,'流程模板不存在或不属于当前账户')
     if (service,path) in LISTS:
         if method=='POST':
             body=await request.json()
@@ -76,7 +81,16 @@ async def authorize(store,service,path,request,fetch):
     raise HTTPException(403,'该管理操作仅对开发者开放')
 
 
+def template_visible(store,tid,user):
+    if tid.startswith('builtin-'):return True
+    with store.connect() as db:row=db.execute("SELECT user_id FROM resources WHERE kind='workflow_template' AND external_id=?",(tid,)).fetchone()
+    return row['user_id']==user['id'] if row else user['role']=='developer'
+
+
 def process_json(store,service,path,method,data,user):
+    if service=='analysis' and path=='api/workflows/templates':
+        if method=='GET' and isinstance(data,list):return [r for r in data if template_visible(store,r.get('template_id',''),user)]
+        if method=='POST' and isinstance(data,dict) and data.get('template_id'):store.claim('workflow_template',data['template_id'],user['id'])
     definition=LISTS.get((service,path))
     if definition:
         kind,key=definition

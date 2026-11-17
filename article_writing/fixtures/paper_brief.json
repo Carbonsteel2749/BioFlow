@@ -1,0 +1,17 @@
+{
+  "title": "Differential expression of cutaneous squamous cell carcinoma cell lines versus normal keratinocytes",
+  "research_question": "Which genes are differentially expressed between cSCC cells and NHEKs, and how do these findings relate to prior microbiome-immune literature?",
+  "organism_or_system": "human keratinocytes / cSCC cell lines",
+  "data_modality": "expression_matrix",
+  "keywords": [
+    "cutaneous squamous cell carcinoma",
+    "differential expression",
+    "keratinocyte",
+    "autism",
+    "gut microbiota"
+  ],
+  "notes": [
+    "Fixture brief for Phase-1 parallel development.",
+    "Literature keywords intentionally mix oncology DEG and ASD-microbiome themes for adapter demos."
+  ]
+}
