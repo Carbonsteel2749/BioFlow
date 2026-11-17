@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 from article_writing.adapters import AdapterBundle, build_adapters
 from article_writing.adapters.base import EmptyLiteraturePort
@@ -108,6 +108,7 @@ class WritingPipeline:
         selected_skills: list[str] | None = None,
         editor_letter: str = "",
         reviewer_comments: str = "",
+        on_progress: Callable[[str, int, int], None] | None = None,
     ) -> None:
         self.fixtures_dir = fixtures_dir
         self.literature_query = literature_query
@@ -117,6 +118,7 @@ class WritingPipeline:
             or (str(analysis_url or "").strip() and str(analysis_task_id or "").strip())
         )
         self.brief_text = " ".join(str(brief_text or "").split())
+        self.on_progress = on_progress
         if derive_brief_from_analysis is None:
             self.derive_brief_from_analysis = (
                 has_live_analysis
@@ -246,6 +248,8 @@ class WritingPipeline:
             else list(self.section_order)
         )
         for index, section_id in enumerate(order, start=1):
+            if self.on_progress:
+                self.on_progress(section_id.value, index, len(order))
             print(
                 f"[{index}/{len(order)}] writing {section_id.value}…",
                 flush=True,
@@ -375,6 +379,8 @@ class WritingPipeline:
             )
 
         if connected and "zh" in self.llm_language.lower():
+            if self.on_progress:
+                self.on_progress("translation", 0, 0)
             print("translating chapters…", flush=True)
             for section_id in self.section_order:
                 current = state.drafts.get(section_id.value)

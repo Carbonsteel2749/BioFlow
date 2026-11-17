@@ -5,12 +5,20 @@ from typing import Literal
 from .charts.registry import CHARTS,VERSION
 
 def enabled(store,kind,identifier):
+    if kind=='skills':
+        from .skill_center_legacy import active
+        value=active(identifier)
+        if value is not None:return value
     with store.connect() as db:r=db.execute('SELECT enabled FROM ability_settings WHERE kind=? AND id=?',(kind,identifier)).fetchone()
     return bool(r['enabled']) if r else True
 
 def augment(store,kind,items):
     with store.connect() as db:settings={r['id']:dict(r) for r in db.execute('SELECT * FROM ability_settings WHERE kind=?',(kind,))}
-    return [{**entry,**{k:v for k,v in settings.get(entry.get('id',entry.get('name')),{}).items() if k not in {'kind','id'} and (v!='' or k=='enabled')}} for entry in items]
+    result=[{**entry,**{k:v for k,v in settings.get(entry.get('id',entry.get('name')),{}).items() if k not in {'kind','id'} and (v!='' or k=='enabled')}} for entry in items]
+    if kind=='skills':
+        from .skill_center_legacy import decorate
+        return decorate(result)
+    return result
 
 class AbilityBody(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -27,6 +35,9 @@ def install(app,get_store):
             known={s.name for s in list_catalog()}|{'chart:'+c['id'] for c in CHARTS}|{'chart:metagenome'}
             if identifier not in known:raise HTTPException(404,'能力未登记')
         elif identifier not in {'writing-model','literature-chat','literature-embedding'} and not identifier.startswith('local-'):raise HTTPException(404,'模型未登记')
+        if kind=='skills':
+            from .skill_center_legacy import configure as configure_center
+            if configure_center(identifier,body):return {'ok':True,'managed_by':'skill_center'}
         with get_store().connect() as db:db.execute('INSERT INTO ability_settings(kind,id,enabled,category,description) VALUES(?,?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET enabled=excluded.enabled,category=excluded.category,description=excluded.description',
             (kind,identifier,int(body.enabled),body.category,body.description))
         return {'ok':True}

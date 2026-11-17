@@ -25,11 +25,15 @@ def create_artifact_router(
         artifact_type: str | None = Query(default=None),
         producer: str | None = Query(default=None),
         sample_scope: str | None = Query(default=None),
+        metadata_only: bool = Query(default=False),
     ) -> list[dict]:
         if not task_exists(task_id):
             raise HTTPException(status_code=404, detail="task not found")
         try:
-            publish_stage_figures(service, task_id)
+            # Interactive typed-input/output listings consume only indexed records.
+            # Preserve discovery/publication for existing callers by default.
+            if not metadata_only:
+                publish_stage_figures(service, task_id)
             return service.list_for_task(
                 task_id,
                 artifact_type=artifact_type,

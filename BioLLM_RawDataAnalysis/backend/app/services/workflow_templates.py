@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .basic_workflow_templates import basic_template_records
+from .typed_workflow_templates import typed_template_records
 from ..workflows.graph import WorkflowGraph
 from ..workflows.registry import REGISTRY_VERSION, NodeRegistry, default_node_registry
 from ..workflows.validation import GraphValidationResult, validate_workflow_graph
@@ -352,7 +353,7 @@ class WorkflowTemplateService:
 
     def _build_builtins(self) -> dict[str, dict[str, Any]]:
         builtins: dict[str, dict[str, Any]] = {}
-        specs = basic_template_records(self.registry) + [
+        specs = basic_template_records(self.registry) + typed_template_records(self.registry) + [
             dict(template_id=template_id, name=name, description=description, workflow=workflow)
             for template_id, name, description, workflow in _BUILTIN_SPECS
         ]

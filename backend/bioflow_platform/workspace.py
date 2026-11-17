@@ -34,8 +34,13 @@ def install(app,get_store,check_project,call,urls):
     app.state.create_project_figure=create_figure
     from .provenance import install_provenance
     install_provenance(router,get_store,check_project,files)
+    from .unified_workflows import install as install_workflows
+    install_workflows(router,get_store,check_project,call)
+    from .input_datasets import install as install_input_datasets
+    input_imports=install_input_datasets(router,get_store,check_project,urls)
 
     async def recover_interrupted():
+        await asyncio.to_thread(input_imports.recover)
         with get_store().connect() as db:
             db.execute("UPDATE project_figures SET status='failed',error='服务重启中断了预览，请重新生成版本' WHERE status IN ('queued','running')")
             db.execute("UPDATE project_uploads SET status='paused',error='服务重启中断了校验，请选择原文件继续；已传分片保留' WHERE status='finalizing'")

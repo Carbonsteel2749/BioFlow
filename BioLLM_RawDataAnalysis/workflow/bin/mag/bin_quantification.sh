@@ -10,7 +10,9 @@ step_prepare bin_quantification; trap 'step_fail "$?" "$LINENO" "${CURRENT_COMMA
 abundance="$outdir/bin_abundance_table.tab"; normalized="$outdir/sample_mag_abundance.tsv"; provenance="$outdir/sample_mag_abundance.provenance.json"; if checkpoint_valid "$abundance" "$normalized" "$provenance"; then exit 0; fi
 step_start "bin abundance quantification started"; require_command metawrap; require_dir "$bins"; require_file "$assembly"; require_file "$reads_list"; require_file "$sample_manifest"; require_file "$database_manifest"
 tmpdir="$(mktemp -d "$outdir/.quant-input.XXXXXX")"; cleanup() { rm -rf "$tmpdir"; }; trap cleanup EXIT
-reads=(); index=0; while IFS= read -r input; do [[ -n "$input" ]] || continue; index=$((index+1)); target="$tmpdir/read_${index}.fastq"; if [[ "$input" == *.gz ]]; then gzip -cd -- "$input" > "$target"; else cp -- "$input" "$target"; fi; reads+=("$target"); done < "$reads_list"
+alias_manifest="$outdir/sample_aliases.csv"
+python3 "$SCRIPT_DIR/quantification_inputs.py" --sample-manifest "$sample_manifest" --reads-list "$reads_list" --outdir "$tmpdir" --alias-manifest "$alias_manifest"
+reads=(); while IFS= read -r input; do [[ -n "$input" ]] || continue; reads+=("$input"); done < "$tmpdir/staged_reads.list"
 run_tool metawrap quant_bins -b "$bins" -o "$outdir" -a "$assembly" -t "$threads" "${reads[@]}"
-python3 "$SCRIPT_DIR/normalize_mag_abundance.py" --source "$abundance" --sample-manifest "$sample_manifest" --database-manifest "$database_manifest" --output "$normalized" --task-id "$task_id"
+python3 "$SCRIPT_DIR/normalize_mag_abundance.py" --source "$abundance" --sample-manifest "$alias_manifest" --original-sample-manifest "$sample_manifest" --database-manifest "$database_manifest" --output "$normalized" --task-id "$task_id"
 step_success "bin abundance quantification completed" "$abundance" "$normalized" "$provenance"
