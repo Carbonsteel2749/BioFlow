@@ -14,3 +14,4 @@ body{margin:0;padding:20px;background:light-dark(#eef1ee,#141716);color-scheme:l
 @media(max-width:900px){#ai4s-prototype .latex-studio{grid-template-columns:1fr}}
 #ai4s-prototype .template-library input[type="radio"]{width:auto;padding:0;margin:0 8px 0 0}
 #ai4s-prototype .template-library label{display:flex;align-items:center;margin:8px 0}
+.ref-pick{display:block;margin:.35rem 0;line-height:1.45}

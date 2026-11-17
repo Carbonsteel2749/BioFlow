@@ -36,14 +36,12 @@ def _progress_text(section: str, index: int, total: int) -> str:
 
 
 def _title_from_topic(topic: str) -> str:
+    from article_writing.adapters.brief_from_analysis import _title_from_topic as title_from_topic
+
     text = " ".join(topic.split())
     if not text:
         return "正在生成稿件"
-    for mark in ("。", ".", "！", "!", "？", "?"):
-        if mark in text:
-            text = text.split(mark, 1)[0]
-            break
-    return text.strip()[:80] or "正在生成稿件"
+    return title_from_topic(text) or "正在生成稿件"
 
 
 SECTION_LABELS = {
@@ -253,6 +251,8 @@ class SessionStore:
         selected_skills: list[str] | None = None,
         editor_letter: str = "",
         reviewer_comments: str = "",
+        literature_document_ids: list[str] | None = None,
+        literature_refs: list[dict[str, Any]] | None = None,
         llm_provider: str = "ollama",
         llm_model: str = "qwen3:14b",
         llm_url: str = "http://127.0.0.1:11434",
@@ -302,6 +302,8 @@ class SessionStore:
             selected_skills=selected_skills,
             editor_letter=editor_letter,
             reviewer_comments=reviewer_comments,
+            literature_document_ids=literature_document_ids,
+            literature_refs=literature_refs,
             on_progress=on_progress,
         )
         state = pipeline.run(run_id=run_id)

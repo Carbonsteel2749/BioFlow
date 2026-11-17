@@ -28,7 +28,7 @@ SECTION_ROLES: dict[SectionId, str] = {
     ),
     SectionId.methods: (
         "Write the methods in past tense, one paragraph per procedure in this section's facts. "
-        "Do not add ethics approval, eligibility, clinical assessment, exposure, or a statistical test."
+        "Include ethics, eligibility, clinical assessment or statistical tests only when explicitly documented; otherwise mark missing information."
     ),
     SectionId.results: (
         "Write the results by the blocks in this section's facts. "
@@ -66,7 +66,7 @@ _PRIOR_CHAPTERS: dict[SectionId, tuple[SectionId, ...]] = {
     SectionId.results: (SectionId.methods,),
     SectionId.discussion: (SectionId.results,),
     SectionId.introduction: (SectionId.methods, SectionId.results, SectionId.discussion),
-    SectionId.abstract: (SectionId.results, SectionId.discussion),
+    SectionId.abstract: (SectionId.methods, SectionId.results, SectionId.discussion),
     SectionId.conclusion: (SectionId.results, SectionId.discussion),
     SectionId.back_matter: (),
 }
@@ -87,6 +87,9 @@ _EMBED_LINE = re.compile(
 )
 
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+_CITATION = re.compile(r"\[@[^\]]+\]")
+# Fact-ledger ids such as [QC.raw_reads.max] must never reach the prose.
+_LEDGER_ID = re.compile(r"\s?\[(?:COHORT|QC|READQ|HOST|TAX|DIV|FUNC|SW|DB|PARAM|RUN)\.[^\]\s]+\]")
 
 
 class CatalogComposeError(RuntimeError):
@@ -141,7 +144,22 @@ def compose_section_from_catalog(
         meta["catalog_compose"] = {"used": False, "error": str(error)[:300]}
         return draft.model_copy(update={"warnings": warnings, "metadata": meta})
 
-    text = _drop_repeated_lines(_clean_markdown(raw))
+    text = _LEDGER_ID.sub("", _drop_repeated_lines(_clean_markdown(raw)))
+    material = any(str(item.get("item_id", "")).startswith("cat_material_") for item in catalog)
+    early = _numbers_not_in_catalog(text, catalog) if strict and material else []
+    if early:
+        # One corrective pass: tell the model exactly which numbers had no source.
+        retry_prompt = (
+            f"{prompt}\n\nYour previous draft used numbers that are not in the facts: "
+            + ", ".join(early[:12])
+            + ". Rewrite the section. Copy every number exactly from a fact line, or leave it out."
+        )
+        try:
+            raw = client.generate(retry_prompt, system=system)
+        except Exception as error:  # noqa: BLE001
+            raise CatalogComposeError(f"{draft.section.value}: catalog compose retry failed: {error}") from error
+        text = _LEDGER_ID.sub("", _drop_repeated_lines(_clean_markdown(raw)))
+        meta["number_retry"] = {"first_pass_unsourced": early[:12]}
     if draft.section in _EMBED_SECTIONS:
         labels = _appearance_labels(text, catalog)
     elif draft.section in _CITE_SECTIONS:
@@ -169,6 +187,8 @@ def compose_section_from_catalog(
             text = _MARKER.sub("", text)
         text = remove_embedded_displays(text)
     missing_numbers = _numbers_not_in_catalog(text, catalog)
+    if missing_numbers and strict and any(str(item.get("item_id", "")).startswith("cat_material_") for item in catalog):
+        raise CatalogComposeError("Generated numbers lack material sources: " + ", ".join(missing_numbers[:8]))
     if missing_numbers:
         warnings.append(
             "prose contains numbers that are not in the archive catalog: "
@@ -619,15 +639,26 @@ def _translate_if_needed(client: LLMClient, text: str, language: str) -> str:
     prose, embeds = _split_trailing_embeds(text)
     if len(prose.strip()) < 40:
         return text
+    # Citation markers such as [@Zhong2026] must survive translation unchanged.
+    markers: list[str] = []
+
+    def hold(match: re.Match[str]) -> str:
+        markers.append(match.group(0))
+        return f"CITEREF{len(markers)}"
+
+    protected = _CITATION.sub(hold, prose.strip())
     translated = client.generate(
         "Translate the following paper section into Chinese. "
         "Keep every number, Figure N, and Table N unchanged. "
+        "Keep every token of the form CITEREF followed by a number exactly as written. "
         "Do not add measurements, methods, or claims. "
         "Output Chinese prose only.\n\n"
-        f"{prose.strip()}",
+        f"{protected}",
         system="You translate scientific prose into Chinese without adding facts.",
     )
     chinese = _clean_markdown(translated).strip()
+    for number in range(len(markers), 0, -1):
+        chinese = re.sub(rf"\s*CITEREF{number}(?!\d)", markers[number - 1], chinese)
     if not chinese:
         return text
     combined = f"{prose.rstrip()}\n\n中文\n\n{chinese}"

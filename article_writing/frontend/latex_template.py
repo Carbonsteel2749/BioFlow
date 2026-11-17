@@ -15,6 +15,7 @@ from frontend.latex_preview import (
     _escape,
     manuscript_opening,
     manuscript_sections,
+    references_latex,
     section_bodies,
     session_to_latex,
 )
@@ -38,7 +39,7 @@ _SLOT_TO_SECTION = {
     "BACK_MATTER": "back_matter",
     "BACKMATTER": "back_matter",
 }
-_KNOWN_SLOTS = set(_SLOT_TO_SECTION) | {"TITLE", "QUESTION"}
+_KNOWN_SLOTS = set(_SLOT_TO_SECTION) | {"TITLE", "QUESTION", "REFERENCES"}
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$")
 
 
@@ -303,7 +304,15 @@ def _values(session: WritingSession, language: str) -> dict[str, str]:
     }
     for slot, key in _SLOT_TO_SECTION.items():
         values[slot] = bodies.get(key, "")
+    values["REFERENCES"] = references_latex(session, choice)
     return values
+
+
+def _before_end_document(text: str, block: str) -> str:
+    end = text.rfind(r"\end{document}")
+    if not block or end < 0:
+        return text
+    return text[:end].rstrip() + "\n\n" + block + "\n" + text[end:]
 
 
 def fill_template_text(template: str, session: WritingSession, language: str) -> str:
@@ -317,7 +326,10 @@ def fill_template_text(template: str, session: WritingSession, language: str) ->
                 return match.group(0)
             return values.get(name, "")
 
-        return _SLOT.sub(replace, template)
+        filled = _SLOT.sub(replace, template)
+        if "REFERENCES" not in slots:
+            filled = _before_end_document(filled, values["REFERENCES"])
+        return filled
     begin = template.find(r"\begin{document}")
     end = template.rfind(r"\end{document}")
     if begin < 0 or end < begin:
@@ -336,6 +348,7 @@ def fill_template_text(template: str, session: WritingSession, language: str) ->
         + manuscript_opening(session, language)
         + "\n"
         + manuscript_sections(session, language)
+        + (f"\n\n{references_latex(session, language)}" if references_latex(session, language) else "")
         + "\n\\end{document}\n"
     )
 

@@ -34,14 +34,46 @@ _ESCAPE = str.maketrans(
 )
 
 
+_CITE = re.compile(r"\[(@[^\]]+)\]")
+_CITE_KEY = re.compile(r"@([A-Za-z0-9_:.-]+)")
+_REF_LINE = re.compile(r"^\[@([A-Za-z0-9_:.-]+)\]:\s*(.+?)\s*$", re.M)
+_REF_HEADING = re.compile(r"^\s*(?:References|参考文献)\s*$", re.M)
+_HELD = re.compile("\x00(\\d+)\x01")
+
+
 def _escape(text: str) -> str:
     return text.translate(_ESCAPE)
 
 
+def split_references(markdown: str) -> tuple[str, list[tuple[str, str]]]:
+    """Remove `[@key]: entry` lines (and their heading) and return them separately."""
+
+    refs = [(m.group(1), m.group(2)) for m in _REF_LINE.finditer(markdown or "")]
+    if not refs:
+        return markdown or "", []
+    body = _REF_LINE.sub("", markdown)
+    body = _REF_HEADING.sub("", body)
+    return re.sub(r"\n{3,}", "\n\n", body).strip() + "\n", refs
+
+
 def _text_block(text: str) -> str:
-    body = text.strip()
+    # Citation markers become \cite after escaping, so keys are never escaped.
+    held: list[str] = []
+
+    def hold(match: re.Match[str]) -> str:
+        keys = _CITE_KEY.findall(match.group(1))
+        if not keys:
+            return match.group(0)
+        held.append(",".join(keys))
+        return f"\x00{len(held) - 1}\x01"
+
+    body = _CITE.sub(hold, text).strip()
     if not body:
         return ""
+    return _HELD.sub(lambda m: "\\cite{" + held[int(m.group(1))] + "}", _text_block_plain(body))
+
+
+def _text_block_plain(body: str) -> str:
     pieces: list[str] = []
     cursor = 0
     for match in _BOLD.finditer(body):
@@ -71,6 +103,7 @@ def _figure(match: re.Match[str], figures: Path) -> str:
 
 
 def markdown_to_latex(markdown: str, figures: Path) -> str:
+    markdown, _refs = split_references(markdown or "")
     parts: list[str] = []
     cursor = 0
     for match in _IMAGE.finditer(markdown or ""):
@@ -145,8 +178,27 @@ def manuscript_sections(session: WritingSession, language: str) -> str:
     return "\n\n".join(parts)
 
 
+def references_latex(session: WritingSession, language: str) -> str:
+    """thebibliography from the `[@key]: entry` lines of every section, in citation order."""
+
+    choice = language_choice(language)
+    seen: dict[str, str] = {}
+    for key in session.section_order:
+        section = session.sections.get(key)
+        if section is None:
+            continue
+        _body, refs = split_references(select_language(section.markdown or "", choice))
+        for cite, entry in refs:
+            seen.setdefault(cite, entry)
+    if not seen:
+        return ""
+    items = "\n".join(f"\\bibitem{{{cite}}} {_escape(entry)}" for cite, entry in seen.items())
+    return "\\begin{thebibliography}{99}\n" + items + "\n\\end{thebibliography}"
+
+
 def session_to_latex(session: WritingSession, language: str = "zh") -> str:
     title = _escape(_document_title(session, language))
+    bibliography = references_latex(session, language)
     return (
         "\\documentclass[UTF8,fontset=fandol]{ctexart}\n"
         "\\usepackage{graphicx}\n"
@@ -156,6 +208,7 @@ def session_to_latex(session: WritingSession, language: str = "zh") -> str:
         "\\begin{document}\n"
         f"{manuscript_opening(session, language)}\n"
         + manuscript_sections(session, language)
+        + (f"\n\n{bibliography}" if bibliography else "")
         + "\n\\end{document}\n"
     )
 
@@ -179,21 +232,26 @@ def compile_latex(session: WritingSession, tex: str, support_dir: Path | None = 
             dest.write_bytes(item.read_bytes())
     source = work / "manuscript.tex"
     source.write_text(tex, encoding="utf-8")
+    # Citations resolve on the second pass.
+    passes = 2 if "\\cite{" in tex else 1
     try:
-        completed = subprocess.run(
-            [
-                "xelatex",
-                "-no-shell-escape",
-                "-interaction=nonstopmode",
-                "-halt-on-error",
-                "manuscript.tex",
-            ],
-            cwd=work,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
-        )
+        for _ in range(passes):
+            completed = subprocess.run(
+                [
+                    "xelatex",
+                    "-no-shell-escape",
+                    "-interaction=nonstopmode",
+                    "-halt-on-error",
+                    "manuscript.tex",
+                ],
+                cwd=work,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            if completed.returncode != 0:
+                break
     except subprocess.TimeoutExpired:
         return None, "编译超过 180 秒，已停止。"
     except OSError as exc:

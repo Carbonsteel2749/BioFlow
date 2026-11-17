@@ -60,6 +60,11 @@ class LiveAnalysisPort(AnalysisPort):
                 "Keep returning article_writing.contracts V1 models only."
             )
         self.package_root = root
+        from article_writing.adapters.materials import report_root, inspect_materials, materials_bundle
+        material_root = report_root(root)
+        if material_root is not None:
+            self.package_root = material_root
+            return materials_bundle(material_root, inspect_materials(material_root))
         catalog = build_catalog(root)
         try:
             bundle = map_biollm_package(root)
@@ -87,6 +92,11 @@ class LiveAnalysisPort(AnalysisPort):
     def _open_path(self, path: Path) -> Path:
         if not path.exists():
             raise FileNotFoundError(f"analysis bundle not found: {path}")
+        from article_writing.adapters.materials import report_root
+        if path.is_dir():
+            report = report_root(path)
+            if report is not None:
+                return report
         archive = deliverable_archive(path)
         if archive is not None:
             return self._extract(archive)

@@ -76,6 +76,15 @@ class StartRequest(BaseModel):
     skills: list[str] = Field(default_factory=list)
     editor_letter: str = ""
     reviewer_comments: str = ""
+    literature_document_ids: list[str] = Field(default_factory=list)
+    # Papers chosen from the personal library: {doi, title, authors, year}; abstracts are fetched by DOI.
+    literature_refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LatexRequest(BaseModel):
+    tex: str = ""
+    language: str = "zh"
+    project_id: str = ""
 
 
 class LatexRequest(BaseModel):
@@ -303,11 +312,13 @@ def analysis_preview(
 
 @app.get("/api/literature/preview")
 def literature_preview(
+    request: Request,
     query: str = Query(min_length=1),
     top_k: int = Query(default=5, ge=1, le=12),
     literature_url: str = "",
     literature_db: str = "",
     use_live: bool = False,
+    knowledge_base_id: str = "",
 ) -> dict[str, Any]:
     db = Path(literature_db).expanduser() if literature_db.strip() else DEFAULT_LITERATURE_DB
     live = bool(use_live or literature_url.strip())
@@ -315,6 +326,9 @@ def literature_preview(
         port = LiveLiteraturePort(
             base_url=literature_url.strip(),
             db_path=db if db.is_file() else None,
+            knowledge_base_id=knowledge_base_id,
+            request_headers={k: v for k, v in request.headers.items()
+                             if k.lower() in {"cookie", "authorization", "x-csrf-token"}},
         )
         source = "live"
     else:
@@ -324,13 +338,72 @@ def literature_preview(
     return {"query": query, "source": source, "hits": hits}
 
 
+WRITING_SKILL_STAGES = {
+    "bio-fact-ledger": "自动运行：从分析结果包用代码计算全部可引用数值",
+    "methods-from-provenance": "自动运行：依据软件版本、数据库和参数记录生成 Methods",
+    "section-planner": "自动运行：把结果、讨论、摘要、结论拆成段落并限定每段可用事实",
+    "paragraph-writer": "自动运行：逐段写作，核对未通过时按意见修改",
+    "claim-verifier": "自动运行：逐句核对数字来源、过度表述和事实支撑",
+    "nature-writing": "方法、结果、讨论：指导论证与章节组织",
+    "nature-polishing": "各章节生成时：语言与表达规则（合并执行，不另跑一轮）",
+    "nature-reviewer": "全文完成后：生成模拟审稿意见 review.md",
+    "nature-response": "全文完成后：根据审稿意见生成回复 response.md",
+}
+
+
+@app.get("/api/writing-skills")
+def writing_skills() -> dict[str, Any]:
+    _skills_connection()
+    try:
+        from bioflow_skills import list_catalog
+        entries = [entry for entry in list_catalog() if entry.category == "writing"]
+    except Exception as error:
+        return {"items": [], "warning": f"Skills 模块不可用：{error}"}
+    return {"source": "bioflow_skills", "items": [
+        {"name": e.name, "description": e.description, "version": e.version,
+         "supported": e.name in WRITING_SKILL_STAGES,
+         "stage": WRITING_SKILL_STAGES.get(e.name, "尚未适配论文生成流程"),
+         "requires_comments": e.name == "nature-response"}
+        for e in entries
+    ]}
+
+
+def validate_writing_skills(body: StartRequest) -> None:
+    available = {e["name"] for e in writing_skills()["items"] if e["supported"]}
+    invalid = set(body.skills) - available
+    if invalid:
+        raise HTTPException(422, "不可用于当前写作流程的 Skills：" + ", ".join(sorted(invalid)))
+    if "nature-response" in body.skills and not (body.editor_letter.strip() or body.reviewer_comments.strip()):
+        raise HTTPException(422, "使用审稿回复 Skill 时，请提供审稿意见或编辑来信。")
+
+
 @app.get("/api/sessions")
 def list_sessions() -> dict[str, Any]:
     return {"sessions": store.list_summaries()}
 
 
+@app.post("/api/materials/check")
+def check_materials(body: StartRequest) -> dict[str, Any]:
+    from article_writing.adapters.live_analysis import LiveAnalysisPort
+    from article_writing.adapters.biollm_mapping import BioLLMPackageError
+    port = LiveAnalysisPort(run_dir=body.analysis_run_dir, bundle_path=body.analysis_bundle,
+                            analysis_url=body.analysis_url, task_id=body.analysis_task_id)
+    try:
+        analysis = port.load()
+        report = analysis.raw.get("materials") if isinstance(analysis.raw, dict) else None
+        if report is None:
+            return {"supported": False, "message": "此包仍使用旧解析器；第一阶段材料检查暂只支持包含 read_counts.tsv 的宏基因组报告。"}
+        return {"supported": True, **report}
+    except (ValueError, OSError, BioLLMPackageError) as error:
+        raise HTTPException(422, str(error)) from error
+    finally:
+        for handle in port._temp_dirs:
+            handle.cleanup()
+
+
 @app.post("/api/sessions")
 def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
+    validate_writing_skills(body)
     llm_config = load_llm_config()
     state = model_status(llm_config)
     if state["model_available"] is False:
@@ -356,6 +429,9 @@ def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
             selected_skills=body.skills,
             editor_letter=body.editor_letter,
             reviewer_comments=body.reviewer_comments,
+            literature_document_ids=body.literature_document_ids,
+            literature_refs=[{k: str(ref.get(k) or "")[:500] for k in ("doi", "title", "authors", "year")}
+                             for ref in body.literature_refs[:50] if isinstance(ref, dict)],
             llm_provider=llm_config["provider"],
             llm_model=llm_config["model"],
             llm_url=llm_config["url"],
