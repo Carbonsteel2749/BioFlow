@@ -7,6 +7,7 @@ Run from plate root:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -31,6 +32,8 @@ from article_writing.llm import build_llm_client
 from article_writing.llm.polish import polish_section_draft
 from frontend.analysis_packages import list_analysis_packages
 from frontend.export_formats import export_word_and_pdf
+from frontend.latex_preview import compile_latex, latex_dir
+from frontend.latex_template import TemplateError, render_for_project, template_status
 from frontend.llm_config import load_llm_config, model_status, save_llm_config
 from frontend.session_store import SessionStore, utc_now
 
@@ -73,6 +76,12 @@ class StartRequest(BaseModel):
     skills: list[str] = Field(default_factory=list)
     editor_letter: str = ""
     reviewer_comments: str = ""
+
+
+class LatexRequest(BaseModel):
+    tex: str = ""
+    language: str = "zh"
+    project_id: str = ""
 
 
 class ExportRequest(BaseModel):
@@ -327,7 +336,7 @@ def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
     if state["model_available"] is False:
         raise HTTPException(status_code=400, detail=state["warning"] or "LLM 模型不可用")
     try:
-        session = store.create_from_pipeline(
+        session = store.begin_generation(
             use_llm=True,
             fixtures_dir=None,
             analysis_run_dir=body.analysis_run_dir,
@@ -577,6 +586,102 @@ def export_manuscript(session_id: str, body: ExportRequest | None = None) -> dic
         "manuscript": manuscript,
         "session": payload,
     }
+
+
+def _paper_language(value: str) -> str:
+    choice = (value or "zh").strip().lower()
+    if choice not in {"en", "zh"}:
+        raise HTTPException(status_code=400, detail="language must be en or zh")
+    return choice
+
+
+def _project_id(value: str) -> str:
+    choice = (value or "").strip()
+    if not choice:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", choice):
+        raise HTTPException(status_code=400, detail="无效的项目编号")
+    return choice
+
+
+def _rendered_tex(session, language: str, project_id: str) -> tuple[str, object, str]:
+    try:
+        return render_for_project(session, language, project_id)
+    except TemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _latex_matches(session, language: str, stamp: str) -> bool:
+    work = latex_dir(session)
+    marker = work / "manuscript.lang"
+    saved_stamp = (work / "manuscript.template").read_text(encoding="utf-8").strip() if (work / "manuscript.template").is_file() else ""
+    saved_language = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+    return saved_language == language and saved_stamp == stamp and (work / "manuscript.tex").is_file() and (work / "manuscript.pdf").is_file()
+
+
+def _latex_payload(session_id: str, tex: str, error: str, language: str, stamp: str) -> dict[str, Any]:
+    session = store.get(session_id)
+    ready = bool(session and not error and _latex_matches(session, language, stamp))
+    return {
+        "tex": tex,
+        "language": language,
+        "pdf_ready": ready,
+        "error": error,
+        "pdf": f"/api/sessions/{session_id}/latex/pdf" if ready else "",
+    }
+
+
+@app.get("/api/sessions/{session_id}/latex")
+def read_latex(session_id: str, language: str = Query(default="zh"), project_id: str = Query(default="")) -> dict[str, Any]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    choice = _paper_language(language)
+    project = _project_id(project_id)
+    rendered, _support, stamp = _rendered_tex(session, choice, project)
+    work = latex_dir(session)
+    matches = _latex_matches(session, choice, stamp)
+    tex = (work / "manuscript.tex").read_text(encoding="utf-8") if matches else rendered
+    return {
+        "tex": tex,
+        "language": choice,
+        "template": template_status(project) if project else {"installed": False},
+        "pdf_ready": matches,
+        "error": "",
+        "pdf": f"/api/sessions/{session_id}/latex/pdf" if matches else "",
+    }
+
+
+@app.post("/api/sessions/{session_id}/latex")
+def build_latex(session_id: str, body: LatexRequest) -> dict[str, Any]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if session.status == "running":
+        raise HTTPException(status_code=409, detail="稿件还在生成，完成后再编译")
+    choice = _paper_language(body.language)
+    project = _project_id(body.project_id)
+    rendered, support, stamp = _rendered_tex(session, choice, project)
+    tex = body.tex.strip() or rendered
+    if len(tex) > 1_500_000:
+        raise HTTPException(status_code=413, detail="LaTeX 源码过长")
+    _pdf, error = compile_latex(session, tex, support)
+    if _pdf is not None and not error:
+        work = latex_dir(session)
+        (work / "manuscript.lang").write_text(choice, encoding="utf-8")
+        (work / "manuscript.template").write_text(stamp, encoding="utf-8")
+    return _latex_payload(session_id, tex, error, choice, stamp)
+
+
+@app.get("/api/sessions/{session_id}/latex/pdf")
+def read_latex_pdf(session_id: str) -> FileResponse:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    pdf = latex_dir(session) / "manuscript.pdf"
+    if not pdf.is_file():
+        raise HTTPException(status_code=404, detail="请先编译 PDF")
+    return FileResponse(pdf, media_type="application/pdf", filename=f"{session_id}.pdf", content_disposition_type="inline")
 
 
 def _session_asset_path(session, filename: str) -> Path | None:
