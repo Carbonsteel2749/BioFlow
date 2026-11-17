@@ -78,9 +78,10 @@ def deliverable_archive(path: Path) -> Path | None:
     if not path.is_dir():
         return None
     folder = path / "deliverables"
-    if not folder.is_dir():
-        return None
-    archives = [item for item in folder.iterdir() if item.is_file() and _is_archive(item)]
+    archives = [item for item in folder.glob("*") if item.is_file() and _is_archive(item)]
+    if not archives:
+        archives = [item for item in path.glob("nodes/*/deliverables/*")
+                    if item.is_file() and _is_archive(item)]
     if not archives:
         return None
     task_name = path.name.lower()

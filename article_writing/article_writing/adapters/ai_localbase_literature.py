@@ -355,6 +355,42 @@ class AILocalBaseLiteraturePort(LiteraturePort):
                 hit.year = year
         return hits
 
+    def hits_for_documents(self, document_ids: List[str]) -> List[LiteratureHit]:
+        """Load explicitly chosen knowledge-base documents as literature hits."""
+        wanted = [item.strip() for item in document_ids if str(item).strip()]
+        if not wanted:
+            return []
+        listed = {str(item.get("id") or ""): item for item in self._list_documents(refresh=True)}
+        hits: List[LiteratureHit] = []
+        for document_id in wanted:
+            item = listed.get(document_id) or {}
+            name = str(item.get("name") or item.get("filename") or document_id)
+            raw = ""
+            try:
+                detail = self._document_detail(document_id)
+                raw = str(detail.get("rawContent") or "")
+                if not name or name == document_id:
+                    name = str(detail.get("name") or detail.get("filename") or name)
+            except Exception:  # noqa: BLE001
+                raw = ""
+            try:
+                hits.append(ai_localbase_document_to_hit(
+                    document_id=document_id,
+                    document_name=name,
+                    raw_content=raw,
+                    score=1.0,
+                    snippet_chars=self.snippet_chars,
+                ))
+            except ValueError:
+                hits.append(LiteratureHit(
+                    paper_id=document_id,
+                    title=name,
+                    abstract=raw[: self.snippet_chars].strip(),
+                    score=1.0,
+                    tags=["ai-localbase", f"doc:{document_id}"],
+                ))
+        return hits
+
     def search(self, query: str, top_k: int = 5) -> List[LiteratureHit]:
         if top_k <= 0:
             return []

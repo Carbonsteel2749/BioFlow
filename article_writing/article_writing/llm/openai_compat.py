@@ -35,7 +35,7 @@ class OpenAICompatClient:
         self.timeout = timeout
         self.temperature = temperature
 
-    def generate(self, prompt: str, system: str | None = None) -> str:
+    def _chat(self, prompt: str, system: str | None, extra: dict[str, Any] | None = None) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -46,6 +46,8 @@ class OpenAICompatClient:
             "temperature": self.temperature,
             "stream": False,
         }
+        if extra:
+            payload.update(extra)
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -69,3 +71,15 @@ class OpenAICompatClient:
         message = choices[0].get("message") or {}
         content = message.get("content") or ""
         return _THINK_RE.sub("", str(content)).strip()
+
+    def generate(self, prompt: str, system: str | None = None) -> str:
+        return self._chat(prompt, system)
+
+    def generate_json(self, prompt: str, system: str | None, schema: dict[str, Any]) -> Any:
+        """Return parsed JSON constrained by ``schema`` (json_schema response format)."""
+
+        text = self._chat(prompt, system, {
+            "temperature": 0.0,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "result", "schema": schema}},
+        })
+        return json.loads(text)

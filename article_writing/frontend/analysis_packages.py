@@ -42,16 +42,9 @@ def list_analysis_packages(root: Path | None = None) -> list[dict[str, str]]:
 
 
 def _archive_for(task: Path) -> Path | None:
-    deliverables = task / "deliverables"
-    if not deliverables.is_dir():
-        return None
-    archives = [item for item in deliverables.iterdir() if item.is_file() and item.name.endswith(".tar.gz") and item.stat().st_size > 0]
-    if not archives:
-        return None
-    renamed = [item for item in archives if item.name.endswith(ARCHIVE_SUFFIX)]
-    named = renamed or [item for item in archives if task.name in item.name]
-    pool = named or archives
-    return max(pool, key=lambda item: item.stat().st_mtime)
+    from article_writing.adapters.archive_catalog import deliverable_archive
+    return deliverable_archive(task)
+
 
 
 def _package_label(task: Path, archive: Path) -> str:
@@ -66,4 +59,5 @@ def _package_label(task: Path, archive: Path) -> str:
         short_id = short_id.strip()
         if task_name and short_id:
             return " · ".join((task_name, short_id, when))
-    return " · ".join((task.name, when))
+    from article_writing.adapters.materials import task_name
+    return " · ".join((task_name(task), task.name[:8], when))
