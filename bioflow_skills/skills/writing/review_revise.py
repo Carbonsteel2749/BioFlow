@@ -185,8 +185,8 @@ def review(sections: dict[str, str], titles: dict[str, str], model: Any) -> dict
     return {"issues": kept, "discarded": discarded}
 
 
-REVISE_SYSTEM = ("You revise one paragraph of a scientific paper to fix one reviewer comment. "
-                 "Output only the revised paragraph as plain prose.")
+REVISE_SYSTEM = ("You revise one sentence of a scientific paper to fix one reviewer comment. "
+                 "Output only the revised sentence as plain prose.")
 
 
 def _numbers(text: str) -> set[float]:
@@ -205,37 +205,61 @@ def _paragraphs(markdown: str) -> list[str]:
     return re.split(r"\n\s*\n", markdown)
 
 
+PRONOUN_START = re.compile(r"^(?:It|This|These|They|That|Those|Such|Its|Their)\b")
+DELETE = "DELETE"
+
+
 def revise(markdown: str, issue: dict[str, Any], model: Any) -> dict[str, Any]:
+    """Rewrite only the quoted sentence; every other sentence of the paragraph stays as written."""
+
     blocks = _paragraphs(markdown)
-    index = next((i for i, b in enumerate(blocks) if issue["quote"] in _norm(b) and not ASSET_LINE.match(b.strip())),
-                 None)
+    quote = issue["quote"]
+    index = next((i for i, b in enumerate(blocks) if quote in _norm(b) and not ASSET_LINE.match(b.strip())), None)
     if index is None:
         return {"markdown": markdown, "status": "not_found"}
-    original = blocks[index].strip()
-    prompt = (f"Paragraph:\n{original}\n\nReviewer comment on the sentence \"{issue['quote']}\": {issue['problem']}\n\n"
-              "Rewrite the paragraph to address the comment with the smallest change. Keep every number, unit, "
+    paragraph = _norm(blocks[index])
+    start = paragraph.find(quote)
+    before, after = paragraph[:start].rstrip(), paragraph[start + len(quote):].lstrip()
+    may_delete = issue.get("kind") == "redundant"
+    prompt = (f"Paragraph (for context only):\n{paragraph}\n\nSentence to revise:\n{quote}\n\n"
+              f"Reviewer comment: {issue['problem']}\n\n"
+              "Rewrite only this sentence to address the comment with the smallest change. Keep every number, unit, "
               "sample name, citation marker such as [@Key] and figure reference such as (Figure 1) exactly as "
-              "written. Do not add any new number, finding, citation or claim. Where a claim is stronger than the "
-              "data, weaken or remove it.")
-    revised = clean(model.generate(prompt, system=REVISE_SYSTEM))
+              "written. Do not add any new number, finding, citation, method or claim; where the sentence claims "
+              "more than the data show, weaken or remove that part. Output only the rewritten sentence."
+              + (f" If the sentence only repeats information given elsewhere, output {DELETE}." if may_delete else ""))
+    new = clean(model.generate(prompt, system=REVISE_SYSTEM)).strip()
     problems = []
-    if not revised or len(revised) < 0.4 * len(original):
-        problems.append("rewrite too short")
-    if not _numbers(revised) <= _numbers(original):
+    if new.upper().strip(". ") == DELETE:
+        if not may_delete:
+            problems.append("deletion not allowed for this comment")
+        if _numbers(quote) or citation_keys(quote) or FIGURE_REF.search(quote):
+            problems.append("sentence carries numbers, citations or figure references")
+        if PRONOUN_START.match(after):
+            problems.append("next sentence depends on this one")
+        if problems:
+            return {"markdown": markdown, "status": "kept_original", "reasons": problems}
+        blocks[index] = (before + " " + after).strip()
+        return {"markdown": "\n\n".join(blocks), "status": "revised", "before": quote, "after": "(sentence removed)"}
+    if not new:
+        problems.append("empty rewrite")
+    if len(new) > 2 * len(quote) + 40:
+        problems.append("rewrite much longer than the sentence")
+    if not _numbers(new) <= _numbers(quote):
         problems.append("rewrite added numbers")
-    if not set(citation_keys(revised)) <= set(citation_keys(original)):
+    if not set(citation_keys(new)) <= set(citation_keys(quote)):
         problems.append("rewrite added citations")
-    if set(FIGURE_REF.findall(original)) - set(FIGURE_REF.findall(revised)):
+    if set(FIGURE_REF.findall(quote)) - set(FIGURE_REF.findall(new)):
         problems.append("rewrite dropped a figure reference")
-    hard, _ = deterministic_issues(revised, {"facts": [original], "notes": [], "max_words": 400,
-                                             "citations": citation_keys(original)})
+    hard, _ = deterministic_issues(new, {"facts": [paragraph], "notes": [], "max_words": 400,
+                                         "citations": citation_keys(quote)})
     problems += hard
     if problems:
         return {"markdown": markdown, "status": "kept_original", "reasons": problems[:4]}
-    if difflib.SequenceMatcher(None, _norm(original), _norm(revised)).ratio() > 0.97:
+    if difflib.SequenceMatcher(None, quote, _norm(new)).ratio() > 0.97:
         return {"markdown": markdown, "status": "unchanged", "reasons": ["rewrite was practically identical"]}
-    blocks[index] = revised
-    return {"markdown": "\n\n".join(blocks), "status": "revised", "before": original, "after": revised}
+    blocks[index] = " ".join(part for part in (before, new, after) if part)
+    return {"markdown": "\n\n".join(blocks), "status": "revised", "before": quote, "after": new}
 
 
 def ledger_numbers(ledger: dict[str, Any] | None) -> set[float]:
@@ -304,7 +328,7 @@ def review_and_revise(sections: dict[str, str], titles: dict[str, str], revisabl
         lines.append(f"Action: {entry['action']}" + (f" ({'; '.join(entry['reasons'])})" if entry.get("reasons") else ""))
         if entry.get("after"):
             lines.append("")
-            lines.append(f"Revised paragraph: {entry['after']}")
+            lines.append(f"Revised sentence: {entry['after']}")
         lines.append("")
     if not log:
         lines.append("No verifiable issues were reported.")

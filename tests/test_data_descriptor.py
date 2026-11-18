@@ -159,6 +159,24 @@ def test_data_descriptor_pipeline_with_figures_and_references(tmp_path, monkeypa
     assert 'PRJEB1234' in state.drafts['data_records'].markdown
 
 
+def test_supplied_figures_remove_the_no_figures_limitation(tmp_path, monkeypatch):
+    # Regression from session dd4c399fae46: the discussion said no figures were generated.
+    from article_writing.orchestrator.pipeline import WritingPipeline
+    db = make_figure_db(tmp_path, [('aaaaaaaaaaaaaaaa', 'pca', {'name': 'family_pca.tsv'}, b'png-a', None)])
+    monkeypatch.setenv('ARTICLE_WRITING_FIGURE_DB', str(db))
+    root = package(tmp_path)
+
+    def prompts(figure_ids):
+        model = Model()
+        WritingPipeline(fixtures_dir=ROOT / 'article_writing/fixtures', adapter_mode='live', analysis_run_dir=str(root),
+                        literature_enabled=False, react_enabled=False, brief_text='Stool metagenomes', llm=model,
+                        llm_language='en', figure_ids=figure_ids).run(run_id='nofig')
+        return ' '.join(model.prompts)
+
+    assert 'No manuscript figures were produced' in prompts([])
+    assert 'No manuscript figures were produced' not in prompts(['aaaaaaaaaaaaaaaa'])
+
+
 def test_inline_figures_stay_in_place_once_per_language(tmp_path):
     from article_writing.layout.bilingual import select_language
     from frontend.latex_preview import markdown_to_latex

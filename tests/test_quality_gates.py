@@ -74,8 +74,35 @@ def test_unsupported_claims_with_ledger_numbers_are_overruled():
 
 
 def test_identical_rewrite_is_reported_as_unchanged():
-    same = 'Raw reads ranged from 1,000 to 3,000 per sample. Filtering was highly effective and the data are of excellent quality'
+    same = 'Filtering was highly effective and the data are of excellent quality'
     assert revise(TV, ISSUE, Reviser(same))['status'] == 'unchanged'
+
+
+def test_revision_never_touches_the_other_sentences():
+    # Regression from session dd4c399fae46: a whole-paragraph rewrite dropped the opening sentences.
+    para = ('After filtering, at least 92.91% of bases reached Q30. Host read pairs were at most 0.0012%. '
+            'This shows the samples contained very little human DNA. It does not measure how well host removal worked.')
+    issue = {'section': 'discussion', 'quote': 'It does not measure how well host removal worked.',
+             'problem': 'Unclear.', 'severity': 'minor', 'kind': 'unclear'}
+    whole = Reviser('It does not measure the effectiveness of host removal, as other metrics would be needed.')
+    out = revise(para, issue, whole)
+    if out['status'] == 'revised':
+        assert out['markdown'].startswith('After filtering, at least 92.91% of bases reached Q30. Host read pairs')
+    long = Reviser('It does not measure how well host removal worked, because ' + 'other metrics would be needed ' * 6 + '.')
+    assert revise(para, issue, long)['status'] == 'kept_original'
+
+
+def test_redundant_sentence_may_be_deleted_only_safely():
+    para = 'The data are descriptive. The study is descriptive only. These data cover nine samples.'
+    issue = {'section': 'abstract', 'quote': 'The study is descriptive only.', 'problem': 'Repeats.',
+             'severity': 'minor', 'kind': 'redundant'}
+    # the next sentence starts with a pronoun, so deleting would leave it dangling
+    assert revise(para, issue, Reviser('DELETE'))['status'] == 'kept_original'
+    ok = revise('The data are descriptive. The study is descriptive only. Nine samples were analysed.', issue,
+                Reviser('DELETE'))
+    assert ok['status'] == 'revised' and ok['markdown'] == 'The data are descriptive. Nine samples were analysed.'
+    unclear = dict(issue, kind='unclear')
+    assert revise(para, unclear, Reviser('DELETE'))['status'] == 'kept_original'
 
 
 class Reviewer:
@@ -114,15 +141,14 @@ ISSUE = {'section': 'technical_validation', 'quote': 'Filtering was highly effec
 
 
 def test_revise_replaces_only_the_paragraph_and_keeps_figures():
-    good = 'Raw reads ranged from 1,000 to 3,000 per sample, and most reads passed filtering.'
-    out = revise(TV, ISSUE, Reviser(good))
+    out = revise(TV, ISSUE, Reviser('Most reads passed filtering.'))
     assert out['status'] == 'revised'
-    assert out['markdown'].startswith(good) and '![PCA.](figures/fig_a.png)' in out['markdown']
-    assert out['markdown'].endswith('earlier work [@Zhong2026].')
+    assert out['markdown'].startswith('Raw reads ranged from 1,000 to 3,000 per sample. Most reads passed filtering.\n\n')
+    assert '![PCA.](figures/fig_a.png)' in out['markdown'] and out['markdown'].endswith('earlier work [@Zhong2026].')
 
 
 def test_revise_rejects_new_numbers_citations_and_lost_figures():
-    added_number = 'Raw reads ranged from 1,000 to 3,000 per sample, and 97.5% of reads passed filtering.'
+    added_number = 'About 97.5% of reads passed filtering.'
     assert revise(TV, ISSUE, Reviser(added_number))['status'] == 'kept_original'
     issue3 = dict(ISSUE, quote='Species composition differed between samples (Figure 1) as described by earlier work [@Zhong2026].')
     lost_figure = 'Species composition differed between samples as described by earlier work [@Zhong2026].'
@@ -130,7 +156,7 @@ def test_revise_rejects_new_numbers_citations_and_lost_figures():
     assert out['status'] == 'kept_original' and 'rewrite dropped a figure reference' in out['reasons']
     new_cite = 'Species composition differed between samples (Figure 1) [@Zhong2026; @Other2020].'
     assert revise(TV, issue3, Reviser(new_cite))['status'] == 'kept_original'
-    overclaim = 'Raw reads ranged from 1,000 to 3,000 per sample and differed significantly.'
+    overclaim = 'Read depth differed significantly between samples.'
     assert revise(TV, ISSUE, Reviser(overclaim))['status'] == 'kept_original'
 
 
@@ -148,13 +174,13 @@ def test_review_and_revise_routes_by_kind_and_section():
                             'problem': 'Give parameters.', 'severity': 'minor', 'kind': 'unclear'},
               dict(ISSUE, kind='missing_information', problem='Add sequencing platform.')]
     sections = {'technical_validation': TV, 'methods': 'Reads were filtered with fastp at default settings.'}
-    good = 'Raw reads ranged from 1,000 to 3,000 per sample, and most reads passed filtering.'
+    good = 'Most reads passed filtering.'
     data = run_skill('targeted-reviser', {'sections': sections, 'revisable': ['technical_validation'],
                                           'model': Both(issues, good)}).data
     actions = [i['action'] for i in data['issues']]
     assert actions == ['revised', 'author (section not model-written)', 'author']
     assert data['sections']['methods'] == sections['methods']
-    assert 'Action: revised' in data['markdown'] and 'Revised paragraph:' in data['markdown']
+    assert 'Action: revised' in data['markdown'] and 'Revised sentence: Most reads passed filtering.' in data['markdown']
 
 
 def test_number_citations_for_export():

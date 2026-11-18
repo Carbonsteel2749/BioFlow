@@ -161,7 +161,8 @@ def test_latex_turns_markers_into_cite_and_bibliography(tmp_path):
     assert r'\cite{Zhong_2026}' in tex
     assert r'\bibitem{Zhong_2026} Zhong Z. Gut 100\% microbes. BBI. 2026.' in tex
     assert tex.index(r'\bibitem{Zhong_2026}') < tex.index(r'\bibitem{Lin2025}') < tex.index(r'\end{document}')
-    assert '[@Lin2025]:' not in tex and 'References' not in tex.split(r'\begin{thebibliography}')[0]
+    assert '[@Lin2025]:' not in tex and 'References' not in tex.split(r'\renewcommand{\refname}')[0]
+    assert r'\renewcommand{\refname}{References}' + '\n' + r'\begin{thebibliography}' in tex
 
 
 @pytest.mark.skipif(not shutil.which('xelatex'), reason='xelatex not installed')

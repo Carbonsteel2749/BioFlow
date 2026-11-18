@@ -11,12 +11,25 @@ Section skills added later can call :func:`write_plan` instead of re-implementin
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
-from .claim_verifier import citation_keys, deterministic_issues, drop_sentences, verify
+from .claim_verifier import citation_keys, deterministic_issues, drop_sentences, split_sentences, verify
 from .paragraph_writer import SYSTEM, build_prompt, clean, last_sentence
 
 MAX_REVISIONS = 2
+PRONOUN_START = re.compile(r"^(?:It|This|These|They|That|Those|Such|Its|Their)\b")
+
+
+def with_dependents(text: str, bad: set[int]) -> set[int]:
+    """A sentence opening with a pronoun goes with the dropped sentence it refers back to."""
+
+    sentences = split_sentences(text)
+    out = set(bad)
+    for index in range(1, len(sentences)):
+        if index - 1 in out and PRONOUN_START.match(sentences[index]):
+            out.add(index)
+    return out
 
 
 def _write(model, paragraph, section, title, previous, style_rules, draft="", issues=None) -> str:
@@ -51,6 +64,7 @@ def write_plan(plan: list[dict[str, Any]], model: Any, *, section: str, title: s
         if not check["ok"]:
             hard, hard_bad = deterministic_issues(text, paragraph)
             if hard_bad:
+                hard_bad = with_dependents(text, hard_bad)
                 dropped = sorted(hard_bad)
                 text = drop_sentences(text, hard_bad)
             soft = [issue for issue in check["issues"] if issue not in hard]

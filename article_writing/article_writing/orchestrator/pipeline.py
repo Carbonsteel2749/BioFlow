@@ -281,6 +281,9 @@ class WritingPipeline:
         # Figures go to Technical Validation in a Data Descriptor, otherwise to Results.
         figures, figure_warnings = figure_source.resolve_figures(self.figure_ids)
         self.figures = figures
+        if figures and ledger is not None:
+            # The package had no figures, but the author supplied chart-module figures.
+            ledger["missing"] = [m for m in ledger.get("missing", []) if m.get("id") != "figures"]
         self.core_skill_warnings.extend(figure_warnings)
         chosen_ids = {s.value for s in self.section_order}
         figure_section = "technical_validation" if "technical_validation" in chosen_ids else "results"

@@ -149,6 +149,13 @@ def test_correct_tool_attribution_passes(sentence):
     assert not any('attributes' in i for i in result['issues']), result['issues']
 
 
+def test_dropping_a_sentence_takes_the_pronoun_sentence_after_it():
+    from bioflow_skills.skills.writing.paragraph_loop import with_dependents
+    text = 'Depth was 999,999 reads. It does not measure quality. Q30 was high.'
+    assert with_dependents(text, {0}) == {0, 1}
+    assert with_dependents(text, {2}) == {2}
+
+
 def test_topic_title_never_cuts_an_accession():
     from article_writing.adapters.brief_from_analysis import brief_from_topic
     topic = ('Shotgun metagenomic profiling of nine human gut samples from ENA project PRJEB33098: read quality '
