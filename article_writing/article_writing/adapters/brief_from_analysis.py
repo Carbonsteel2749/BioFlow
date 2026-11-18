@@ -28,17 +28,26 @@ def brief_from_topic(text: str) -> PaperBrief:
     )
 
 
+_TITLE_LIMIT = 120
+
+
 def _title_from_topic(topic: str) -> str:
+    """First clause of the topic, never cut inside a word or an accession."""
+
     cut = len(topic)
     for index, char in enumerate(topic):
-        if char in "。！？.!?":
+        following = topic[index + 1: index + 2]
+        if char in "。！？：:" or (char in ".!?" and (not following or following.isspace())):
             cut = index
             break
     title = topic[:cut].strip(" ，,;；:：")
     if not title:
         title = topic
-    if len(title) > 80:
-        title = title[:80].rstrip(" ，,;；:：")
+    if len(title) > _TITLE_LIMIT:
+        head = title[:_TITLE_LIMIT]
+        space = head.rfind(" ")
+        # Latin text breaks at the last space; CJK text has no spaces and is cut at the limit.
+        title = (head[:space] if space > _TITLE_LIMIT // 2 else head).rstrip(" ，,;；:：")
     return title
 
 

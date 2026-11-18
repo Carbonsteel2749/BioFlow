@@ -17,7 +17,7 @@ body{background:#e8f0e8;color-scheme:light;padding:16px}
 #ai4s-prototype .manuscript{min-height:500px;font:15px/1.9 'Microsoft YaHei',sans-serif}
 #ai4s-prototype .code{min-height:220px;font-family:Consolas,monospace}
 #ai4s-prototype .result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;background:#edf5e9;padding:16px;border-radius:8px;font:13px/1.7 Consolas,monospace}
-#ai4s-prototype .modal{max-height:85vh;overflow:auto;width:min(820px,95vw)}
+#ai4s-prototype .modal{overflow:visible;width:min(820px,95vw)}
 #ai4s-prototype .modal-backdrop{position:fixed;inset:0;padding:5vh 18px;overflow:auto}
 #ai4s-prototype .modal input[type=checkbox]{width:auto;margin:0}
 #ai4s-prototype .workflow-toolbar{margin-bottom:20px}

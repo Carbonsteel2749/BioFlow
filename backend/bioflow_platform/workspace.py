@@ -226,7 +226,7 @@ def install(app,get_store,check_project,call,urls):
                     result=await call('writing','/api/sessions','POST',{'brief_text':body.instruction,'use_llm':True,
                         'analysis_task_id':tid,'analysis_url':urls['analysis']})
                     sid=result['session_id'];store.claim('session',sid,user['id']);store.link(pid,'session',sid)
-                    result={'session_id':sid,'message':'稿件已生成。'}
+                    result={'session_id':sid,'message':'稿件已开始生成，可在写作页查看进度。' if result.get('status')=='running' else '稿件已生成。'}
                 else:
                     if not enabled(store,'skills','chart:metagenome'):raise HTTPException(409,'宏基因组绘图能力已停用')
                     options=await call('analysis','/api/tasks/'+tid+'/figures/options')

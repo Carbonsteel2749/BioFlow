@@ -8,21 +8,13 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
-class SectionId(str, Enum):
-    """Manuscript section order aligned to IMRaD-style bioinformatics papers.
+from article_writing import section_library as _section_library  # noqa: E402
 
-    Title/authors are rendered from ``PaperBrief`` at export time (not a section).
-    Literature background is woven into Introduction / Discussion (no separate
-    Related Work chapter), matching common journal practice.
-    """
-
-    abstract = "abstract"
-    introduction = "introduction"
-    methods = "methods"
-    results = "results"
-    discussion = "discussion"
-    conclusion = "conclusion"
-    back_matter = "back_matter"
+# Section ids come from section_library/sections.json; the seven legacy ids keep
+# their positions so existing sessions, templates and tests are unchanged.
+SectionId = Enum("SectionId", {name: name for name in _section_library.section_ids()},
+                 type=str, module=__name__)
+SectionId.__doc__ = "Manuscript section id from the section library (section_library/sections.json)."
 
 
 DEFAULT_SECTION_ORDER: List[SectionId] = [

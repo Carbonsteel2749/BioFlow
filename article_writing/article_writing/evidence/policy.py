@@ -53,4 +53,5 @@ SECTION_EVIDENCE_POLICY: dict[SectionId, SectionEvidencePolicy] = {
 
 
 def policy_for(section: SectionId) -> SectionEvidencePolicy:
-    return SECTION_EVIDENCE_POLICY[section]
+    return SECTION_EVIDENCE_POLICY.get(section, SectionEvidencePolicy(
+        evidence_required=False, notes="Library section; evidence handled by its skill"))
