@@ -112,6 +112,7 @@ class WritingPipeline:
         # Chart-module figures chosen for this manuscript (project_figures ids).
         self.figure_ids = [str(i) for i in (figure_ids or []) if str(i).strip()]
         self.figures: list[dict] = []
+        self.quality_report: dict = {}
         # Papers the author chose for this manuscript: [{doi, title, authors, year}, ...]
         self.literature_refs = [dict(ref) for ref in (literature_refs or []) if isinstance(ref, dict)]
         self.reference_cards: list[dict] = []
@@ -489,6 +490,9 @@ class WritingPipeline:
                 flush=True,
             )
 
+        if connected and ledger is not None:
+            self._quality_gates(state, ledger)
+
         if connected and "zh" in self.llm_language.lower():
             if self.on_progress:
                 self.on_progress("translation", 0, 0)
@@ -538,6 +542,51 @@ class WritingPipeline:
                 self.skill_outputs.setdefault("_warnings", "")
                 self.skill_outputs["_warnings"] += note + "\n"
         return state
+
+    MODEL_WRITTEN_SKILLS = frozenset({"background-summary-writer", "technical-validation-writer"})
+
+    def _quality_gates(self, state: PaperState, ledger: dict | None = None) -> None:
+        """Mock review → targeted revision on the English text, then the STORMS-informed check."""
+
+        bio_skills.ensure_skills_path()
+        drafts = {s.value: state.drafts[s.value] for s in self.section_order if s.value in state.drafts}
+        sections = {k: d.markdown for k, d in drafts.items()}
+        titles = {k: d.title for k, d in drafts.items()}
+        revisable = {k for k, d in drafts.items()
+                     if "planned" in (d.metadata or {})
+                     or (d.metadata or {}).get("library", {}).get("skill") in self.MODEL_WRITTEN_SKILLS}
+        self.quality_report = {}
+        if self.on_progress:
+            self.on_progress("review", 0, 0)
+        print("reviewing and revising…", flush=True)
+        try:
+            outcome = bio_skills._run("targeted-reviser", {"sections": sections, "titles": titles,
+                                                           "revisable": sorted(revisable), "model": self.llm,
+                                                           "ledger": ledger or {}})
+        except Exception as error:  # noqa: BLE001 — review is a quality gate, not a blocker
+            self.core_skill_warnings.append(f"review skipped: {error}")
+            outcome = None
+        if outcome:
+            for key, draft in drafts.items():
+                issues = [i for i in outcome["issues"] if i["section"] == key]
+                if not issues and outcome["sections"].get(key) == draft.markdown:
+                    continue
+                meta = dict(draft.metadata or {})
+                meta["review"] = [{k: i.get(k) for k in ("severity", "kind", "quote", "problem", "action")}
+                                  for i in issues]
+                notes = [f"review ({i['severity']}): {i['problem']}" for i in issues if i["action"] != "revised"]
+                updated = draft.model_copy(update={"markdown": outcome["sections"].get(key, draft.markdown),
+                                                   "metadata": meta, "warnings": [*draft.warnings, *notes]})
+                state.add_draft(updated)
+                drafts[key] = updated
+            self.skill_outputs["peer_review.md"] = outcome["markdown"]
+            self.quality_report["review"] = {
+                "issues": len(outcome["issues"]), "discarded": len(outcome["discarded"]),
+                "revised": sum(1 for i in outcome["issues"] if i["action"] == "revised")}
+        storms = bio_skills._run("storms-checklist", {"sections": {k: d.markdown for k, d in drafts.items()}})
+        self.skill_outputs["storms_checklist.md"] = storms["markdown"]
+        self.quality_report["storms"] = storms["counts"]
+        print(f"quality gates: {self.quality_report}", flush=True)
 
     def _attach_references(self, state: PaperState, cards: list[dict]) -> None:
         """Reference list in citation order, appended to the back matter as `[@key]: entry` lines."""

@@ -645,6 +645,8 @@ def export_manuscript(session_id: str, body: ExportRequest | None = None) -> dic
         state.add_draft(SectionDraft(section=sid, title=sec.title, markdown=sec.markdown))
 
     manuscript = build_manuscript_markdown(state, language=language)
+    from article_writing.layout.citations import number_citations
+    manuscript = number_citations(manuscript, heading="参考文献" if language == "zh" else "References")
     out_dir = Path(session.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     final_sections = out_dir / "final_sections"
@@ -805,6 +807,25 @@ def _session_asset_path(session, filename: str) -> Path | None:
         if path.is_file() and path.parent.name == "figures":
             return path.resolve()
     return None
+
+
+QUALITY_REPORTS = (("peer_review.md", "模拟审稿与定向修改"), ("storms_checklist.md", "STORMS 报告规范检查"),
+                   ("review.md", "nature-reviewer 审稿意见"), ("response.md", "审稿回复"))
+
+
+@app.get("/api/sessions/{session_id}/reports")
+def session_reports(session_id: str) -> dict[str, Any]:
+    """Quality reports written by the pipeline (review, STORMS check)."""
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    folder = Path(session.output_dir) / "pipeline"
+    items = []
+    for name, label in QUALITY_REPORTS:
+        path = folder / name
+        if path.is_file():
+            items.append({"name": name, "label": label, "markdown": path.read_text(encoding="utf-8")})
+    return {"items": items}
 
 
 @app.get("/api/sessions/{session_id}/assets/{filename}")

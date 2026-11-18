@@ -17,6 +17,7 @@ from article_writing.orchestrator import WritingPipeline
 PLATE_ROOT = Path(__file__).resolve().parents[1]
 
 _PROGRESS_NAMES = {
+    "review": "审稿与定向修改",
     "methods": "方法",
     "results": "结果",
     "discussion": "讨论",
