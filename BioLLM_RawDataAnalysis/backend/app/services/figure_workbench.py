@@ -387,11 +387,19 @@ class FigureWorkbench:
                     'files':files,'path_base':'task results root; archive_path is relative to the full archive root'}
             root=self.artifacts.output_root/task_id/'figure_workbench'
             manifest={'schema_version':'1.0','task_id':task_id,'selection_sha256':state['selection_sha256'],
-                'figures':selected,'meaning':'Selected figure versions; retained historical versions are not the selected analysis.',
-                'created_at':utc_now()}
-            temporary=root/('selection-'+job_id+'.tmp')
-            temporary.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-            os.replace(temporary,root/'selected_figures.json')
+                'figures':selected,'meaning':'Selected figure versions; retained historical versions are not the selected analysis.'}
+            selection_path=root/'selected_figures.json'
+            previous_selection={}
+            if selection_path.is_file() and not selection_path.is_symlink() and selection_path.stat().st_size <= 4 * 1024 * 1024:
+                try:
+                    previous_selection=json.loads(selection_path.read_text(encoding='utf-8'))
+                except (OSError,ValueError):
+                    pass
+            if not isinstance(previous_selection,dict) or {
+                    k:v for k,v in previous_selection.items() if k!='created_at'} != manifest:
+                temporary=root/('selection-'+job_id+'.tmp')
+                temporary.write_text(json.dumps({**manifest,'created_at':utc_now()},ensure_ascii=False,indent=2),encoding='utf-8')
+                os.replace(temporary,selection_path)
             previous=self.task(task_id).get('result_archive')
             if previous:
                 previous=Path(previous)
