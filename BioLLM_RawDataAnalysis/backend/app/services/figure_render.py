@@ -21,11 +21,11 @@ def main(directory):
     sys.path.insert(0,str(visualization))
     import plot_utils
     from figure_methods import build_figure_plan
-    from taxonomy_plots import diversity, heatmap, pcoa
+    from taxonomy_plots import diversity, heatmap, pcoa, species_display, stacked_composition
+    from shared_taxonomy import resolve_shared_taxonomy
     from figure_panels import taxonomy_panels
     import pandas as pd
     import numpy as np
-    import matplotlib.pyplot as plt
     outdir = directory/'rendered'
     outdir.mkdir(exist_ok=False)
     plot_utils.RENDER_OPTIONS.update(request.parameters.model_dump())
@@ -43,11 +43,12 @@ def main(directory):
         'source_artifacts':spec['source_sha256'],'snapshot_sha256':spec['snapshot_sha256'],
         'figure_plan':plan,'statistical_tests':'not_performed','status':'completed','plots':{}}
     renderer_files=[Path(__file__),*[visualization/name for name in
-        ('plot_utils.py','taxonomy_plots.py','functional_plots.py','figure_panels.py','figure_methods.py')]]
+        ('plot_utils.py','taxonomy_plots.py','functional_plots.py','figure_panels.py','figure_methods.py','shared_taxonomy.py')]]
     provenance['renderer_sha256']={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in renderer_files}
 
     @plot_utils.styled_plots
     def draw():
+        execution = None
         if analysis == 'taxonomy':
             from taxonomy_plots import REQUIRED
             frame = plot_utils.read_standard_table(source,REQUIRED,['sample_id','taxonomy_system','taxid'])
@@ -58,34 +59,31 @@ def main(directory):
                 raise plot_utils.TableError('同一物种 ID 对应冲突名称')
             full = frame.pivot(index='sample_id',columns='feature_key',values='abundance').reindex(request.sample_ids).fillna(0)
             names = frame.drop_duplicates('feature_key').set_index('feature_key').taxonomy
-            means = full.mean()
-            selected = means[means>=params.low_abundance_threshold].sort_values(ascending=False,kind='stable').head(params.top_n).index
-            display = full.loc[:,selected].copy()
-            display.columns = [f'{names[key]} [{key}]' for key in display.columns]
-            omitted = full.loc[:,~full.columns.isin(selected)].sum(axis=1)
-            if (omitted>0).any():
-                display['Other (display only)'] = omitted
-            if display.shape[1] == 0:
-                display['No classified species'] = 0.
+            display, _ = species_display(full, names, params.top_n, params.low_abundance_threshold,
+                                         other_label='Other (display only)')
             target = outdir/('taxonomy_'+request.chart+'.png')
+            shared = resolve_shared_taxonomy(spec.get('shared_taxonomy_pin')) if request.chart in {'alpha_diversity','stacked'} else None
+            if shared is not None:
+                shared.preflight()
+            source_sha = spec['snapshot_sha256']
             if request.chart == 'alpha_diversity':
-                provenance['diversity'] = diversity(full,target,groups,params.alpha_style)
+                provenance['diversity'] = diversity(full,target,groups,params.alpha_style,shared=shared,input_sha256=source_sha)
+                execution = provenance['diversity'].pop('execution')
             elif request.chart == 'pcoa':
                 provenance['ordination'] = pcoa(full.loc[full.sum(axis=1)>0],target,groups)
             elif request.chart == 'heatmap':
                 heatmap(display,'Species composition · display matrix',target)
             elif request.chart == 'stacked':
-                figure,axis=plt.subplots(figsize=(max(8,len(display)*.7+4),5.5),layout='constrained')
-                display.plot(kind='bar',stacked=True,ax=axis,colormap='tab20',edgecolor='white',width=.65)
-                axis.set(xlabel='Sample',ylabel='Bracken-reported relative abundance (fraction)',title=f'Species composition · Top-{params.top_n} plus Other')
-                axis.legend(loc='upper left',bbox_to_anchor=(1.01,1),fontsize=7)
-                plot_utils.save_figure(figure,target)
+                execution = stacked_composition(display,target,params.top_n,shared=shared,
+                                                task_id=spec['task_id'],input_sha256=source_sha)
             else:
                 chosen = {**plan,'selected_recipes':[request.chart],'skipped_recipes':{}}
                 result = taxonomy_panels(full,names,outdir,chosen,params.top_n,groups)[request.chart]
                 target = outdir/result['output']
             if not target.with_suffix('.data.tsv').exists():
                 display.rename_axis('sample_id').reset_index().to_csv(target.with_suffix('.data.tsv'),sep='\t',index=False,na_rep='NA')
+            if shared is not None:
+                shared.verify()
             provenance.update(input=str(source),abundance_unit='fraction_of_reads',
                 abundance_denominator='source Bracken fraction; diversity uses the full species matrix normalized within positive samples',
                 database_profile=frame.database_profile.iloc[0],database_release=frame.database_release.iloc[0],
@@ -108,12 +106,16 @@ def main(directory):
                 units=results.get('abundance_unit'),database_context=results,
                 attribution_boundary='Community-total HUMAnN functional potential; not expression, activity or species/MAG attribution.')
         provenance['plots']={request.chart:{'status':'generated','output':target.name}}
+        if execution is not None:
+            provenance['plots'][request.chart]['execution'] = execution
         plot_utils.write_provenance(outdir/(analysis+'_plots.provenance.json'),provenance)
         files = sorted(path.name for path in outdir.iterdir() if path.name.startswith(target.stem+'.'))
         if request.chart=='pcoa':
             files.extend(['taxonomy_bray_curtis.distances.tsv','taxonomy_bray_curtis.eigenvalues.tsv'])
         files.append(analysis+'_plots.provenance.json')
         manifest={'files':files,'primary':target.name,'figure_plan':plan,'parameters':params.model_dump()}
+        if execution is not None:
+            manifest['execution'] = execution
         (directory/'result.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     draw()
 

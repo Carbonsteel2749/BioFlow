@@ -8,6 +8,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -900,6 +901,7 @@ class TaskRunner:
         pythonpath = environment.get("PYTHONPATH", "")
         environment["PYTHONPATH"] = str(self.settings.project_root) + (os.pathsep + pythonpath if pythonpath else "")
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment.setdefault("BIOLLM_TAXONOMY_FIGURE_PYTHON", sys.executable)
         return environment
 
     def _run_nextflow(

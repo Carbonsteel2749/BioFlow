@@ -13,6 +13,7 @@ from scipy.spatial.distance import pdist, squareform
 from plot_utils import OKABE_ITO, TableError, read_standard_table, save_figure, skip, styled_plots, write_provenance
 from figure_methods import build_figure_plan
 from figure_panels import taxonomy_panels
+from shared_taxonomy import SharedTaxonomyError, resolve_shared_taxonomy
 import matplotlib.pyplot as plt
 
 REQUIRED = {'sample_id', 'taxid', 'taxonomy', 'taxonomy_rank', 'taxonomy_system',
@@ -50,6 +51,43 @@ def heatmap(matrix, title, path):
     axis.tick_params(axis='y', labelsize=9)
     figure.colorbar(image, ax=axis, label='Bracken-reported relative abundance (fraction)')
     save_figure(figure, path)
+
+
+def species_display(full, names, top_n, low_abundance_threshold, *,
+                    other_label='Other (display only; not used for diversity)'):
+    means = full.mean(axis=0)
+    selected = means[means >= low_abundance_threshold].sort_values(ascending=False, kind='stable').head(top_n).index
+    display = full.loc[:, selected].copy()
+    omitted = full.loc[:, ~full.columns.isin(selected)].sum(axis=1)
+    display.columns = [f'{names[key]} [{key}]' for key in display.columns]
+    if (omitted > 0).any():
+        display[other_label] = omitted
+    if display.shape[1] == 0:
+        display['No classified species'] = 0.
+    return display, list(selected)
+
+
+def stacked_composition(display, path, top_n, *, shared, task_id, input_sha256):
+    figure, axis = plt.subplots(figsize=(max(8, len(display) * .7 + 4), 5.5), layout='constrained')
+    if shared is not None:
+        execution = shared.draw_stacked(axis, display, top_n=top_n, task_id=task_id, input_sha256=input_sha256)
+    else:
+        # Standalone BioLLM checkout, without the two platform libraries.
+        display.plot(kind='bar', stacked=True, ax=axis, colormap='tab20', width=.65, edgecolor='white', linewidth=.3)
+        axis.set(ylabel='Bracken-reported relative abundance (fraction)', xlabel='Sample',
+                 title=f'Species composition · Top-{top_n} plus Other')
+        axis.tick_params(axis='x', labelrotation=25)
+        axis.legend(loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=7)
+        execution = {'provider': 'standalone', 'input_sha256': input_sha256,
+                     'normalization': 'none', 'abundance_unit': 'fraction_of_reads'}
+    save_figure(figure, path)
+    display.to_csv(path.with_suffix('.data.tsv'), sep='\t', index_label='sample_id')
+    path.with_suffix('.caption.md').write_text(
+        'Bracken-reported fractions retain their source denominator. Other is the sum of omitted reported '
+        'species for display only, not the complement to 1. The selected taxa are not used to calculate '
+        'alpha diversity. A sample with no positive reported species contributes no bars.\n',
+        encoding='utf-8')
+    return execution
 
 
 def single_sample_diversity_summary(sample, values, excluded_count):
@@ -124,14 +162,28 @@ def single_sample_diversity_summary(sample, values, excluded_count):
                     'font_sizes_points': fitted_sizes, 'physical_size_inches': [width, height]}
 
 
-def diversity(matrix, path, groups=None, style='auto'):
+def diversity(matrix, path, groups=None, style='auto', *, shared=None, input_sha256=None):
     totals = matrix.sum(axis=1)
-    proportions = matrix.div(totals.replace(0, np.nan), axis=0)
-    positive = proportions.where(proportions > 0)
-    shannon = -(positive * np.log(positive)).sum(axis=1, min_count=1)
-    observed = (matrix > 0).sum(axis=1)
+    quantifiable = matrix.loc[totals > 0]
+    if shared is not None and not quantifiable.empty:
+        calculated, execution = shared.alpha(quantifiable, input_sha256=input_sha256)
+        calculated = calculated.reindex(matrix.index)
+        shannon = calculated['shannon']
+        simpson = calculated['simpson']
+        observed = calculated['observed_features'].fillna(0).astype(int)
+    elif shared is not None:
+        shannon = simpson = pd.Series(np.nan, index=matrix.index)
+        observed = pd.Series(0, index=matrix.index, dtype=int)
+        execution = {'provider': 'not_run', 'reason': 'no quantifiable samples', 'input_sha256': input_sha256}
+    else:
+        proportions = matrix.div(totals.replace(0, np.nan), axis=0)
+        positive = proportions.where(proportions > 0)
+        shannon = -(positive * np.log(positive)).sum(axis=1, min_count=1)
+        simpson = 1 - (proportions ** 2).sum(axis=1, min_count=1)
+        observed = (matrix > 0).sum(axis=1)
+        execution = {'provider': 'standalone', 'input_sha256': input_sha256}
     data = pd.DataFrame({'shannon': shannon,
-                         'simpson_1_minus_d': 1 - (proportions ** 2).sum(axis=1, min_count=1),
+                         'simpson_1_minus_d': simpson,
                          'observed_species': observed,
                          'pielou_evenness': shannon / np.log(observed.where(observed > 1)),
                          'abundance_total': totals,
@@ -209,6 +261,8 @@ def diversity(matrix, path, groups=None, style='auto'):
         'Group summaries use a display policy of at least 10 samples per group; '
         'box whiskers use 1.5 IQR, with all individual points retained; violin density is a display estimate. '
         'No hypothesis tests or significance annotations were performed.\n', encoding='utf-8')
+    execution['renderer'] = {'function': 'taxonomy_plots.diversity',
+                             'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     return {'matrix': 'full_species_matrix', 'normalization': 'positive sample divided by its species abundance total',
             'shannon_log_base': 'e', 'simpson_definition': '1 - sum(p_i^2)',
             'observed_species_definition': 'positive species features; not extrapolated richness',
@@ -218,7 +272,7 @@ def diversity(matrix, path, groups=None, style='auto'):
             'summary_layout': summary_layout,
             'metric_sample_counts': metric_counts,
             'statistical_tests': 'not_performed', 'excluded_zero_total_samples': list(data.index[totals <= 0]),
-            'data_file': path.with_suffix('.data.tsv').name}
+            'data_file': path.with_suffix('.data.tsv').name, 'execution': execution}
 
 
 def pcoa(matrix, path, groups=None):
@@ -279,6 +333,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--outdir', type=Path, required=True)
+    parser.add_argument('--task-id', default='manual')
+    parser.add_argument('--shared-taxonomy-pin', help='Source identity pinned at workflow submission')
     parser.add_argument('--top-n', type=int, default=20)
     parser.add_argument('--low-abundance-threshold', type=float, default=.01)
     parser.add_argument('--sample-metadata', type=Path)
@@ -296,6 +352,8 @@ def main():
                   'metadata_sha256': None,
                   'plots': {}}
     try:
+        shared = resolve_shared_taxonomy(args.shared_taxonomy_pin)
+        provenance['input_sha256'] = hashlib.sha256(args.input.read_bytes()).hexdigest() if args.input.is_file() else None
         if args.metadata_sha256 and not args.sample_metadata:
             raise TableError('metadata SHA-256 requires a sample metadata file')
         if args.sample_metadata:
@@ -323,7 +381,7 @@ def main():
             if frame.groupby('feature_key').taxonomy.nunique().max() > 1:
                 raise TableError('one taxonomy identifier has conflicting names')
         groups = sample_groups(args.sample_metadata, sorted(frame.sample_id.unique()), args.group_column)
-    except TableError as exc:
+    except (TableError, SharedTaxonomyError) as exc:
         provenance.update(status='failed', reason=str(exc))
         write_provenance(args.outdir / 'taxonomy_plots.provenance.json', provenance)
         return 65
@@ -332,28 +390,27 @@ def main():
         write_provenance(args.outdir / 'taxonomy_plots.provenance.json', provenance)
         return 0
     full = frame.pivot(index='sample_id', columns='feature_key', values='abundance').fillna(0.)
-    means = full.mean(axis=0)
-    selected = means[means >= args.low_abundance_threshold].sort_values(ascending=False, kind='stable').head(args.top_n).index
-    display = full.loc[:, selected].copy()
-    omitted = full.loc[:, ~full.columns.isin(selected)].sum(axis=1)
     names = frame.drop_duplicates('feature_key').set_index('feature_key').taxonomy
-    display.columns = [f'{names[key]} [{key}]' for key in display.columns]
-    if (omitted > 0).any():
-        display['Other (display only; not used for diversity)'] = omitted
-    if display.shape[1] == 0:
-        display['No classified species'] = 0.
+    display, selected = species_display(full, names, args.top_n, args.low_abundance_threshold)
     stacked = args.outdir / 'taxonomy_top20_stacked.png'
-    figure, axis = plt.subplots(figsize=(max(8, len(display) * .7 + 4), 5.5), layout='constrained')
-    display.plot(kind='bar', stacked=True, ax=axis, colormap='tab20', width=.65, edgecolor='white', linewidth=.3)
-    axis.set(ylabel='Bracken-reported relative abundance (fraction)', xlabel='Sample', title=f'Species composition · Top-{args.top_n} plus Other')
-    axis.tick_params(axis='x', labelrotation=25)
-    axis.legend(loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=7)
-    save_figure(figure, stacked)
     heat = args.outdir / 'taxonomy_species_heatmap.png'
-    heatmap(display, 'Species composition · display matrix', heat)
     alpha = args.outdir / 'taxonomy_alpha_diversity.png'
-    provenance['diversity'] = diversity(full, alpha, groups, args.alpha_style)
+    try:
+        stacked_execution = stacked_composition(display, stacked, args.top_n, shared=shared,
+                                                task_id=args.task_id, input_sha256=provenance['input_sha256'])
+        heatmap(display, 'Species composition · display matrix', heat)
+        provenance['diversity'] = diversity(full, alpha, groups, args.alpha_style,
+                                            shared=shared, input_sha256=provenance['input_sha256'])
+        alpha_execution = provenance['diversity'].pop('execution')
+        if shared is not None:
+            shared.verify()
+    except SharedTaxonomyError as exc:
+        provenance.update(status='failed', reason=str(exc))
+        write_provenance(args.outdir / 'taxonomy_plots.provenance.json', provenance)
+        return 65
     provenance['plots'] = {name: {'status': 'generated', 'output': path.name} for name, path in [('stacked', stacked), ('heatmap', heat), ('diversity', alpha)]}
+    provenance['plots']['stacked']['execution'] = stacked_execution
+    provenance['plots']['diversity']['execution'] = alpha_execution
     valid = full.loc[full.sum(axis=1) > 0]
     profile = {'sample_count':len(valid), 'feature_count':int((valid > 0).any(axis=0).sum()),
                'group_counts': groups.reindex(valid.index).value_counts().to_dict() if groups is not None else {}}

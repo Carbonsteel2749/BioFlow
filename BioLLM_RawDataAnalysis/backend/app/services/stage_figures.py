@@ -33,11 +33,14 @@ def _regular(path: Path, root: Path) -> bool:
 def _generated(value):
     if isinstance(value, dict):
         if value.get("status") == "generated":
+            execution = value.get('execution')
+            if not isinstance(execution, dict):
+                execution = None
             outputs = value.get("outputs", [])
             if isinstance(outputs, list):
-                yield from (name for name in outputs if isinstance(name, str))
+                yield from ((name, execution) for name in outputs if isinstance(name, str))
             if isinstance(value.get("output"), str):
-                yield value["output"]
+                yield value["output"], execution
         for child in value.values():
             yield from _generated(child)
 
@@ -89,7 +92,7 @@ def _safe_svg(content: bytes) -> bool:
     return True
 
 
-def _refresh_figure_context(connection, identifier, payload, **extra):
+def _refresh_figure_context(connection, identifier, payload, *, execution=None, **extra):
     row = connection.execute('SELECT metadata_json FROM artifacts WHERE artifact_id=?', (identifier,)).fetchone()
     metadata = json.loads(row[0])
     for key in ('analysis_version', 'plot_module_version', 'figure_skill', 'figure_plan', 'display_scale',
@@ -98,11 +101,15 @@ def _refresh_figure_context(connection, identifier, payload, **extra):
         if key in payload:
             metadata[key] = payload[key]
     metadata.update(generated_at=payload.get('created_at'), **extra)
+    if execution is not None:
+        metadata['figure_execution'] = execution
+    else:
+        metadata.pop('figure_execution', None)
     connection.execute('UPDATE artifacts SET metadata_json=? WHERE artifact_id=?',
         (json.dumps(metadata, ensure_ascii=False), identifier))
 
 
-def _publish_companions(connection, *, task_id, folder, kind, plots, work, output, name, payload, png_id):
+def _publish_companions(connection, *, task_id, folder, kind, plots, work, output, name, payload, png_id, execution):
     stem = Path(name).stem
     candidates = [(stem + suffix, media, kind if suffix in {'.svg', '.pdf'} else 'figure.data')
         for suffix, media in [('.svg', 'image/svg+xml'), ('.pdf', 'application/pdf'),
@@ -129,10 +136,11 @@ def _publish_companions(connection, *, task_id, folder, kind, plots, work, outpu
                 continue
         digest = hashlib.sha256(content).hexdigest()
         identifier = str(uuid.uuid5(uuid.NAMESPACE_URL, f'{task_id}/{folder}/{filename}/{digest}'))
+        own_execution = execution if artifact_type != 'provenance.run' else None
         if artifact_type == 'figure.data' and filename.endswith('.tsv'):
             data_ids.append(identifier)
         if connection.execute('SELECT artifact_id FROM artifacts WHERE artifact_id=?', (identifier,)).fetchone():
-            _refresh_figure_context(connection, identifier, payload)
+            _refresh_figure_context(connection, identifier, payload, execution=own_execution)
             continue
         destination = output / 'stage_figures' / folder / digest / filename
         if destination.resolve() != destination:
@@ -154,6 +162,8 @@ def _publish_companions(connection, *, task_id, folder, kind, plots, work, outpu
                     'database_context': payload.get('database_context'),
                     'missingness_policy': payload.get('missingness_policy'),
                     'paper_sections': ['Method', 'Result']}
+        if own_execution is not None:
+            metadata['figure_execution'] = own_execution
         record = dict(artifact_id=identifier, task_id=task_id, node_id=folder, producer=folder,
             artifact_type=artifact_type, schema_version='1.0', sample_scope='cohort',
             sample_id=None, cohort_id=task_id, media_type=media, path=str(destination), sha256=digest,
@@ -209,7 +219,7 @@ def publish_stage_figures(service: ArtifactService, task_id: str) -> None:
                 payload = json.loads(provenance.read_text(encoding="utf-8"))
                 if not isinstance(payload, dict) or payload.get("status") != "completed" or payload.get("analysis") != folder:
                     continue
-                for name in sorted(set(_generated(payload.get("plots", {})))):
+                for name, execution in sorted(dict(_generated(payload.get("plots", {}))).items()):
                     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.png", name):
                         continue
                     source = plots / name
@@ -222,8 +232,8 @@ def publish_stage_figures(service: ArtifactService, task_id: str) -> None:
                     artifact_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{task_id}/{folder}/{name}/{digest}"))
                     if connection.execute("SELECT artifact_id FROM artifacts WHERE artifact_id=?", (artifact_id,)).fetchone():
                         _refresh_figure_context(connection, artifact_id, payload, trace_hash=task_hash,
-                            parameters={'top_n': payload.get('top_n')})
-                        _publish_companions(connection, task_id=task_id, folder=folder, kind=artifact_type, plots=plots, work=work, output=output, name=name, payload=payload, png_id=artifact_id)
+                            parameters={'top_n': payload.get('top_n')}, execution=execution)
+                        _publish_companions(connection, task_id=task_id, folder=folder, kind=artifact_type, plots=plots, work=work, output=output, name=name, payload=payload, png_id=artifact_id, execution=execution)
                         continue
                     destination = output / "stage_figures" / folder / digest / name
                     if destination.resolve() != destination:
@@ -254,6 +264,8 @@ def publish_stage_figures(service: ArtifactService, task_id: str) -> None:
                         'missingness_policy': payload.get('missingness_policy'),
                         'diversity': payload.get('diversity'), 'ordination': payload.get('ordination'),
                     }
+                    if execution is not None:
+                        metadata['figure_execution'] = execution
                     record = dict(
                         artifact_id=artifact_id, task_id=task_id, node_id=folder,
                         producer=folder, artifact_type=artifact_type, schema_version="1.0",
@@ -266,7 +278,7 @@ def publish_stage_figures(service: ArtifactService, task_id: str) -> None:
                         f"INSERT INTO artifacts ({', '.join(record)}) VALUES ({', '.join('?' for _ in record)})",
                         tuple(record.values()),
                     )
-                    _publish_companions(connection, task_id=task_id, folder=folder, kind=artifact_type, plots=plots, work=work, output=output, name=name, payload=payload, png_id=artifact_id)
+                    _publish_companions(connection, task_id=task_id, folder=folder, kind=artifact_type, plots=plots, work=work, output=output, name=name, payload=payload, png_id=artifact_id, execution=execution)
             except (OSError, ValueError, TypeError):
                 # Incomplete/invalid files are never served as successful figures.
                 continue
