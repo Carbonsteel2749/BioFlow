@@ -158,6 +158,11 @@ class LiveLiteraturePort(LiteraturePort):
 
     # ── 公共 API ────────────────────────────────────────────────────────────
 
+    def hits_for_documents(self, document_ids: List[str]) -> List[LiteratureHit]:
+        if self._resolved() != "ai-localbase":
+            raise RuntimeError("按文献选择只支持当前知识库")
+        return self._make_ai_localbase().hits_for_documents(document_ids)
+
     def search(self, query: str, top_k: int = 5) -> List[LiteratureHit]:
         if top_k <= 0:
             return []

@@ -1,0 +1,27 @@
+{
+  "_doc": "Article-type templates: a default section list and order. Users may add, remove or reorder sections from the library. Sources: Scientific Data Guide to Authors (Data Descriptor), Bioinformatics author guidelines (Application Note), BMC/Genome Biology software articles, NAR Database Issue, common IMRaD research articles.",
+  "default": "research_article",
+  "types": [
+    {"id": "research_article", "title_en": "Research Article", "title_zh": "研究论文（IMRaD）",
+     "examples": "Microbiome, Gut, Nature Communications",
+     "sections": ["abstract", "introduction", "methods", "results", "discussion", "conclusion", "back_matter"]},
+    {"id": "data_descriptor", "title_en": "Data Descriptor", "title_zh": "数据描述论文",
+     "examples": "Scientific Data, GigaScience Data Note",
+     "sections": ["abstract", "background_summary", "methods", "data_records", "technical_validation", "usage_notes", "code_availability", "back_matter"]},
+    {"id": "methods_software", "title_en": "Method / Software Article", "title_zh": "方法或软件论文",
+     "examples": "Genome Biology, BMC Bioinformatics, Bioinformatics Original Paper",
+     "sections": ["abstract", "introduction", "implementation", "benchmarking", "application_examples", "discussion", "availability_requirements", "back_matter"]},
+    {"id": "application_note", "title_en": "Application Note", "title_zh": "应用简报",
+     "examples": "Bioinformatics Application Note",
+     "sections": ["abstract", "introduction", "implementation", "results_and_discussion", "availability_requirements", "back_matter"]},
+    {"id": "database", "title_en": "Database Article", "title_zh": "数据库论文",
+     "examples": "NAR Database Issue, Database (Oxford)",
+     "sections": ["abstract", "introduction", "data_sources_construction", "database_content", "database_usage", "comparison_existing", "outlook", "back_matter"]},
+    {"id": "review", "title_en": "Review", "title_zh": "综述",
+     "examples": "Briefings in Bioinformatics",
+     "sections": ["abstract", "introduction", "review_topics", "outlook", "conclusion", "back_matter"]},
+    {"id": "short_report", "title_en": "Short Report", "title_zh": "简短报告",
+     "examples": "Microbiome Short Report",
+     "sections": ["abstract", "introduction", "results_and_discussion", "methods", "back_matter"]}
+  ]
+}

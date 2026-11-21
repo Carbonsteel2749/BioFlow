@@ -7,6 +7,7 @@ Run from plate root:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -31,6 +32,8 @@ from article_writing.llm import build_llm_client
 from article_writing.llm.polish import polish_section_draft
 from frontend.analysis_packages import list_analysis_packages
 from frontend.export_formats import export_word_and_pdf
+from frontend.latex_preview import compile_latex, latex_dir
+from frontend.latex_template import TemplateError, render_for_project, template_status
 from frontend.llm_config import load_llm_config, model_status, save_llm_config
 from frontend.session_store import SessionStore, utc_now
 
@@ -73,6 +76,21 @@ class StartRequest(BaseModel):
     skills: list[str] = Field(default_factory=list)
     editor_letter: str = ""
     reviewer_comments: str = ""
+    literature_document_ids: list[str] = Field(default_factory=list)
+    # Papers chosen from the personal library: {doi, title, authors, year}; abstracts are fetched by DOI.
+    literature_refs: list[dict[str, Any]] = Field(default_factory=list)
+    # Section choice: an article type from the library and/or an explicit ordered section list.
+    article_type: str = ""
+    sections: list[str] = Field(default_factory=list)
+    # Chart-module figure ids (project_figures) to place in the manuscript.
+    figures: list[str] = Field(default_factory=list)
+    author_information: dict[str, str] = Field(default_factory=dict)
+
+
+class LatexRequest(BaseModel):
+    tex: str = ""
+    language: str = "zh"
+    project_id: str = ""
 
 
 class ExportRequest(BaseModel):
@@ -90,6 +108,13 @@ class ConfirmRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     use_llm: bool = True
+    # "zh" / "en": revise only that language half of a bilingual chapter (chapter-chat-reviser skill).
+    language: str = ""
+
+
+class RuntimeSkillRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
+    version: str | None = None
 
 
 class LLMConfigRequest(BaseModel):
@@ -294,11 +319,13 @@ def analysis_preview(
 
 @app.get("/api/literature/preview")
 def literature_preview(
+    request: Request,
     query: str = Query(min_length=1),
     top_k: int = Query(default=5, ge=1, le=12),
     literature_url: str = "",
     literature_db: str = "",
     use_live: bool = False,
+    knowledge_base_id: str = "",
 ) -> dict[str, Any]:
     db = Path(literature_db).expanduser() if literature_db.strip() else DEFAULT_LITERATURE_DB
     live = bool(use_live or literature_url.strip())
@@ -306,6 +333,9 @@ def literature_preview(
         port = LiveLiteraturePort(
             base_url=literature_url.strip(),
             db_path=db if db.is_file() else None,
+            knowledge_base_id=knowledge_base_id,
+            request_headers={k: v for k, v in request.headers.items()
+                             if k.lower() in {"cookie", "authorization", "x-csrf-token"}},
         )
         source = "live"
     else:
@@ -315,19 +345,141 @@ def literature_preview(
     return {"query": query, "source": source, "hits": hits}
 
 
+WRITING_SKILL_STAGES = {
+    "bio-fact-ledger": "自动运行：从分析结果包用代码计算全部可引用数值",
+    "methods-from-provenance": "自动运行：依据软件版本、数据库和参数记录生成 Methods",
+    "section-planner": "自动运行：把结果、讨论、摘要、结论拆成段落并限定每段可用事实",
+    "paragraph-writer": "自动运行：逐段写作，核对未通过时按意见修改",
+    "claim-verifier": "自动运行：逐句核对数字来源、过度表述和事实支撑",
+    "nature-writing": "方法、结果、讨论：指导论证与章节组织",
+    "nature-polishing": "各章节生成时：语言与表达规则（合并执行，不另跑一轮）",
+    "nature-reviewer": "全文完成后：生成模拟审稿意见 review.md",
+    "nature-response": "全文完成后：根据审稿意见生成回复 response.md",
+}
+
+
+@app.get("/api/writing-skills")
+def writing_skills() -> dict[str, Any]:
+    _skills_connection()
+    try:
+        from bioflow_skills import list_catalog
+        entries = [entry for entry in list_catalog() if entry.category == "writing"]
+    except Exception as error:
+        return {"items": [], "warning": f"Skills 模块不可用：{error}"}
+    from article_writing.skills.availability import catalogue
+    return {"source": "bioflow_skills+published_center", "items": catalogue(entries, WRITING_SKILL_STAGES)}
+
+
+@app.post('/api/runtime-skills/{name}')
+def execute_runtime_skill(name: str, body: RuntimeSkillRequest):
+    """Server-injected model clients never travel through JSON form fields."""
+    _skills_connection()
+    from bioflow_skills import run_skill
+    from bioflow_skills.registry import get_registry
+    registry=get_registry()
+    if not registry.has(name):
+        raise HTTPException(404,'写作能力不存在，请刷新目录。')
+    try:
+        instance=registry.create(name,version=body.version)
+    except (KeyError,ValueError) as error:
+        raise HTTPException(422,'能力版本不存在，请刷新目录。') from error
+    if instance.spec.category!='writing':
+        raise HTTPException(422,'此入口只负责论文写作能力。')
+    payload=dict(body.payload)
+    payload.pop('model',None)
+    if 'model' in instance.spec.input_keys:
+        config=load_llm_config()
+        payload['model']=build_llm_client(enabled=True,provider=config['provider'],model=config['model'],
+                                         url=config['url'],timeout=float(config['timeout']))
+    result=run_skill(name,payload,version=body.version)
+    if (result.data or {}).get('execution_mode')=='agent':
+        if 'model' not in payload:
+            config=load_llm_config()
+            payload['model']=build_llm_client(enabled=True,provider=config['provider'],model=config['model'],
+                                             url=config['url'],timeout=float(config['timeout']))
+        try:
+            from article_writing.skills.model_task import execute
+            return execute(result,payload,payload['model'])
+        except ValueError as error:
+            raise HTTPException(422,str(error)) from error
+    return result.to_dict()
+
+
+def validate_sections(body: StartRequest) -> None:
+    from article_writing import section_library
+    allowed = {s.id for s in section_library.sections().values() if s.mode == 'author_input'}
+    if set(body.author_information) - allowed or any(len(v) > 6000 for v in body.author_information.values()):
+        raise HTTPException(422, '作者信息仅支持伦理、作者贡献、资助、致谢与利益冲突，每项最多 6000 字符。')
+    if not body.article_type.strip() and not body.sections:
+        return
+    try:
+        section_library.resolve_sections(body.article_type, body.sections)
+    except ValueError as error:
+        raise HTTPException(422, f"章节选择无效：{error}") from error
+
+
+@app.get("/api/section-library")
+def section_library_catalogue() -> dict[str, Any]:
+    """Section library and article types; status shows which section skills exist yet."""
+    from article_writing import section_library
+    from article_writing.skills.bio_skills import ensure_skills_path
+    ensure_skills_path()
+    try:
+        from bioflow_skills.registry import get_registry
+        names = get_registry().list_names()
+    except Exception:  # noqa: BLE001
+        names = []
+    return section_library.catalogue(names)
+
+
+def validate_writing_skills(body: StartRequest) -> None:
+    available = {e["name"] for e in writing_skills()["items"] if e.get("selectable",e["supported"]) or e.get('invocation')=='pipeline'}
+    invalid = set(body.skills) - available
+    if invalid:
+        raise HTTPException(422, "不可用于当前写作流程的 Skills：" + ", ".join(sorted(invalid)))
+    if "nature-response" in body.skills and not (body.editor_letter.strip() or body.reviewer_comments.strip()):
+        raise HTTPException(422, "使用审稿回复 Skill 时，请提供审稿意见或编辑来信。")
+    try:
+        from article_writing.skills.availability import selected_guidance
+        selected_guidance(body.skills)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
 @app.get("/api/sessions")
 def list_sessions() -> dict[str, Any]:
     return {"sessions": store.list_summaries()}
 
 
+@app.post("/api/materials/check")
+def check_materials(body: StartRequest) -> dict[str, Any]:
+    from article_writing.adapters.live_analysis import LiveAnalysisPort
+    from article_writing.adapters.biollm_mapping import BioLLMPackageError
+    port = LiveAnalysisPort(run_dir=body.analysis_run_dir, bundle_path=body.analysis_bundle,
+                            analysis_url=body.analysis_url, task_id=body.analysis_task_id)
+    try:
+        analysis = port.load()
+        report = analysis.raw.get("materials") if isinstance(analysis.raw, dict) else None
+        if report is None:
+            return {"supported": False, "message": "此包仍使用旧解析器；第一阶段材料检查暂只支持包含 read_counts.tsv 的宏基因组报告。"}
+        return {"supported": True, **report}
+    except (ValueError, OSError, BioLLMPackageError) as error:
+        raise HTTPException(422, str(error)) from error
+    finally:
+        for handle in port._temp_dirs:
+            handle.cleanup()
+
+
 @app.post("/api/sessions")
 def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
+    validate_writing_skills(body)
+    validate_sections(body)
     llm_config = load_llm_config()
     state = model_status(llm_config)
     if state["model_available"] is False:
         raise HTTPException(status_code=400, detail=state["warning"] or "LLM 模型不可用")
     try:
-        session = store.create_from_pipeline(
+        session = store.begin_generation(
             use_llm=True,
             fixtures_dir=None,
             analysis_run_dir=body.analysis_run_dir,
@@ -347,6 +499,13 @@ def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
             selected_skills=body.skills,
             editor_letter=body.editor_letter,
             reviewer_comments=body.reviewer_comments,
+            literature_document_ids=body.literature_document_ids,
+            literature_refs=[{k: str(ref.get(k) or "")[:500] for k in ("doi", "title", "authors", "year")}
+                             for ref in body.literature_refs[:50] if isinstance(ref, dict)],
+            article_type=body.article_type,
+            sections=body.sections,
+            figure_ids=[str(f)[:64] for f in body.figures[:30]],
+            author_information=body.author_information,
             llm_provider=llm_config["provider"],
             llm_model=llm_config["model"],
             llm_url=llm_config["url"],
@@ -451,6 +610,30 @@ def chat_section(session_id: str, section_id: str, body: ChatRequest) -> dict[st
         url=llm_config["url"],
         timeout=float(llm_config["timeout"]),
     )
+    language = (body.language or "").strip().lower()
+    if language in {"zh", "en"}:
+        from article_writing.skills.bio_skills import chapter_chat_note, revise_chapter
+
+        history = [m for m in section.chat[:-1] if m.get("role") in {"user", "assistant"}]
+        try:
+            result = revise_chapter(section.markdown, user_msg, language, client,
+                                    title=section.title_zh or section.title, history=history)
+        except Exception as exc:  # model unreachable, bad JSON, skill failure
+            note = f"这次修改没有完成，原文保留：{exc}"
+            section.chat.append({"role": "assistant", "content": note})
+            section.updated_at = utc_now()
+            store.save(session)
+            return {"section": section.as_dict(), "applied": False, "error": str(exc)}
+        applied = result["status"] == "revised"
+        if applied:
+            section.markdown = result["markdown"]
+            section.confirmed = False
+        section.chat.append({"role": "assistant", "content": chapter_chat_note(result, language)})
+        section.updated_at = utc_now()
+        store.save(session)
+        return {"section": section.as_dict(), "applied": applied, "status": result["status"],
+                "problems": result.get("problems", []), "changed": result.get("changed", 0)}
+
     try:
         sid = SectionId(section_id)
     except ValueError as error:
@@ -533,6 +716,8 @@ def export_manuscript(session_id: str, body: ExportRequest | None = None) -> dic
         state.add_draft(SectionDraft(section=sid, title=sec.title, markdown=sec.markdown))
 
     manuscript = build_manuscript_markdown(state, language=language)
+    from article_writing.layout.citations import number_citations
+    manuscript = number_citations(manuscript, heading="参考文献" if language == "zh" else "References")
     out_dir = Path(session.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     final_sections = out_dir / "final_sections"
@@ -579,6 +764,102 @@ def export_manuscript(session_id: str, body: ExportRequest | None = None) -> dic
     }
 
 
+def _paper_language(value: str) -> str:
+    choice = (value or "zh").strip().lower()
+    if choice not in {"en", "zh"}:
+        raise HTTPException(status_code=400, detail="language must be en or zh")
+    return choice
+
+
+def _project_id(value: str) -> str:
+    choice = (value or "").strip()
+    if not choice:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", choice):
+        raise HTTPException(status_code=400, detail="无效的项目编号")
+    return choice
+
+
+def _rendered_tex(session, language: str, project_id: str) -> tuple[str, object, str]:
+    try:
+        return render_for_project(session, language, project_id)
+    except TemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _latex_matches(session, language: str, stamp: str) -> bool:
+    work = latex_dir(session)
+    marker = work / "manuscript.lang"
+    saved_stamp = (work / "manuscript.template").read_text(encoding="utf-8").strip() if (work / "manuscript.template").is_file() else ""
+    saved_language = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+    return saved_language == language and saved_stamp == stamp and (work / "manuscript.tex").is_file() and (work / "manuscript.pdf").is_file()
+
+
+def _latex_payload(session_id: str, tex: str, error: str, language: str, stamp: str) -> dict[str, Any]:
+    session = store.get(session_id)
+    ready = bool(session and not error and _latex_matches(session, language, stamp))
+    return {
+        "tex": tex,
+        "language": language,
+        "pdf_ready": ready,
+        "error": error,
+        "pdf": f"/api/sessions/{session_id}/latex/pdf" if ready else "",
+    }
+
+
+@app.get("/api/sessions/{session_id}/latex")
+def read_latex(session_id: str, language: str = Query(default="zh"), project_id: str = Query(default="")) -> dict[str, Any]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    choice = _paper_language(language)
+    project = _project_id(project_id)
+    rendered, _support, stamp = _rendered_tex(session, choice, project)
+    work = latex_dir(session)
+    matches = _latex_matches(session, choice, stamp)
+    tex = (work / "manuscript.tex").read_text(encoding="utf-8") if matches else rendered
+    return {
+        "tex": tex,
+        "language": choice,
+        "template": template_status(project) if project else {"installed": False},
+        "pdf_ready": matches,
+        "error": "",
+        "pdf": f"/api/sessions/{session_id}/latex/pdf" if matches else "",
+    }
+
+
+@app.post("/api/sessions/{session_id}/latex")
+def build_latex(session_id: str, body: LatexRequest) -> dict[str, Any]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if session.status == "running":
+        raise HTTPException(status_code=409, detail="稿件还在生成，完成后再编译")
+    choice = _paper_language(body.language)
+    project = _project_id(body.project_id)
+    rendered, support, stamp = _rendered_tex(session, choice, project)
+    tex = body.tex.strip() or rendered
+    if len(tex) > 1_500_000:
+        raise HTTPException(status_code=413, detail="LaTeX 源码过长")
+    _pdf, error = compile_latex(session, tex, support)
+    if _pdf is not None and not error:
+        work = latex_dir(session)
+        (work / "manuscript.lang").write_text(choice, encoding="utf-8")
+        (work / "manuscript.template").write_text(stamp, encoding="utf-8")
+    return _latex_payload(session_id, tex, error, choice, stamp)
+
+
+@app.get("/api/sessions/{session_id}/latex/pdf")
+def read_latex_pdf(session_id: str) -> FileResponse:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    pdf = latex_dir(session) / "manuscript.pdf"
+    if not pdf.is_file():
+        raise HTTPException(status_code=404, detail="请先编译 PDF")
+    return FileResponse(pdf, media_type="application/pdf", filename=f"{session_id}.pdf", content_disposition_type="inline")
+
+
 def _session_asset_path(session, filename: str) -> Path | None:
     """Find a staged figure, including an earlier run that copied the same file."""
 
@@ -597,6 +878,25 @@ def _session_asset_path(session, filename: str) -> Path | None:
         if path.is_file() and path.parent.name == "figures":
             return path.resolve()
     return None
+
+
+QUALITY_REPORTS = (("peer_review.md", "模拟审稿与定向修改"), ("storms_checklist.md", "STORMS 报告规范检查"),
+                   ("review.md", "nature-reviewer 审稿意见"), ("response.md", "审稿回复"))
+
+
+@app.get("/api/sessions/{session_id}/reports")
+def session_reports(session_id: str) -> dict[str, Any]:
+    """Quality reports written by the pipeline (review, STORMS check)."""
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    folder = Path(session.output_dir) / "pipeline"
+    items = []
+    for name, label in QUALITY_REPORTS:
+        path = folder / name
+        if path.is_file():
+            items.append({"name": name, "label": label, "markdown": path.read_text(encoding="utf-8")})
+    return {"items": items}
 
 
 @app.get("/api/sessions/{session_id}/assets/{filename}")
