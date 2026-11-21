@@ -48,17 +48,22 @@ def test_links_are_project_scoped(client,monkeypatch):
     assert client.post(f'/api/projects/{a}/links/task',json={'id':'../bad'}).status_code==422
 
 
-def test_real_skill_catalog_and_execution(client):
+def test_real_skill_catalog_and_execution(client,monkeypatch):
     catalog=client.get('/api/skills').json()
     assert len(catalog)>=20
     skill=next(s for s in catalog if s['name']=='nature-writing')
     pid=client.post('/api/projects',json={'name':'Skills'}).json()['id']
+    async def writing_runtime(service,path,method,body):
+        assert service=='writing' and path=='/api/runtime-skills/nature-writing' and method=='POST'
+        assert body['payload']['task_context']=='起草方法' and body['version']==skill['version']
+        return {'skill':'nature-writing','status':'completed','data':{'execution_mode':'agent'}}
+    monkeypatch.setattr(gateway,'upstream',writing_runtime)
     r=client.post(f'/api/projects/{pid}/skills/nature-writing',json={'payload':{'task_context':'起草方法'},'version':skill['version']})
     assert r.status_code==200
     assert r.json()['skill']=='nature-writing'
-    assert r.json()['status']=='skipped'
+    assert r.json()['status']=='completed'
     assert r.json()['data']['execution_mode']=='agent'
-    assert client.get(f'/api/projects/{pid}/history').json()[0]['action']=='执行 Skill'
+    assert client.get(f'/api/projects/{pid}/history').json()[0]['action']=='执行写作能力'
 
 
 def test_proxy_streams_uploads_errors_and_downloads(client,monkeypatch):

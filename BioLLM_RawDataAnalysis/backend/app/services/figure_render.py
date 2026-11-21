@@ -106,7 +106,6 @@ def main(directory):
                 units=results.get('abundance_unit'),database_context=results,
                 attribution_boundary='Community-total HUMAnN functional potential; not expression, activity or species/MAG attribution.')
         provenance['plots']={request.chart:{'status':'generated','output':target.name}}
-        manifest['display'] = plot_utils.DISPLAY_METADATA
         if execution is not None:
             provenance['plots'][request.chart]['execution'] = execution
         plot_utils.write_provenance(outdir/(analysis+'_plots.provenance.json'),provenance)
@@ -115,6 +114,7 @@ def main(directory):
             files.extend(['taxonomy_bray_curtis.distances.tsv','taxonomy_bray_curtis.eigenvalues.tsv'])
         files.append(analysis+'_plots.provenance.json')
         manifest={'files':files,'primary':target.name,'figure_plan':plan,'parameters':params.model_dump()}
+        manifest['display'] = plot_utils.DISPLAY_METADATA
         if execution is not None:
             manifest['execution'] = execution
         (directory/'result.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
