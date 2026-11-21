@@ -1,0 +1,57 @@
+[
+  {
+    "paper_id": "lit_001",
+    "title": "Gut microbiota alterations in autism spectrum disorder: a systematic review",
+    "abstract": "This review summarizes microbiome composition changes reported in ASD cohorts and discusses immune and metabolic pathways.",
+    "authors": "Smith A; Lee B",
+    "year": 2022,
+    "doi": "10.1000/fixture.asd.microbiome.001",
+    "pmid": "10000001",
+    "score": 0.91,
+    "tags": ["autism", "gut microbiota", "review"]
+  },
+  {
+    "paper_id": "lit_002",
+    "title": "Keratinocyte inflammatory programs in cutaneous squamous cell carcinoma",
+    "abstract": "Transcriptomic profiling of cSCC keratinocytes highlights inflammatory and epithelial remodeling signatures.",
+    "authors": "Chen C; Patel D",
+    "year": 2021,
+    "doi": "10.1000/fixture.cscc.002",
+    "pmid": "10000002",
+    "score": 0.88,
+    "tags": ["cSCC", "keratinocyte", "transcriptome"]
+  },
+  {
+    "paper_id": "lit_003",
+    "title": "Short-chain fatty acids mediate gut-skin axis signaling",
+    "abstract": "SCFAs modulate epithelial barrier and inflammatory tone, providing a mechanistic bridge between gut microbiota and skin phenotypes.",
+    "authors": "Nguyen E; Rossi F",
+    "year": 2020,
+    "doi": "10.1000/fixture.scfa.003",
+    "pmid": "10000003",
+    "score": 0.76,
+    "tags": ["SCFA", "gut-skin axis", "inflammation"]
+  },
+  {
+    "paper_id": "lit_004",
+    "title": "Best practices for differential expression analysis of bulk RNA-seq",
+    "abstract": "Guidelines covering normalization, multiple-testing correction, and reporting of DEG thresholds.",
+    "authors": "Kim G; Alvarez H",
+    "year": 2019,
+    "doi": "10.1000/fixture.deg.methods.004",
+    "pmid": "10000004",
+    "score": 0.7,
+    "tags": ["DEG", "methods", "RNA-seq"]
+  },
+  {
+    "paper_id": "lit_005",
+    "title": "Immune-microbiome crosstalk in epithelial barrier disorders",
+    "abstract": "Host immune tone and microbial metabolites jointly shape barrier integrity across gut and skin epithelia, with implications for inflammatory disease models.",
+    "authors": "Brown I; Zhao J",
+    "year": 2023,
+    "doi": "10.1000/fixture.barrier.005",
+    "pmid": "10000005",
+    "score": 0.82,
+    "tags": ["immune", "microbiome", "epithelial barrier", "autism"]
+  }
+]

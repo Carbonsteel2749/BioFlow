@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, File, HTTPException, Request, BackgroundTasks, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -42,7 +42,9 @@ async def same_origin(request: Request, call_next):
         if request.method not in {'GET','HEAD','OPTIONS'} and not secrets.compare_digest(request.headers.get('x-bioflow-csrf',''),user['csrf']):
             return JSONResponse({'detail':'会话校验已过期，请刷新页面'},status_code=403)
     response=await call_next(request)
-    if path.startswith('/api/') or path.startswith('/services/'):
+    if path.startswith('/static/'):
+        response.headers['Cache-Control']='no-cache'
+    elif path.startswith('/api/') or path.startswith('/services/'):
         response.headers['Cache-Control']='no-store'
     response.headers['X-Content-Type-Options']='nosniff'
     return response
@@ -193,6 +195,59 @@ async def bind_kb(pid: str, body: Binding, request: Request):
     store.bind_kb(pid,body.id)
     store.claim('kb',body.id,request.state.user['id'])
     return project(pid,request)
+
+
+def _latex_templates():
+    import sys
+    folder=str(ROOT/'article_writing')
+    if folder not in sys.path:
+        sys.path.insert(0,folder)
+    from frontend.latex_template import TemplateError, install_template, list_templates, remove_template, select_template
+    return TemplateError, install_template, list_templates, remove_template, select_template
+
+
+class TemplateSelection(BaseModel):
+    id: str = ''
+
+
+@app.get('/api/projects/{pid}/latex-template')
+def read_latex_template(pid: str, request: Request):
+    project(pid,request)
+    _error,_install,listing,_remove,_select=_latex_templates()
+    return listing(pid)
+
+
+@app.post('/api/projects/{pid}/latex-template')
+async def upload_latex_template(pid: str, request: Request, file: UploadFile=File(...)):
+    project(pid,request)
+    error,install,_listing,_remove,_select=_latex_templates()
+    payload=await file.read()
+    try:
+        install(pid,file.filename or 'template.tex',payload)
+    except error as exc:
+        raise HTTPException(400,str(exc)) from exc
+    _error,_install,listing,_remove,_select=_latex_templates()
+    return listing(pid)
+
+
+@app.put('/api/projects/{pid}/latex-template')
+def choose_latex_template(pid: str, body: TemplateSelection, request: Request):
+    project(pid,request)
+    error,_install,_listing,_remove,select=_latex_templates()
+    try:
+        return select(pid,body.id)
+    except error as exc:
+        raise HTTPException(400,str(exc)) from exc
+
+
+@app.delete('/api/projects/{pid}/latex-template/{template_id}')
+def delete_latex_template(pid: str, template_id: str, request: Request):
+    project(pid,request)
+    error,_install,_listing,remove,_select=_latex_templates()
+    try:
+        return remove(pid,template_id)
+    except error as exc:
+        raise HTTPException(400,str(exc)) from exc
 
 
 @app.post('/api/projects/{pid}/links/{kind}')

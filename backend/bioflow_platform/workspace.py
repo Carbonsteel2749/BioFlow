@@ -34,6 +34,8 @@ def install(app,get_store,check_project,call,urls):
     app.state.create_project_figure=create_figure
     from .provenance import install_provenance
     install_provenance(router,get_store,check_project,files)
+    from .unified_workflows import install as install_workflows
+    install_workflows(router,get_store,check_project,call)
 
     async def recover_interrupted():
         with get_store().connect() as db:
