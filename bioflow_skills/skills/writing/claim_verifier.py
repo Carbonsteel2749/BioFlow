@@ -30,7 +30,8 @@ OVERCLAIM = re.compile(
     r"\b(significant(?:ly)?|enriched|enrichment|depleted|depletion|associated with|correlat\w*|"
     r"caus(?:e|ed|es|al)|due to|reflect(?:s|ing|ed)?|typical(?:ly)?|normal range|as expected|"
     r"consistent with (?:previous|prior|other)|previous(?:ly)? (?:studies|reported)|"
-    r"highly effective|effective(?:ly)?|successful(?:ly)?|dysbiosis|biomarker|healthy|disease)\b",
+    r"highly effective|effective(?:ly)?|successful(?:ly)?|dysbiosis|biomarker|healthy|disease|"
+    r"core (?:microbiota|microbiome|community|taxa))\b",
     re.I,
 )
 LEDGER_ID = re.compile(r"\[(?:COHORT|QC|READQ|HOST|TAX|DIV|FUNC|SW|DB|PARAM|RUN)\.[^\]\s]+\]")
@@ -167,6 +168,28 @@ SELF_REFERENCE = re.compile(r"\b(this study|the present (?:study|analysis|sample
                             r"these (?:nine |\d+ )?samples|in this work|the samples (?:analy[sz]ed|profiled) here)",
                             re.I)
 NAMED_AUTHOR = re.compile(r"\b[A-Z][a-z]+ et al\.?|\b[A-Z][a-z]+ and [A-Z][a-z]+ \(\d{4}\)")
+
+
+# Present samples without groups cannot agree with or confirm another study's findings.
+AGREEMENT = re.compile(
+    r"\b(?:align(?:s|ed)?|consistent|in line|in agreement|agree(?:s|d)?|accord(?:s|ed)?)\s+with\b|"
+    r"\bcorrespond(?:s|ed)?\s+to\s+(?:the\s+)?(?:findings|conclusions|observations|results|reports?)\b|"
+    r"\b(?:confirm|support|corroborat|validat|replicat)\w*\s+(?:the\s+)?(?:findings|conclusions|observations|"
+    r"results|reports?)\b", re.I)
+
+
+def agreement_issues(text: str, paragraph: dict[str, Any]) -> tuple[list[str], set[int]]:
+    if not paragraph.get("citations"):
+        return [], set()
+    issues, bad = [], set()
+    for index, sentence in enumerate(split_sentences(text)):
+        match = AGREEMENT.search(sentence)
+        if match:
+            issues.append(f'Sentence {index + 1} says the present data "{match.group(0)}" a cited study. These samples '
+                          "have no groups, so they cannot agree with or confirm it: say only which present observation "
+                          "or method the cited work concerns.")
+            bad.add(index)
+    return issues, bad
 
 
 def citation_keys(text: str) -> list[str]:
@@ -324,6 +347,10 @@ def deterministic_issues(text: str, paragraph: dict[str, Any]) -> tuple[list[str
         if LEDGER_ID.search(sentence):
             issues.append(f"Sentence {index + 1} contains a fact id in brackets. Remove the bracketed id.")
             bad.add(index)
+    agree, agree_bad = agreement_issues(text, paragraph)
+    issues.extend(agree)
+    bad |= agree_bad
+    issues.extend(filler_issues(text))  # repaired in code if the writer keeps them (see strip_filler)
     words = len(text.split())
     if words > int(paragraph.get("max_words", 150) * 1.4):
         issues.append(f"The paragraph has {words} words; shorten it to at most {paragraph.get('max_words')} words.")
@@ -396,6 +423,57 @@ def verify(text: str, paragraph: dict[str, Any], model: Any = None) -> dict[str,
 def drop_sentences(text: str, indexes) -> str:
     drop = set(indexes)
     return " ".join(s for i, s in enumerate(split_sentences(text)) if i not in drop)
+
+
+# ---------------------------------------------------------------------------
+#  filler: clauses and sentences that add words but no information
+# ---------------------------------------------------------------------------
+VAGUE_OBJECT = r"(?:variability|variation|differences?|heterogeneity|diversity|variety)"
+# ", indicating variability in ..." / ", suggesting differences between ..." at the end of a sentence.
+FILLER_CLAUSE = re.compile(
+    r",\s*(?:which\s+|thus\s+|further\s+)?(?:indicat|suggest|reflect|highlight|underscor|demonstrat|show)\w*\s+"
+    r"(?:that\s+)?(?:there\s+(?:is|was|were)\s+)?(?:(?:a|an|some|the|notable|considerable|substantial|"
+    r"moderate|marked)\s+)*" + VAGUE_OBJECT + r"\b[^.;!?]*(?=[.!?]\s*$)", re.I)
+FILLER_SENTENCE = re.compile(
+    r"\b(?:provid|offer|giv)\w*\s+(?:valuable\s+|important\s+|further\s+|new\s+)?insights?\b|"
+    r"\b(?:highlight|underscor|emphasi[sz])\w*\s+the\s+(?:complexity|importance|value|need|potential)\b|"
+    r"^(?:These|The|Such)\s+(?:findings|results|patterns|observations|data)\s+(?:suggest|indicate|show|highlight|"
+    r"demonstrate|reveal)\w*\s+(?:that\s+)?(?:there\s+(?:is|was)\s+)?(?:(?:a|some|the|notable|considerable)\s+)*"
+    + VAGUE_OBJECT + r"\b|"
+    r"\b(?:varied|varies|vary|differed|differ)\s+(?:considerably\s+|widely\s+|substantially\s+)?"
+    r"(?:across|between|among)\s+(?:the\s+)?(?:\w+\s+)?samples\b", re.I)
+
+
+def filler_issues(text: str) -> list[str]:
+    issues = []
+    for index, sentence in enumerate(split_sentences(text)):
+        if FILLER_CLAUSE.search(sentence):
+            issues.append(f"Sentence {index + 1} ends with a clause that only says values varied or differed; "
+                          "end the sentence after the numbers.")
+        elif _is_filler_sentence(sentence):
+            issues.append(f"Sentence {index + 1} says nothing specific; delete it or state the specific result.")
+    return issues
+
+
+def _is_filler_sentence(sentence: str) -> bool:
+    # A sentence with its own number or citation carries information even if it is phrased loosely.
+    return bool(FILLER_SENTENCE.search(sentence)) and not NUMBER.search(sentence) and "[@" not in sentence
+
+
+def strip_filler(text: str) -> tuple[str, int]:
+    """Cut vague trailing clauses and drop sentences that say nothing specific. Returns (text, removed)."""
+
+    kept, removed = [], 0
+    for sentence in split_sentences(text):
+        trimmed = FILLER_CLAUSE.sub("", sentence)
+        if trimmed != sentence:
+            removed += 1
+            sentence = trimmed
+        if _is_filler_sentence(sentence):
+            removed += 1
+            continue
+        kept.append(sentence)
+    return " ".join(kept), removed
 
 
 @register_skill

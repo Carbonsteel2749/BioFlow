@@ -15,3 +15,14 @@ body{margin:0;padding:20px;background:light-dark(#eef1ee,#141716);color-scheme:l
 #ai4s-prototype .template-library input[type="radio"]{width:auto;padding:0;margin:0 8px 0 0}
 #ai4s-prototype .template-library label{display:flex;align-items:center;margin:8px 0}
 .ref-pick{display:block;margin:.35rem 0;line-height:1.45}
+#ai4s-prototype .section-picker{list-style:decimal;margin:.5rem 0;padding-left:1.6rem}
+#ai4s-prototype .section-picker .section-row{display:flex;align-items:center;gap:.5rem;padding:.25rem 0;border-bottom:1px solid #eef2ea}
+#ai4s-prototype .section-picker .section-row label{flex:1;margin:0}
+#ai4s-prototype .section-picker .section-row.off{opacity:.55}
+#ai4s-prototype .section-picker .section-move{display:flex;gap:4px;flex:none}
+#ai4s-prototype .section-picker .section-move button{padding:0 .45rem;min-width:0;line-height:1.6}
+#ai4s-prototype .section-picker .tag.section-status{white-space:nowrap;flex:none;margin:0}
+#ai4s-prototype .section-picker .tag.section-status.skill_missing{border-color:#f1d29a;background:#fff4e0;color:#9a5b00}
+#ai4s-prototype .section-picker .tag.section-status.author_input{border-color:#c9d0f5;background:#eef1ff;color:#3b4aa0}
+#ai4s-prototype .figure-pick{display:flex;gap:.6rem;align-items:center;margin:.4rem 0}
+#ai4s-prototype .figure-pick img{width:72px;height:54px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff;flex:none}

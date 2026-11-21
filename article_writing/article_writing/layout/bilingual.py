@@ -133,7 +133,11 @@ def split_bilingual(markdown: str) -> tuple[str, str, str]:
     # language; a figure appearing once (trailing embeds) is shared as before.
     assets: list[tuple[str, int, str]] = []
     mode: str | None = None
-    for piece in _iter_pieces(text):
+    pieces = list(_iter_pieces(text))
+    # Results/Discussion headings are translated with their section ("### 结果标题"); then each
+    # heading belongs to one language. Untranslated headings (Methods subsections) stay shared.
+    translated_headings = any(_HEADING.match(p) and "\n" not in p and _CJK.search(p) for p in pieces)
+    for piece in pieces:
         label = _language_label(piece)
         if label is not None:
             mode = label
@@ -145,9 +149,16 @@ def split_bilingual(markdown: str) -> tuple[str, str, str]:
             target.append(piece)
             continue
         if _HEADING.match(piece) and "\n" not in piece:
-            english.append(piece)
-            chinese.append(piece)
-            mode = None
+            if translated_headings and _CJK.search(piece):
+                chinese.append(piece)
+                mode = "zh"
+            elif translated_headings:
+                english.append(piece)
+                mode = None
+            else:
+                english.append(piece)
+                chinese.append(piece)
+                mode = None
             continue
         if _is_cjk_block(piece):
             chinese.append(piece)

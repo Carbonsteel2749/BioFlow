@@ -64,6 +64,65 @@ function wsJoinLang(parts,lang,value){
   return [en,'',parts.label,'',zh].join(NL)+NL;
 }
 
+/* Formatted chapter view: the author never sees markdown marks. Bold lead-ins show as bold,
+   citations, placeholders, figures and reference entries as fixed chips/cards (data-md keeps
+   their source), and wsRichToMd turns the view back into the stored markdown unchanged. */
+function wsRichInline(text){
+  const re=/(\[(?:AUTHOR_INPUT_NEEDED|SKILL_PENDING):?[^\]]*\])|(\[@[^\]]+\])|\*\*([^*]+)\*\*|(?<![*\w])\*([^*\s][^*]*)\*(?![*\w])/g;
+  const plain=s=>esc(s).replace(/\n/g,'<br>');
+  let out='',last=0,m;
+  while((m=re.exec(text))){
+    out+=plain(text.slice(last,m.index));last=re.lastIndex;
+    if(m[1]){const author=/^\[AUTHOR/.test(m[1]);const body=m[1].replace(/^\[[A-Z_]+:?\s*/,'').replace(/\]$/,'');
+      out+=`<span class="ws-ph${author?'':' skill'}" contenteditable="false" data-md="${esc(m[1])}">${author?'待作者填写':'待补 Skill'}：${esc(body)}</span>`;}
+    else if(m[2])out+=`<span class="ws-cite" contenteditable="false" data-md="${esc(m[2])}">${esc(m[2].slice(2,-1).replace(/;\s*@/g,'; '))}</span>`;
+    else if(m[3]!=null)out+=`<strong>${esc(m[3])}</strong>`;
+    else out+=`<em>${esc(m[4])}</em>`;
+  }
+  return out+plain(text.slice(last));
+}
+function wsRichBlocks(md){return String(md||'').replace(/\r/g,'').split(/\n{2,}/).map(b=>b.replace(/^\n+|\n+$/g,'')).filter(b=>b.trim());}
+function wsRichHtml(md,sid){
+  const fixed=(tag,cls,b,inner)=>`<${tag} class="${cls}" contenteditable="false" data-md="${esc(b)}">${inner}</${tag}>`;
+  return wsRichBlocks(md).map(b=>{
+    let m;
+    if((m=b.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/)))return fixed('figure','ws-r-fig',b,`<img alt="${esc(m[1])}" loading="lazy" src="/services/writing/api/sessions/${id(sid)}/assets/${encodeURIComponent(m[2].split('/').pop())}">`);
+    if((m=b.match(/^\*\*((?:Figure|Table) \d+\.?)\*\*\s*([\s\S]*)$/)))return fixed('p','ws-r-cap',b,`<b>${esc(m[1])}</b> ${esc(m[2])}`);
+    if((m=b.match(/^\[@([^\]]+)\]:\s*([\s\S]*)$/)))return fixed('p','ws-r-ref',b,esc(m[2]));
+    if(/^(References|参考文献)$/.test(b.trim()))return fixed('h4','ws-r-h',b,esc(b.trim()));
+    if((m=b.match(/^(#{1,6})\s+([^\n]*)$/)))return `<h4 data-level="${m[1].length}">${wsRichInline(m[2])}</h4>`;
+    return `<p>${wsRichInline(b)}</p>`;
+  }).join('')||'<p><br></p>';
+}
+function wsRichInlineMd(node){
+  let s='';
+  for(const n of node.childNodes){
+    if(n.nodeType===3){s+=n.nodeValue.replace(/ /g,' ');continue;}
+    if(n.nodeType!==1)continue;
+    if(n.dataset&&n.dataset.md!=null){s+=n.dataset.md;continue;}
+    if(n.tagName==='BR'){s+='\n';continue;}
+    const inner=wsRichInlineMd(n);
+    if(n.tagName==='STRONG'||n.tagName==='B')s+=inner.trim()?`**${inner}**`:inner;
+    else if(n.tagName==='EM'||n.tagName==='I')s+=inner.trim()?`*${inner}*`:inner;
+    else if(/^(DIV|P|H[1-6])$/.test(n.tagName))s+=(s&&!s.endsWith('\n')?'\n':'')+inner;
+    else s+=inner;
+  }
+  return s;
+}
+function wsRichToMd(el){
+  const blocks=[];
+  for(const n of el.childNodes){
+    if(n.nodeType===3){if(n.nodeValue.trim())blocks.push(n.nodeValue.trim());continue;}
+    if(n.nodeType!==1)continue;
+    if(n.dataset.md!=null&&n.getAttribute('contenteditable')==='false'){blocks.push(n.dataset.md);continue;}
+    let text=wsRichInlineMd(n).replace(/\n+$/,'').replace(/^\n+/,'');
+    if(!text.trim())continue;
+    if(/^H[1-6]$/.test(n.tagName))text='#'.repeat(Number(n.dataset.level)||2)+' '+text.replace(/\n/g,' ');
+    blocks.push(text);
+  }
+  return blocks.join('\n\n');
+}
+
 function wsFigureCount(markdowns){
   const seen=new Set();
   for(const md of markdowns)for(const m of String(md||'').matchAll(/!\[[^\]]*\]\((figures\/[^)\s]+)\)/g))seen.add(m[1]);
@@ -220,7 +279,7 @@ function wsChapters(doc,order,holes){
     `<div class="ws-editor-actions"><button type="submit">保存</button>${sec.confirmed?'<span class="ws-pill ok">已确认</span>':button('确认本章','confirm','type="button" class="primary"')}</div></div>`+
     (callouts?`<ul class="ws-callout">${callouts}</ul>`:'')+
     `<input type="hidden" name="markdown" value="${esc(sec.markdown||'')}">`+
-    `<textarea name="markdown_view" class="ws-textarea" spellcheck="false" aria-label="章节正文（${langName}）" placeholder="${lang==='en'?'本章还没有英文版。':'本章还没有中文版。'}">${esc(shown)}</textarea>`+
+    `<div class="ws-rich" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="章节正文（${langName}）" data-placeholder="${lang==='en'?'本章还没有英文版。':'本章还没有中文版。'}">${wsRichHtml(shown,doc.session_id)}</div>`+
     `<div class="ws-cited-box"><h4>本章引用 <span class="ws-count">${cited.length}</span></h4>${cited.length?`<ol class="ws-cited">${cited.map(r=>`<li><b>${esc(r.cite_id)}</b>${r.title?`<span>${esc(r.title)}${r.year?' · '+esc(r.year):''}</span>`:'<span>不在参考文献列表中</span>'}</li>`).join('')}</ol>`:'<p class="caption">本章没有引用文献。</p>'}</div>`+
     `</form>${drawer}</div>`;
 }
@@ -347,12 +406,12 @@ actions['new-writing']=async()=>{
     service('writing','/api/section-library').catch(()=>null),
     api(pa('/figures')).catch(()=>({items:[]}))]);
   const packages=items(pkg.packages||[]);const lib=items(library);state.writingLibrary=lib;
-  const skills=chosenPaperSkills(skillCatalog);const skillLabels=skills.map(name=>(skillCatalog.items||[]).find(x=>x.name===name)?.display_name||name);const papers=writingPaperSelection();const kb=current()?.knowledge_base_id;
+  const skills=chosenPaperSkills(skillCatalog);const papers=writingPaperSelection();const kb=current()?.knowledge_base_id;
   const source=`<div class="ws-grid2">${field('分析来源',select('source',[['task','当前项目分析任务'],['package','本地分析包']]))}${field('分析任务',picker)}${field('分析包',select('package',packages.map(p=>{const path=p.path||p.run_dir||p.analysis_run_dir||'';return [path,p.label||p.name||path];}))+'<p class="caption ws-path" id="writing-package-path"></p>')}</div>`;
   const advanced=`<details class="ws-adv"${papers.length||skills.length?' open':''}><summary>高级选项：知识库检索、写作 Skills</summary><div class="ws-adv-body">`+
     `<label class="ws-check-row"><input name="live" type="checkbox"${kb?' checked':''}> 同时按研究目标检索当前项目知识库</label>`+
     `<div class="ws-adv-row"><div><b>知识库文献</b><p class="caption">${esc(papers.map(p=>p.name).join('、')||'未指定，按研究目标检索。')}</p><p class="caption" id="writing-paper-note"></p></div>${button('去文献库选择','pick-papers','type="button"')}</div>`+
-    `<div class="ws-adv-row"><div><b>写作 Skills</b><p class="caption">${esc(skillLabels.join('、')||'未额外选择，使用默认的 Skills 写作流程。')}</p></div>${button('去 Skills 库选择','pick-paper-skills','type="button"')}</div>`+
+    `<div class="ws-adv-row"><div><b>写作 Skills</b><p class="caption">${esc(skills.join('、')||'未额外选择，使用默认的 Skills 写作流程。')}</p></div>${button('去 Skills 库选择','pick-paper-skills','type="button"')}</div>`+
     (skills.includes('nature-response')?field('审稿意见／编辑来信（已选 nature-response，必填）','<textarea name="reviewer_comments"></textarea>'):'<input type="hidden" name="reviewer_comments" value="">')+
     `</div></details>`;
   modal('新建研究稿件',`<form data-form="start-writing" class="ws-wizard">`+
@@ -377,11 +436,15 @@ actions['new-writing']=async()=>{
 /* ---------- small conveniences ---------- */
 root.addEventListener('input',e=>{
   if(e.target.name==='wsSearch'){const term=e.target.value.trim().toLowerCase();root.querySelectorAll('.ws-item').forEach(el=>{el.hidden=!!term&&!el.dataset.search.toLowerCase().includes(term);});}
-  if(e.target.matches('.ws-textarea')){const full=e.target.form?.elements.namedItem('markdown');if(full&&state.wsSplit)full.value=wsJoinLang(state.wsSplit.parts,state.wsSplit.lang,e.target.value);const note=root.querySelector('.ws-save-state');if(note){note.textContent='有未保存的修改';note.classList.add('dirty');}}
+  const rich=e.target.closest?.('.ws-rich');
+  if(rich){const full=rich.closest('form')?.elements.namedItem('markdown');if(full&&state.wsSplit)full.value=wsJoinLang(state.wsSplit.parts,state.wsSplit.lang,wsRichToMd(rich));const note=root.querySelector('.ws-save-state');if(note){note.textContent='有未保存的修改';note.classList.add('dirty');}}
 });
+// Pasted text arrives as plain text, so no outside formatting gets into the chapter.
+root.addEventListener('paste',e=>{if(!e.target.closest?.('.ws-rich'))return;e.preventDefault();document.execCommand('insertText',false,(e.clipboardData?.getData('text/plain')||'').replace(/\r/g,''));});
+root.addEventListener('focusin',e=>{if(e.target.closest?.('.ws-rich'))document.execCommand('defaultParagraphSeparator',false,'p');});
 root.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&e.target.closest('.ws-chat-form')){e.preventDefault();e.target.form?.requestSubmit();return;}
   if(e.key==='Escape'&&state.wsChatOpen&&root.querySelector('.ws-drawer.open')){actions['ws-chat']();return;}
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'&&e.target.matches('.ws-textarea, .latex-source')){e.preventDefault();e.target.form?.requestSubmit();}
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'&&e.target.closest?.('.ws-rich, .latex-source')){e.preventDefault();e.target.closest('form')?.requestSubmit();}
 });
 root.addEventListener('click',e=>{root.querySelectorAll('.ws-menu[open]').forEach(menu=>{if(!menu.contains(e.target)||e.target.closest('.ws-menu-pop button'))menu.open=false;});});

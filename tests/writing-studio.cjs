@@ -57,6 +57,17 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(mk.p)),{mode:'marked',en:'EN',z
 assert.deepStrictEqual(JSON.parse(JSON.stringify(mk.j)),{mode:'marked',en:'EN2',zh:'中',shared:'![x](figures/x.png)'});
 assert.strictEqual(run(String.raw`wsSplitLang('只有中文的占位段落').mode`),'single');
 
+// formatted chapter view: no markdown marks reach the author, sources kept in data-md
+context.id=x=>encodeURIComponent(x);
+const rich=run(String.raw`wsRichHtml('**Read quality.** Reads [@Wood2019; @Beghini2021] kept.\n\n[AUTHOR_INPUT_NEEDED: ethics]\n\n![Taxa](figures/fig_a.png)\n\n**Figure 1.** Taxa per sample.\n\nReferences\n\n[@Wood2019]: Wood DE. Kraken 2. 2019.','s1')`);
+assert(!/\*\*|!\[|\]\(/.test(rich.replace(/data-md="[^"]*"/g,'')),'markdown marks leaked into the view');
+assert(rich.includes('<strong>Read quality.</strong>'));
+assert(rich.includes('data-md="[@Wood2019; @Beghini2021]">Wood2019; Beghini2021</span>'));
+assert(rich.includes('class="ws-ph" contenteditable="false"')&&rich.includes('待作者填写：ethics'));
+assert(rich.includes('src="/services/writing/api/sessions/s1/assets/fig_a.png"'));
+assert(rich.includes('<b>Figure 1.</b> Taxa per sample.'));
+assert(rich.includes('class="ws-r-ref"')&&rich.includes('>Wood DE. Kraken 2. 2019.</p>'));
+
 // the studio replaces the writing view and the start dialog
 assert.strictEqual(run(String.raw`typeof views.writing`),'function');
 assert.strictEqual(run(String.raw`typeof actions['new-writing']`),'function');
