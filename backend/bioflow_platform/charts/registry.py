@@ -10,6 +10,7 @@ CHARTS=[
  {'id':'venn','name':'韦恩图','category':'集合与组成','columns':'set,member','example':'set,member\nA,G1\nA,G2\nB,G2\nB,G3\n','description':'2–3 个集合；显示精确交集数量，示意圆面积不代表集合大小。'},
  {'id':'go','name':'GO 富集直方图','category':'功能富集','columns':'term,count（可选 ontology）','example':'term,count,ontology\nimmune response,12,BP\nmembrane,8,CC\nbinding,5,MF\n','description':'按 BP/CC/MF 分类展示已有 GO 富集条目计数。'},
  {'id':'sankey','name':'桑基图','category':'网络与关联','columns':'source,target,value','example':'source,target,value\nGroup A,Pathway 1,10\nGroup A,Pathway 2,5\nGroup B,Pathway 1,8\n','description':'展示两层来源—去向的非负流量；每条带宽按输入数值绘制。'},
+ {'id':'lefse','name':'LEfSe LDA 图','category':'差异分析','columns':'taxon,lda_score,group','example':'taxon,lda_score,group\nFeature A,3.8,Control\nFeature B,3.1,Treatment\nFeature C,2.6,Control\nFeature D,2.2,Treatment\n','description':'展示已有 LEfSe 分析结果；横轴为 LDA score，颜色表示富集组别，不自行执行差异检验或计算 LDA 分数。'},
 ]
 
 def get(identifier):

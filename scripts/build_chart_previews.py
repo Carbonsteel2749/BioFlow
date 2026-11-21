@@ -24,6 +24,14 @@ rows['ppi']=[dict(source=proteins[i],target=proteins[(i+1)%12],weight=.8) for i 
 rows['venn']=[dict(set=name,member=f'G{i}') for name,a,b in [('Control',0,60),('Treatment',25,90),('Recovery',45,110)] for i in range(a,b)]
 rows['go']=[dict(term=t,count=35-i*3,ontology=['BP','CC','MF'][i//3]) for i,t in enumerate(terms)]
 rows['sankey']=[dict(source=a,target=b,value=int(rng.integers(8,35))) for a in ['Control','Treatment','Recovery'] for b in ['Metabolism','Signaling','Immunity']]
+rows['lefse']=[
+    dict(taxon='Feature A',lda_score=3.8,group='Control'),
+    dict(taxon='Feature B',lda_score=3.1,group='Treatment'),
+    dict(taxon='Feature C',lda_score=2.6,group='Control'),
+    dict(taxon='Feature D',lda_score=2.2,group='Treatment'),
+    dict(taxon='Feature E',lda_score=1.8,group='Control'),
+    dict(taxon='Feature F',lda_score=1.5,group='Treatment'),
+]
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':9,'axes.spines.top':False,'axes.spines.right':False,'axes.prop_cycle':plt.cycler(color=['#246750','#83bda5','#c59d65','#7195ac']),'savefig.facecolor':'white'})
 from matplotlib import font_manager
 font=Path('/mnt/c/Windows/Fonts/msyh.ttc')
