@@ -1,0 +1,51 @@
+/* Hallmark app scope · calm scientific instrument: functional flow and control feedback only. */
+:root{--uw-forest:#164f3d;--uw-emerald:#137451;--uw-sage:#dce9d1;--uw-paper:#f6f8f1;--uw-ink:#203d32;--uw-muted:#52665b;--uw-line:#ccd9cc;--uw-error:#a53b2d;--uw-focus:#087b55;--uw-backdrop:rgb(12 40 29 / .45)}
+#ai4s-prototype .uw-design-button{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:var(--uw-emerald);color:white;border:1px solid var(--uw-emerald);min-height:48px;padding:12px 20px;border-radius:12px;font-weight:650;transition:background-color 180ms ease-out,transform 120ms ease-out}
+#ai4s-prototype .uw-design-button svg{width:23px;height:23px;flex:none}
+#ai4s-prototype .uw-design-button:active{transform:translateY(1px)}
+#ai4s-prototype .uw-design-button:focus-visible,#ai4s-prototype .uw-stage:focus-visible{outline:2px solid var(--uw-focus);outline-offset:3px}
+#ai4s-prototype .uw-run-summary{padding:24px;margin-bottom:20px;border:1px solid var(--uw-line);border-radius:14px;background:var(--uw-paper);color:var(--uw-ink)}
+#ai4s-prototype .uw-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+#ai4s-prototype .uw-summary-grid small,#ai4s-prototype .uw-summary-grid strong{display:block}
+#ai4s-prototype .uw-summary-grid strong{font-size:20px;margin-top:4px;font-variant-numeric:tabular-nums}
+#ai4s-prototype .uw-run-summary small,#ai4s-prototype .uw-track-note{color:var(--uw-muted);font-size:12px;line-height:1.6}
+#ai4s-prototype .uw-meter{height:7px;background:var(--uw-line);border-radius:9px;overflow:hidden;margin:12px 0 8px}
+#ai4s-prototype .uw-meter>span{display:block;height:100%;background:var(--uw-emerald)}
+#ai4s-prototype .uw-workspace{grid-template-columns:minmax(250px,320px) minmax(0,1fr)}
+#ai4s-prototype .uw-stage-rail{min-width:0;padding:12px 8px;background:var(--uw-paper);border-right:1px solid var(--uw-line)}
+#ai4s-prototype .uw-track-scroll{overflow:auto;max-height:700px;scrollbar-gutter:stable}
+#ai4s-prototype .uw-track{position:relative;margin:auto}
+#ai4s-prototype .uw-track>svg{position:absolute;inset:0;pointer-events:none;overflow:visible}
+#ai4s-prototype .uw-wire{stroke:var(--uw-line);stroke-width:2;fill:none}
+#ai4s-prototype .uw-wire-active{stroke:var(--uw-emerald)}
+#ai4s-prototype [data-uw-flow]{fill:var(--uw-emerald);stroke:var(--uw-paper);stroke-width:1}
+#ai4s-prototype .uw-stage{position:absolute;width:140px;height:102px;padding:0 4px;border:0;background:transparent;border-radius:8px;color:var(--uw-ink);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;white-space:normal}
+#ai4s-prototype .uw-orb{display:flex;width:38px;height:38px;align-items:center;justify-content:center;flex:none;border:2px solid var(--uw-line);border-radius:50%;background:var(--uw-paper);color:var(--uw-muted);font-size:22px;font-weight:600}
+#ai4s-prototype .uw-stage strong{font-size:13px;line-height:1.4;max-width:100%;overflow-wrap:anywhere}
+#ai4s-prototype .uw-stage small{font-size:11px;color:var(--uw-muted)}
+#ai4s-prototype .uw-stage:is(.uw-succeeded,.uw-cached) .uw-orb{color:white;background:var(--uw-emerald);border-color:var(--uw-emerald)}
+#ai4s-prototype .uw-stage.uw-running .uw-orb{border-color:var(--uw-emerald);color:var(--uw-emerald);box-shadow:0 0 0 4px var(--uw-sage)}
+#ai4s-prototype .uw-stage.uw-failed .uw-orb{border-color:var(--uw-error);color:var(--uw-error)}
+#ai4s-prototype .uw-stage.uw-selected strong{text-decoration:underline;text-underline-offset:4px;font-weight:750}
+#ai4s-prototype .uw-track-note{padding:0 8px;margin:12px 0 0}
+#ai4s-prototype .uw-node-state{border-top:1px solid var(--uw-line);padding-top:16px;margin-bottom:20px}
+#ai4s-prototype .uw-node-state dl{display:grid;grid-template-columns:85px minmax(0,1fr);gap:12px;margin:16px 0;font-size:13px}
+#ai4s-prototype .uw-node-state dd{margin:0;overflow-wrap:anywhere}
+#ai4s-prototype .uw-node-state dt{color:var(--uw-muted)}
+#ai4s-prototype .uw-status{font-weight:650}#ai4s-prototype .uw-status.uw-running{color:var(--uw-emerald)}
+#ai4s-prototype .uw-error,#ai4s-prototype .uw-status.uw-failed{color:var(--uw-error)}
+#ai4s-prototype [data-uw-live-error]:not(:empty){margin:16px 0;padding:12px;border:1px solid var(--uw-error);border-radius:8px;color:var(--uw-error);overflow-wrap:anywhere}
+#ai4s-prototype .uw-log-dialog{position:fixed;inset:0;margin:auto;height:fit-content;box-sizing:border-box;width:calc(100% - 32px);max-width:850px;max-height:85dvh;overflow:auto;border:1px solid var(--uw-line);border-radius:14px;padding:24px;color:var(--uw-ink);background:var(--uw-paper)}
+#ai4s-prototype .uw-log-dialog::backdrop{background:var(--uw-backdrop)}
+#ai4s-prototype .uw-log-dialog header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+#ai4s-prototype .uw-log-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:55dvh;overflow:auto;font-size:12px;line-height:1.8}
+#ai4s-prototype .uw-model-design{margin:12px;display:block;font-size:11px;line-height:1.5;color:var(--uw-muted)}
+#ai4s-prototype .uw-model-design select{display:block;width:100%;min-height:36px;padding:4px;margin:4px 0;font-size:12px;border-color:var(--uw-muted)}
+#ai4s-prototype .wd-ai-node:has([data-wd-inline-model]){min-height:180px}
+#ai4s-prototype .wd-ai-node:has([data-wd-inline-model]) .wd-node-ports{position:absolute;left:0;right:0;top:74px;min-height:0}
+#ai4s-prototype .wd-ai-node .uw-model-design{margin-top:24px;margin-bottom:12px}
+#ai4s-prototype .uw-model-design small{display:block;font-size:10px}
+@media(hover:hover){#ai4s-prototype .uw-design-button:hover{background:var(--uw-forest)}#ai4s-prototype .uw-stage:hover{background:var(--uw-sage)}}
+@media(max-width:1100px){#ai4s-prototype .uw-workspace{grid-template-columns:255px minmax(0,1fr)}}
+@media(max-width:680px){#ai4s-prototype .uw-workspace{display:block}#ai4s-prototype .uw-stage-rail{border-right:0;border-bottom:1px solid var(--uw-line)}#ai4s-prototype .uw-track-scroll{max-height:350px}#ai4s-prototype .uw-summary-grid{grid-template-columns:1fr 1fr}#ai4s-prototype .uw-summary-grid strong{font-size:17px}#ai4s-prototype .uw-run-summary{padding:16px}}
+@media(prefers-reduced-motion:reduce){#ai4s-prototype .uw-design-button{transition:none}#ai4s-prototype [data-uw-flow]{opacity:0!important}}

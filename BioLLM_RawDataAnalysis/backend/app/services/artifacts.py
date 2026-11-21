@@ -20,6 +20,10 @@ class ArtifactIntegrityError(RuntimeError):
 
 
 ARTIFACT_TYPES: dict[str, dict[str, Any]] = {
+    'assembly.contigs': {'downloadable': True},
+    'matrix.canonical': {'downloadable': True},
+    'matrix.descriptive_summary': {'downloadable': True},
+    'figure.matrix': {'downloadable': True},
     "reads.raw": {"downloadable": False},
     "reads.clean": {"downloadable": False},
     "reads.host_removed": {"downloadable": False},
@@ -34,6 +38,8 @@ ARTIFACT_TYPES: dict[str, dict[str, Any]] = {
     "functional.pathway_abundance": {"downloadable": True},
     "functional.pathway_coverage": {"downloadable": True},
     "mag.fasta": {"downloadable": True},
+    "mag.candidate_fasta": {"downloadable": True},
+    "mag.quality_report": {"downloadable": True},
     "mag.annotation": {"downloadable": True},
     "mag.function_annotation": {"downloadable": True},
     "mag.sample_abundance": {"downloadable": True},
@@ -292,9 +298,19 @@ class ArtifactService:
             raise ArtifactIntegrityError("artifact changed after registration")
         return resolved
 
-    @staticmethod
-    def _public(record: dict[str, Any]) -> dict[str, Any]:
+    def _source_file(self,record):
+        """Producer-relative evidence locator; no walk, hash, or path guessing."""
+        tid=record.get('task_id')
+        if not isinstance(tid,str) or not SAFE_IDENTIFIER.fullmatch(tid):return None
+        root=(self.output_root/tid).absolute();path=Path(record['path']).absolute()
+        try:
+            if not path.is_relative_to(root) or path.resolve()!=path or any(p.is_symlink() for p in (path,*path.parents)) or not path.is_file():return None
+            return path.relative_to(root).as_posix()
+        except OSError:return None
+
+    def _public(self,record: dict[str, Any]) -> dict[str, Any]:
         return {
+            'source_file':self._source_file(record),
             "artifact_id": record["artifact_id"],
             "task_id": record["task_id"],
             "node_id": record["node_id"],

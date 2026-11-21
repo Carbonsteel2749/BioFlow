@@ -90,7 +90,8 @@ class WorkflowSuggestionRequest(_StrictRequest):
 
 
 class CreateWorkflowRunRequest(_StrictRequest):
-    manifest_path: str = Field(min_length=1, max_length=4096)
+    manifest_path: str | None = Field(default=None,min_length=1, max_length=4096)
+    input_bindings: dict[str,str] = Field(default_factory=dict,max_length=100)
     workflow: WorkflowGraph
     name: str = Field(default='', max_length=120)
     auto_repair: bool = False
@@ -185,6 +186,7 @@ def create_workflow_router(
                 request.workflow,
                 request.manifest_path,
                 name=request.name, auto_repair=request.auto_repair,
+                input_bindings=request.input_bindings,
             )
         except WorkflowRunValidationError as exc:
             raise HTTPException(

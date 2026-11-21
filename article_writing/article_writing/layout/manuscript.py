@@ -22,6 +22,14 @@ _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([,.;:，。；])")
 _MULTI_SPACE = re.compile(r"[ \t]{2,}")
 
 
+def _library_title_zh(section_id: str) -> str:
+    from article_writing import section_library
+    try:
+        return section_library.get(section_id).title_zh
+    except KeyError:
+        return section_id
+
+
 SECTION_TITLES_ZH = {
     SectionId.abstract: "摘要",
     SectionId.introduction: "引言",
@@ -101,7 +109,7 @@ def build_manuscript_markdown(state: PaperState, *, language: str = "both") -> s
         draft = state.drafts.get(section_id.value)
         if draft is None:
             continue
-        zh = SECTION_TITLES_ZH.get(section_id, section_id.value)
+        zh = SECTION_TITLES_ZH.get(section_id) or _library_title_zh(section_id.value)
         if choice == "zh":
             lines.append(f"# {zh}")
         elif choice == "en":

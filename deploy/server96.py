@@ -152,7 +152,7 @@ def supervise():
             if not healthy('http://172.17.0.1:11435/api/tags'):
                 child=subprocess.Popen([sys.executable,str(ROOT/'deploy/literature_model_bridge.py')],cwd=ROOT,env=env)
                 children.append(child);wait_ready(child,'http://172.17.0.1:11435/api/tags')
-            child=subprocess.Popen([sys.executable,'-m','uvicorn',GATEWAY_APP,'--host',os.getenv('BIOFLOW_BIND_HOST','0.0.0.0'),'--port',str(GATEWAY_PORT)],cwd=ROOT,env=env)
+            child=subprocess.Popen([sys.executable,'-m','uvicorn',GATEWAY_APP,'--host',os.getenv('BIOFLOW_BIND_HOST','0.0.0.0'),'--port',str(GATEWAY_PORT)],cwd=ROOT,env={**env,'BIOFLOW_SKILL_CENTER_ENABLED':'1'})
             children.append(child);wait_ready(child,GATEWAY_URL+'/api/auth/me')
             print('BioFlow ready: http://219.224.3.96:'+str(GATEWAY_PORT)+'/',flush=True)
             while not stopping:

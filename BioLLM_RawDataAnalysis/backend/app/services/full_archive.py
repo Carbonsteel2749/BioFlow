@@ -29,8 +29,52 @@ CONTROL = {'manifest.json', 'SHA256SUMS', 'archive-metadata.json', 'ARCHIVE-READ
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
 
 
+def typed_archive_entries(settings,task_id,manifest):
+    """Explicit typed input retention, never interpret binding JSON as reads CSV."""
+    from .input_datasets import InputDatasetService
+    expected=settings.state_root/'workflow_runs'/task_id/'inputs/bindings.json'
+    if Path(manifest).absolute()!=expected.absolute():raise ValueError('Unexpected typed snapshot path')
+    service=InputDatasetService(settings);body=service.verify_snapshot(expected)
+    entries=[(expected,'execution/input-bindings.json')]
+    for node,binding in body['bindings'].items():
+        folder=service._folder(binding['dataset_id'])
+        entries.append((folder/'contract.json',f'execution/input-contracts/{node}.json'))
+        from .input_datasets import evidence_files
+        files={f['path']:f for f in binding['contract']['files']+evidence_files(binding)}
+        entries.extend((folder/f['path'],f'raw/typed/{node}/{f["path"]}') for f in files.values())
+    return entries
+
+
 def is_private_archive(path):
     return (Path(path).parent / '.sensitive-archive').exists()
+
+
+def report_package_not_requested(settings, task_id, kind, task, manifest):
+    """Only a validated typed graph may intentionally omit legacy REPORT."""
+    if kind!='workflow' or manifest is None:
+        return False
+    expected=settings.state_root/'workflow_runs'/task_id
+    compiled=Path(task.get('compiled_root') or '')
+    if Path(manifest).absolute()!=(expected/'inputs/bindings.json').absolute() or compiled!=(expected/'compiled'):
+        return False
+    path=compiled/'workflow.json'
+    if compiled.resolve()!=compiled or path.is_symlink():
+        return False
+    try:
+        from ..workflows.graph import WorkflowGraph
+        from ..workflows.registry import default_node_registry
+        from ..workflows.validation import validate_workflow_graph
+        with path.open('rb') as handle:
+            content=handle.read(4*1024*1024+1)
+        if len(content)>4*1024*1024:
+            return False
+        graph=WorkflowGraph.model_validate_json(content)
+        registry=default_node_registry()
+        return (any(n.type in {'fastq_input','clean_reads_input','host_removed_reads_input','contigs_input','mag_input','abundance_input'} for n in graph.nodes)
+            and not any(n.type=='report' for n in graph.nodes)
+            and validate_workflow_graph(graph,registry).can_execute)
+    except (OSError,ValueError):
+        return False
 
 
 def archive_download_response(path, *, filename, media_type, headers=None):
@@ -188,7 +232,13 @@ class FullArchiveService:
         manifest_value = task.get('manifest_path') or task.get('input_manifest')
         manifest = Path(manifest_value) if manifest_value else None
         input_root = self.settings.input_root.resolve()
-        if manifest is None or not manifest.is_file():
+        if manifest and manifest.suffix=='.json':
+            for path,name in typed_archive_entries(self.settings,task_id,manifest):
+                raw_paths.add(path.resolve())
+                add_file(path,name,exact=raw_paths)
+                if name.startswith('raw/'):
+                    raw_map.append({'role':'typed_input','path':name,'original_path':str(path),'available':name in files})
+        elif manifest is None or not manifest.is_file():
             missing_file('raw/samples.csv', 'input manifest missing')
         else:
             if not manifest.resolve().is_relative_to(input_root):
@@ -308,6 +358,8 @@ class FullArchiveService:
                     if member.name in {entry.name for entry in base_records}:
                         raise ValueError('duplicate member in existing result archive')
                     base_records.append(member)
+        elif report_package_not_requested(self.settings,task_id,kind,task,manifest):
+            excluded.append({'path':'original_result_package','reason':'not_requested: typed workflow intentionally omits legacy REPORT; use node outputs'})
         else:
             missing_file('original_result_package', 'report package not generated')
 

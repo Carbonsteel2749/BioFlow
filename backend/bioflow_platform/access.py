@@ -20,9 +20,21 @@ async def authorize(store,service,path,request,fetch):
     user=request.state.user
     method=request.method
     parts=path.split('/')
+    if service=='analysis' and parts[:2]==['api','input-datasets']:
+        if method=='GET' and parts==['api','input-datasets','contracts']:return
+        if method=='GET' and len(parts)==3 and parts[2]!='register':
+            allowed(store,'input_dataset',parts[2],user);return
+        raise HTTPException(403,'请通过项目数据导入入口操作')
+    if service=='analysis' and parts[:3]==['api','workflows','templates'] and len(parts)>3:
+        tid=parts[3]
+        if tid.startswith('builtin-') and method=='GET':return
+        if template_visible(store,tid,user):return
+        raise HTTPException(404,'流程模板不存在或不属于当前账户')
     if (service,path) in LISTS:
         if method=='POST':
             body=await request.json()
+            if service=='analysis' and path=='api/workflows/runs' and body.get('input_bindings'):
+                raise HTTPException(403,'类型化输入须通过项目分析入口绑定')
             if service=='analysis':
                 if user['role']!='developer':
                     manifests={m.get('manifest_path') for m in store.resource_metadata('dataset',user['id'])}
@@ -54,7 +66,10 @@ async def authorize(store,service,path,request,fetch):
         allowed(store,'kb',parts[2],user);return
     if service=='analysis' and len(parts)>=3 and parts[:2]==['api','artifacts']:
         result=await fetch['call']('analysis','/api/artifacts/'+parts[2])
-        allowed(store,'task',result.get('task_id',''),user);return
+        producer=result.get('task_id','')
+        if not (store.owns('task',producer,user['id']) or store.owns('workflow',producer,user['id'])):
+            raise HTTPException(404,'记录不存在或不属于当前账户')
+        return
     if service=='analysis' and path=='api/uploads/files' and method=='POST':
         return
     if service=='analysis' and path=='api/uploads/manifests' and method=='POST':
@@ -67,7 +82,7 @@ async def authorize(store,service,path,request,fetch):
         if len(parts)>3 and parts[3]!='config':
             allowed(store,'upload_session',parts[3],user)
         return
-    if method=='GET' and ((service=='analysis' and path in {'api/health','api/workflows/templates','api/workflows/registry','api/capabilities','api/methods/parameters'}) or (service=='writing' and path in {'api/health','api/llm-config'}) or (service=='literature' and path=='health')):
+    if method=='GET' and ((service=='analysis' and path in {'api/health','api/workflows/templates','api/workflows/registry','api/capabilities','api/methods/parameters'}) or (service=='writing' and path in {'api/health','api/llm-config','api/writing-skills','api/section-library'}) or (service=='literature' and path=='health')):
         return
     if method=='GET' and service=='analysis' and path.startswith('api/workflows/templates/'):
         return
@@ -81,7 +96,16 @@ async def authorize(store,service,path,request,fetch):
     raise HTTPException(403,'该管理操作仅对开发者开放')
 
 
+def template_visible(store,tid,user):
+    if tid.startswith('builtin-'):return True
+    with store.connect() as db:row=db.execute("SELECT user_id FROM resources WHERE kind='workflow_template' AND external_id=?",(tid,)).fetchone()
+    return row['user_id']==user['id'] if row else user['role']=='developer'
+
+
 def process_json(store,service,path,method,data,user):
+    if service=='analysis' and path=='api/workflows/templates':
+        if method=='GET' and isinstance(data,list):return [r for r in data if template_visible(store,r.get('template_id',''),user)]
+        if method=='POST' and isinstance(data,dict) and data.get('template_id'):store.claim('workflow_template',data['template_id'],user['id'])
     definition=LISTS.get((service,path))
     if definition:
         kind,key=definition

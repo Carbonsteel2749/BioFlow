@@ -220,6 +220,14 @@ def validate_workflow_graph(
     topological_order, has_cycle = _topological_order(
         [node.id for node in graph.nodes], graph.edges
     )
+    for edge in graph.edges:
+        source=nodes_by_id.get(edge.source_node);target=nodes_by_id.get(edge.target_node)
+        if source and target and source.type=='contigs_input' and target.type=='binning' and (target.id,'reads') not in connected_inputs:
+            issues.append(_hard_error('external_contigs_require_reads',
+                'external contigs binning requires actual companion clean/host-removed reads',node_ids=[target.id]))
+        if source and target and source.type=='assembly' and target.type=='binning' and (target.id,'reads') in connected_inputs:
+            issues.append(_hard_error('redundant_binning_reads',
+                'Internal assembly already carries its exact reads; the companion port is only for external contigs',node_ids=[target.id]))
     if has_cycle:
         issues.append(
             _hard_error("cycle_detected", "workflow graph must not contain cycles")

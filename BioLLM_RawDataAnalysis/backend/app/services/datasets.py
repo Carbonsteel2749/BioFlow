@@ -41,7 +41,7 @@ class DatasetService:
                 );
             ''')
             paths = {row[0] for row in db.execute('SELECT manifest_path FROM tasks')}
-            paths.update(row[0] for row in db.execute('SELECT input_manifest FROM workflow_runs WHERE input_manifest IS NOT NULL'))
+            paths.update(row[0] for row in db.execute("SELECT input_manifest FROM workflow_runs WHERE input_manifest IS NOT NULL AND lower(input_manifest) LIKE '%.csv'"))
         # Only the existing server-managed manifest directory is enumerated.
         managed = self.root / 'manifests'
         if not managed.is_symlink():
@@ -145,6 +145,8 @@ class DatasetService:
     @input_operation
     def register_manifest(self, path, *, source='historical', name=None, uploads=None):
         path = Path(path).absolute()
+        if path.suffix.lower()!='.csv':
+            return None  # Typed immutable JSON bindings are not legacy datasets.
         # Do not catalog arbitrary external paths, even if an old record refers to one.
         try:
             path.relative_to(self.root)
@@ -273,7 +275,7 @@ class DatasetService:
             pending = db.execute('''SELECT manifest_path AS path FROM tasks
                 WHERE manifest_path NOT IN (SELECT manifest_path FROM datasets)
                 UNION SELECT input_manifest AS path FROM workflow_runs
-                WHERE input_manifest IS NOT NULL AND input_manifest NOT IN (SELECT manifest_path FROM datasets)
+                WHERE input_manifest IS NOT NULL AND lower(input_manifest) LIKE '%.csv' AND input_manifest NOT IN (SELECT manifest_path FROM datasets)
                 LIMIT 100''').fetchall()
         if pending:
             uploads = self._uploads_by_inode()

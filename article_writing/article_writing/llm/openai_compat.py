@@ -35,7 +35,7 @@ class OpenAICompatClient:
         self.timeout = timeout
         self.temperature = temperature
 
-    def generate(self, prompt: str, system: str | None = None) -> str:
+    def _chat(self, prompt: str, system: str | None, extra: dict[str, Any] | None = None) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -46,6 +46,12 @@ class OpenAICompatClient:
             "temperature": self.temperature,
             "stream": False,
         }
+        # The configured local Qwen3 endpoint otherwise spends the manuscript
+        # budget in hidden reasoning. It supports this llama.cpp/vLLM option.
+        if self.model.lower().startswith('qwen3') and self.base_url.startswith(('http://127.0.0.1:','http://localhost:')):
+            payload.update(chat_template_kwargs={'enable_thinking':False},max_tokens=4096)
+        if extra:
+            payload.update(extra)
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -66,6 +72,20 @@ class OpenAICompatClient:
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("OpenAI-compat response had no choices")
+        if choices[0].get('finish_reason') == 'length':
+            raise RuntimeError('模型输出达到长度上限，未保存截断稿件；请缩短本次章节或分段重试。')
         message = choices[0].get("message") or {}
         content = message.get("content") or ""
         return _THINK_RE.sub("", str(content)).strip()
+
+    def generate(self, prompt: str, system: str | None = None) -> str:
+        return self._chat(prompt, system)
+
+    def generate_json(self, prompt: str, system: str | None, schema: dict[str, Any]) -> Any:
+        """Return parsed JSON constrained by ``schema`` (json_schema response format)."""
+
+        text = self._chat(prompt, system, {
+            "temperature": 0.0,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "result", "schema": schema}},
+        })
+        return json.loads(text)

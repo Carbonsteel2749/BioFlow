@@ -1,0 +1,18 @@
+#ai4s-prototype .native-skills-nav {
+  border-top: 1px solid #dfe6db;
+  border-bottom: 1px solid #dfe6db;
+  padding: 12px 0;
+  margin: 12px 0;
+  flex-shrink: 0;
+}
+#ai4s-prototype .native-skills-nav[hidden] { display: none; }
+#ai4s-prototype .native-skills-nav .caption { margin: 0 8px 8px; }
+#ai4s-prototype .native-skills-nav button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 34px; padding: 7px 10px;
+  border: 0; border-radius: 7px; text-align: left;
+  color: inherit; background: transparent; font: inherit; cursor: pointer;
+}
+#ai4s-prototype .native-skills-nav button.selected,
+#ai4s-prototype .native-skills-nav button:hover { background: #e4eddf; color: #34583d; }
+#ai4s-prototype [data-native-skill-root] { min-width: 0; width: 100%; }
