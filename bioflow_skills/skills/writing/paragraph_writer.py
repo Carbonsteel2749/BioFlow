@@ -43,7 +43,7 @@ def build_prompt(paragraph: dict[str, Any], *, section: str, title: str, previou
     ]
     if style_rules.strip():
         parts.append("Style guidance from the selected writing skills (the rules above take priority):\n"
-                     + style_rules.strip()[:2500])
+                     + style_rules.strip()[:12000])
     if previous:
         parts.append(f'The previous paragraph ends with: "{previous}" Do not repeat it.')
     if draft:

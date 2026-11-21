@@ -39,6 +39,9 @@ _SLOT_TO_SECTION = {
     "BACK_MATTER": "back_matter",
     "BACKMATTER": "back_matter",
 }
+from article_writing import section_library as _section_library  # noqa: E402
+_SLOT_TO_SECTION.update({sid.upper(): sid for sid in _section_library.section_ids()
+                         if sid.upper() not in _SLOT_TO_SECTION})
 _KNOWN_SLOTS = set(_SLOT_TO_SECTION) | {"TITLE", "QUESTION", "REFERENCES"}
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$")
 

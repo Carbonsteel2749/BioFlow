@@ -11,7 +11,7 @@ import tempfile
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
-DIRS=['backend','frontend','bioflow_skills','scripts','deploy',
+DIRS=['backend','frontend','bioflow_skills','bioflow_ml','scripts','deploy',
     'article_writing/article_writing','article_writing/frontend','article_writing/configs',
     'BioLLM_RawDataAnalysis/backend','BioLLM_RawDataAnalysis/workflow','BioLLM_RawDataAnalysis/config',
     'BioLLM_RawDataAnalysis/scripts','Article_repository/article_repository','Article_repository/scripts']
@@ -28,6 +28,8 @@ def selected():
             rel=p.relative_to(ROOT)
             if any(part in {'__pycache__','.pytest_cache','.git','.nextflow','node_modules','.venv','data','outputs','tests'} for part in rel.parts):continue
             if p.suffix in {'.pyc','.pyo','.db','.sqlite3'} or p.name.startswith('.env') or p.name=='bioflow.env':continue
+            # The taxonomy renderer only needs the library's Python source.
+            if rel.parts[0]=='bioflow_ml' and p.suffix!='.py':continue
             if str(rel).replace('\\','/').startswith('article_writing/frontend/static/'):continue
             if p.parent==ROOT/'BioLLM_RawDataAnalysis/workflow' and (p.suffix in {'.html','.log'} or p.name.startswith(('trace-','timeline-','.nextflow.log'))):continue
             paths.add(p)

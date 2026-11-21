@@ -192,6 +192,93 @@ def plan_results(led: _Ledger) -> list[dict[str, Any]]:
     return [p for p in paragraphs if p]
 
 
+def plan_technical_validation(led: _Ledger) -> list[dict[str, Any]]:
+    """Data Descriptor: the same evidence as Results, framed as checks of data quality."""
+
+    framing = {
+        "depth": "Validate sequencing depth: report reads per sample and how many passed quality filtering.",
+        "base_quality": "Validate base-call quality of the filtered reads (Q30, duplication, GC content).",
+        "host": "Validate host contamination: report how many read pairs matched the human reference.",
+        "composition": "Show that taxonomic profiles are plausible for human stool: which species dominated and "
+                       "how consistent they were across samples.",
+        "diversity": "Report within-sample diversity and richness as a check of profile complexity.",
+        "function": "Report functional profile coverage, including the share that could not be assigned.",
+    }
+    plan = plan_results(led)
+    for paragraph in plan:
+        paragraph["purpose"] = framing.get(paragraph["key"], paragraph["purpose"])
+        paragraph["forbid"] = [*paragraph["forbid"], "Do not run or report statistical hypothesis tests."]
+    return plan
+
+
+def plan_background_summary(led: _Ledger, brief: dict[str, Any], cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Data Descriptor opening: context, what the dataset is, why it is reusable."""
+
+    paragraphs = []
+    background = _claims(cards, ("background",), 4) or _claims(cards, ("finding",), 3)
+    if background:
+        paragraphs.append(_lit_para("context", "Introduce why data of this kind are needed, using only the cited "
+                                    "literature.", background, notes=_evidence_notes(background)))
+    else:
+        paragraphs.append(_para(
+            "context", "Introduce in general terms what shotgun metagenomic sequencing of stool samples measures. "
+            "No literature is provided, so do not describe or cite earlier studies.", led, [],
+            notes=["Shotgun metagenomic sequencing of stool samples can profile both the taxonomic and the functional "
+                   "composition of the gut microbiome from the same reads."], words=(40, 80)))
+    aim = str(brief.get("research_question") or brief.get("title") or "").strip()
+    purpose = ("Summarise what this dataset contains and how it was generated: the samples, the sequencing, the "
+               "processing steps and the outputs. Do not report results beyond the facts.")
+    if aim:
+        purpose += f" The dataset is: {aim}"
+    paragraphs.append(_para(
+        "dataset", purpose, led,
+        led.ids("COHORT.sample_count", "READQ.sequencing_mode", "QC.raw_reads.range", "SW.fastp", "SW.bowtie2",
+                "SW.kraken2", "SW.bracken", "SW.humann"),
+        notes=_tool_roles(led), words=(90, 160),
+        forbid=("Do not state or imply the health status or diagnosis of the people who provided the samples.",)))
+    paragraphs.append(_para(
+        "reuse", "Explain what the released data provide and how others can reuse them.", led, [],
+        notes=["The released tables provide per-sample read counts, read-quality metrics, species-level abundances "
+               "and MetaCyc pathway profiles together with the software versions and parameters used.",
+               "Other researchers can reuse these profiles to compare processing choices or to combine them with "
+               "other gut metagenome datasets.",
+               "The samples are described individually; the package contains no group labels, so no group "
+               "comparison is included."], words=(60, 110)))
+    return [p for p in paragraphs if p]
+
+
+FIGURE_ROLE = {"stacked": "composition", "heatmap": "composition", "pca": "composition", "pcoa": "composition",
+               "nmds": "composition", "shannon": "diversity", "alpha_diversity": "diversity",
+               "rarefaction": "diversity", "enrichment": "function", "bubble": "function", "volcano": "function"}
+
+
+def attach_figures(plan: list[dict[str, Any]], figures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give each figure to the paragraph that discusses it and number them in reading order."""
+
+    if not plan or not figures:
+        return plan
+    keys = [p["key"] for p in plan]
+    for figure in figures:
+        role = FIGURE_ROLE.get(str(figure.get("chart") or "").lower())
+        target = plan[keys.index(role)] if role in keys else plan[-1]
+        target.setdefault("figures", []).append(dict(figure))
+    number = 0
+    for paragraph in plan:
+        for figure in paragraph.get("figures", []):
+            number += 1
+            figure["number"] = number
+            figure["embed"] = (f"![{figure['caption']}](figures/{figure['figure_id']}.png)\n\n"
+                               f"**Figure {number}.** {figure['caption']}")
+            paragraph["facts"].append(f"Figure {number} shows: {figure['caption']}")
+        if paragraph.get("figures"):
+            cited = ", ".join(f"Figure {f['number']}" for f in paragraph["figures"])
+            paragraph["forbid"] = [*paragraph["forbid"],
+                                   f"Refer to {cited} in parentheses, for example (Figure {paragraph['figures'][0]['number']}), "
+                                   "in the sentence that describes what it shows. Do not describe anything the "
+                                   "figure caption does not state."]
+    return plan
+
+
 def plan_discussion(led: _Ledger) -> list[dict[str, Any]]:
     q_notes, q_ids = quality_notes(led)
     h_notes, h_ids = host_notes(led)
@@ -227,8 +314,10 @@ def _tool_roles(led: _Ledger) -> list[str]:
     if led.ids("SW.bowtie2"):
         roles.append("Bowtie2 aligned reads to the human reference to remove host read pairs.")
     if led.ids("SW.kraken2", "SW.bracken"):
-        roles.append("Kraken2 and Bracken produced the species abundances; the Shannon index was computed from "
-                     "those species fractions.")
+        roles.append("Kraken2 and Bracken produced the species abundances.")
+        if led.ids("DIV.shannon.range"):
+            roles.append("The Shannon index was computed afterwards from the species fractions as a separate step; "
+                         "it was not produced by Kraken2, Bracken or HUMAnN, so never name a tool as its source.")
     if led.ids("SW.humann"):
         roles.append("HUMAnN produced the functional (MetaCyc pathway) profiles only.")
     return roles
@@ -374,13 +463,18 @@ def _checks(led: _Ledger) -> dict[str, Any]:
 
 
 def build_plan(ledger: dict[str, Any], section: str, brief: dict[str, Any] | None = None,
-               cards: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+               cards: list[dict[str, Any]] | None = None,
+               figures: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     led = _Ledger(ledger)
     cards = [c for c in (cards or []) if c.get("claims")]
     if section == "introduction":
         plan = plan_introduction(led, brief or {}, cards)
     elif section == "results":
         plan = plan_results(led)
+    elif section == "technical_validation":
+        plan = plan_technical_validation(led)
+    elif section == "background_summary":
+        plan = plan_background_summary(led, brief or {}, cards)
     elif section == "discussion":
         plan = plan_discussion(led)
         extra = literature_discussion(led, cards)
@@ -400,7 +494,7 @@ def build_plan(ledger: dict[str, Any], section: str, brief: dict[str, Any] | Non
         paragraph["context"] = context
         paragraph.setdefault("citations", [])
         paragraph.setdefault("require_citations", False)
-    return plan
+    return attach_figures(plan, figures or [])
 
 
 @register_skill
@@ -419,6 +513,6 @@ class SectionPlannerSkill(BaseSkill):
         payload = skill_input.require("ledger", "section")
         section = str(payload["section"])
         paragraphs = build_plan(payload["ledger"], section, skill_input.get("brief") or {},
-                                skill_input.get("cards") or [])
+                                skill_input.get("cards") or [], skill_input.get("figures") or [])
         return self.success(data={"section": section, "paragraphs": paragraphs},
                             summary=f"{section}: {len(paragraphs)} 段计划。")

@@ -113,6 +113,49 @@ def test_prevalence_claims_are_checked_per_clause():
     assert verify(right, paragraph)['ok']
 
 
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize('sentence,tool', [
+    # Regressions from sessions fd8f60694697 and f5867540bfde.
+    ('Taxonomic profiling was conducted with kraken2 version 2.17.1 and bracken version 3.0.1, which estimated '
+     'species abundances and calculated the Shannon index based on species fractions.', 'Bracken'),
+    ('Functional profiling using humann version 3.9 showed a range of Shannon index values from 2.89 to 4.17.',
+     'HUMAnN'),
+    ('The Shannon index was calculated by HUMAnN.', 'HUMAnN'),
+    ('Host reads were removed and Bowtie2 estimated the most abundant species.', 'Bowtie2'),
+    # Regression from session a6e7a13b7faa: second object of the same verb.
+    ('Taxonomic profiling was conducted with kraken2 version 2.17.1 and bracken version 3.0.1, which generated '
+     'species abundances and the Shannon index.', 'Bracken'),
+])
+def test_wrong_tool_attribution_is_flagged(sentence, tool):
+    result = verify(sentence, {'facts': [], 'notes': [], 'max_words': 200})
+    assert not result['ok'] and any(f'to {tool}' in i for i in result['issues'])
+
+
+@pytest.mark.parametrize('sentence', [
+    'The Shannon index was computed from the Bracken species fractions.',
+    'Kraken2 and Bracken estimated species abundances, and the Shannon index was computed per sample.',
+    'Q30 base fractions were reported by fastp.',
+    'Host reads were removed using bowtie2, and taxonomic profiling with Kraken2 estimated species abundances.',
+    'Functional profiles were generated with HUMAnN using MetaCyc pathways.',
+    'Reads were filtered with fastp, and Shannon indices were computed from species fractions.',
+    # Regression from session 4ec0c5b371ec: "post-fastp" is a label, not the agent.
+    'Sample ERR3450203 had 55,020,608 raw reads, which reduced to 52,096,180 post-fastp reads and 26,048,090 '
+    'post-fastp read pairs, with 139 read pairs identified as host-removed.',
+])
+def test_correct_tool_attribution_passes(sentence):
+    result = verify(sentence, {'facts': [], 'notes': [], 'max_words': 200})
+    assert not any('attributes' in i for i in result['issues']), result['issues']
+
+
+def test_dropping_a_sentence_takes_the_pronoun_sentence_after_it():
+    from bioflow_skills.skills.writing.paragraph_loop import with_dependents
+    text = 'Depth was 999,999 reads. It does not measure quality. Q30 was high.'
+    assert with_dependents(text, {0}) == {0, 1}
+    assert with_dependents(text, {2}) == {2}
+
+
 def test_topic_title_never_cuts_an_accession():
     from article_writing.adapters.brief_from_analysis import brief_from_topic
     topic = ('Shotgun metagenomic profiling of nine human gut samples from ENA project PRJEB33098: read quality '

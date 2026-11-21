@@ -219,3 +219,18 @@ def skills_metadata(ledger: dict[str, Any], *, methods: dict[str, Any] | None = 
             "version": (methods.get("_skill") or {}).get("version", ""),
         }
     return meta
+
+
+def revise_chapter(markdown: str, request: str, language: str, model: Any, title: str = "",
+                   history: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """Author's chat request on one chapter, one language half (skill ``chapter-chat-reviser``)."""
+
+    return _run("chapter-chat-reviser", {"markdown": markdown, "request": request, "language": language,
+                                         "model": model, "title": title, "history": history or []})
+
+
+def chapter_chat_note(result: dict[str, Any], language: str) -> str:
+    ensure_skills_path()
+    from bioflow_skills.skills.writing.chapter_chat import chat_note
+
+    return chat_note(result, language)

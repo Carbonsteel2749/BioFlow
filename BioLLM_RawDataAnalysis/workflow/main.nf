@@ -51,7 +51,7 @@ include { HOST_DEPLETION } from './modules/host_depletion'
 include { TAXONOMY } from './modules/taxonomy'
 include { FUNCTIONAL_ANNOTATION } from './modules/functional_annotation'
 include { READS_PLOTS } from './modules/reads_plots'
-include { TAXONOMY_PLOTS } from './modules/taxonomy_plots'
+include { TAXONOMY_PLOTS; taxonomyFigurePin } from './modules/taxonomy_plots'
 include { FUNCTIONAL_PLOTS } from './modules/functional_plots'
 include { ASSEMBLY } from './modules/assembly'
 include { BINNING } from './modules/binning'
@@ -69,6 +69,7 @@ workflow {
     if (!params.database_manifest) {
         error "--database_manifest is required; run workflow/run_pipeline.sh preflight or provide a validated manifest"
     }
+    taxonomy_shared_pin = taxonomyFigurePin(projectDir)
     database_manifest_ch = Channel.value(file(params.database_manifest, checkIfExists: true))
     input_manifest_ch = Channel.value(file(params.input_manifest, checkIfExists: true))
     VALIDATE_MANIFEST(file(params.input_manifest))
@@ -94,7 +95,8 @@ workflow {
     figure_renderer_sources = [file("${projectDir}/bin/visualization/*.py", checkIfExists:true),
         file("${projectDir}/assets/figure_recipes.json", checkIfExists:true),
         file("${projectDir}/bin/visualization/skill_helpers/scipilot_setup_style.py", checkIfExists:true)].flatten()
-    TAXONOMY_PLOTS(taxonomy_plot_input, taxonomy_metadata, params.metadata_sha256 ?: '', figure_renderer_sources)
+    TAXONOMY_PLOTS(taxonomy_plot_input, taxonomy_metadata, params.metadata_sha256 ?: '',
+        figure_renderer_sources, taxonomy_shared_pin)
 
     functional_gene_families = FUNCTIONAL_ANNOTATION.out.gene_families
         .map { sample_id, table -> table }

@@ -46,6 +46,10 @@ class OpenAICompatClient:
             "temperature": self.temperature,
             "stream": False,
         }
+        # The configured local Qwen3 endpoint otherwise spends the manuscript
+        # budget in hidden reasoning. It supports this llama.cpp/vLLM option.
+        if self.model.lower().startswith('qwen3') and self.base_url.startswith(('http://127.0.0.1:','http://localhost:')):
+            payload.update(chat_template_kwargs={'enable_thinking':False},max_tokens=4096)
         if extra:
             payload.update(extra)
         headers = {"Content-Type": "application/json"}
@@ -68,6 +72,8 @@ class OpenAICompatClient:
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("OpenAI-compat response had no choices")
+        if choices[0].get('finish_reason') == 'length':
+            raise RuntimeError('模型输出达到长度上限，未保存截断稿件；请缩短本次章节或分段重试。')
         message = choices[0].get("message") or {}
         content = message.get("content") or ""
         return _THINK_RE.sub("", str(content)).strip()

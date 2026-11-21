@@ -16,7 +16,7 @@ def check(name,ok,detail):
 
 check('Linux runtime',sys.platform.startswith('linux'),sys.platform)
 check('Python 3.12',sys.version_info[:2]==(3,12),sys.version.split()[0])
-for name in ['fastapi','uvicorn','httpx','pydantic','yaml','multipart','numpy','pandas','scipy','matplotlib','PIL']:
+for name in ['fastapi','uvicorn','httpx','pydantic','yaml','multipart','numpy','pandas','scipy','sklearn','matplotlib','PIL']:
     check('Python: '+name,importlib.util.find_spec(name) is not None,'import availability')
 for name in ['nextflow','java','fastqc','fastp','bowtie2','kraken2','bracken','humann','multiqc','soffice','docker']:
     check('Executable: '+name,shutil.which(name) is not None,'executable discovery')

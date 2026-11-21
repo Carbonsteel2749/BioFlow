@@ -17,6 +17,7 @@ from article_writing.orchestrator import WritingPipeline
 PLATE_ROOT = Path(__file__).resolve().parents[1]
 
 _PROGRESS_NAMES = {
+    "review": "审稿与定向修改",
     "methods": "方法",
     "results": "结果",
     "discussion": "讨论",
@@ -53,6 +54,23 @@ SECTION_LABELS = {
     SectionId.conclusion: ("Conclusions", "结论"),
     SectionId.back_matter: ("Back Matter", "文后"),
 }
+
+
+def _library_titles(section_id, fallback: str) -> tuple[str, str]:
+    from article_writing import section_library
+    try:
+        spec = section_library.get(section_id)
+    except KeyError:
+        return fallback, fallback
+    return spec.title_en, spec.title_zh
+
+
+def _chosen_sections(article_type: str, sections: list[str] | None) -> list[str] | None:
+    """None keeps the legacy default; otherwise the user's list or the article type's default."""
+    if not (article_type or "").strip() and not sections:
+        return None
+    from article_writing import section_library
+    return section_library.resolve_sections(article_type, sections)
 
 
 def utc_now() -> str:
@@ -249,10 +267,14 @@ class SessionStore:
         use_live_literature: bool = False,
         react_enabled: bool = True,
         selected_skills: list[str] | None = None,
+        author_information: dict[str, str] | None = None,
         editor_letter: str = "",
         reviewer_comments: str = "",
         literature_document_ids: list[str] | None = None,
         literature_refs: list[dict[str, Any]] | None = None,
+        article_type: str = "",
+        sections: list[str] | None = None,
+        figure_ids: list[str] | None = None,
         llm_provider: str = "ollama",
         llm_model: str = "qwen3:14b",
         llm_url: str = "http://127.0.0.1:11434",
@@ -300,10 +322,13 @@ class SessionStore:
             llm_timeout=llm_timeout,
             llm_language=llm_language,
             selected_skills=selected_skills,
+            author_information=author_information,
             editor_letter=editor_letter,
             reviewer_comments=reviewer_comments,
             literature_document_ids=literature_document_ids,
             literature_refs=literature_refs,
+            section_order=_chosen_sections(article_type, sections),
+            figure_ids=figure_ids,
             on_progress=on_progress,
         )
         state = pipeline.run(run_id=run_id)
@@ -325,7 +350,7 @@ class SessionStore:
             draft = state.drafts.get(section_id.value)
             if draft is None:
                 continue
-            en, zh = SECTION_LABELS.get(section_id, (draft.title, draft.title))
+            en, zh = SECTION_LABELS.get(section_id) or _library_titles(section_id, draft.title)
             sections[section_id.value] = SectionState(
                 section=section_id.value,
                 title=en,
@@ -367,6 +392,8 @@ class SessionStore:
                 "brief_path": brief_path.strip(),
                 "brief_text": topic,
                 "skills": sorted(pipeline.selected_skills),
+                "skill_provenance": pipeline.shared_skill_provenance,
+                "author_information": dict(author_information or {}),
                 "editor_letter": editor_letter.strip(),
                 "reviewer_comments": reviewer_comments.strip(),
             },

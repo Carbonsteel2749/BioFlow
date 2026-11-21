@@ -193,7 +193,10 @@ def references_latex(session: WritingSession, language: str) -> str:
     if not seen:
         return ""
     items = "\n".join(f"\\bibitem{{{cite}}} {_escape(entry)}" for cite, entry in seen.items())
-    return "\\begin{thebibliography}{99}\n" + items + "\n\\end{thebibliography}"
+    # The heading follows the paper language, whatever the document class defaults to (ctexart says 参考文献).
+    heading = "References" if choice == "en" else "参考文献"
+    return ("\\renewcommand{\\refname}{" + heading + "}\n\\begin{thebibliography}{99}\n"
+            + items + "\n\\end{thebibliography}")
 
 
 def session_to_latex(session: WritingSession, language: str = "zh") -> str:

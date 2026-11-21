@@ -9,7 +9,7 @@ from frontend import server
 
 def test_catalog_and_invalid_selection():
     catalog = server.writing_skills()["items"]
-    assert {s["name"] for s in catalog if s["supported"]} == {
+    assert {s["name"] for s in catalog if s.get('invocation')=='pipeline'} == {
         "bio-fact-ledger", "methods-from-provenance", "section-planner", "paragraph-writer", "claim-verifier",
         "nature-writing", "nature-polishing", "nature-reviewer", "nature-response"}
     client = TestClient(server.app)
@@ -17,6 +17,8 @@ def test_catalog_and_invalid_selection():
         response = client.post("/api/sessions", json={"skills": skills, "reviewer_comments": comments})
         assert response.status_code == 422
     server.validate_writing_skills(server.StartRequest(skills=["nature-response"], reviewer_comments="Explain methods"))
+    assert next(s for s in catalog if s['name']=='implementation-writer')['invocation']=='section'
+    assert not next(s for s in catalog if s['name']=='implementation-writer')['selectable']
 
 
 def test_preview_uses_selected_library_and_credentials(monkeypatch):

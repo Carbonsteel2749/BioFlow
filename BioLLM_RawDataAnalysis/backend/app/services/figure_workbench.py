@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.util
 import io
 import json
 import math
@@ -37,6 +38,19 @@ def digest(path):
         for block in iter(lambda: handle.read(1024*1024), b''):
             result.update(block)
     return result.hexdigest()
+
+
+def _taxonomy_library_pin(project_root):
+    # Load the same lightweight pin implementation as the Nextflow driver.
+    # No shared calculation modules are imported inside the API process.
+    path = project_root / 'workflow/bin/visualization/shared_taxonomy.py'
+    spec = importlib.util.spec_from_file_location('_bioflow_taxonomy_pin', path)
+    if spec is None or spec.loader is None:
+        raise ValueError('绘图共享库版本检查无法启动')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    library = module.resolve_shared_taxonomy()
+    return library.pin if library is not None else module.STANDALONE
 
 
 class FigureWorkbench:
@@ -249,13 +263,15 @@ class FigureWorkbench:
         feature_count = len({r.get('taxid',r.get('function_id')) for r in positive})
         if sample_count < recipe['minimum_samples'] or feature_count < recipe['minimum_features']:
             raise ValueError(f"该图至少需要 {recipe['minimum_samples']} 个有有效信号的样本及 {recipe['minimum_features']} 个条目；当前为 {sample_count} 个样本、{feature_count} 个条目")
+        spec = request.model_dump()
+        if request.data_type == 'taxonomy' and request.chart in {'alpha_diversity', 'stacked'}:
+            spec['shared_taxonomy_pin'] = _taxonomy_library_pin(self.settings.project_root)
         job_id = str(uuid.uuid4())
         directory = self.job_dir(task_id,job_id)
         directory.mkdir(parents=True,exist_ok=False)
         with (directory/'source.tsv').open('w',encoding='utf-8',newline='') as handle:
             writer = csv.DictWriter(handle,fieldnames=fields,delimiter='\t',lineterminator='\n')
             writer.writeheader(); writer.writerows(rows)
-        spec = request.model_dump()
         spec.update(source_sha256=checksums,snapshot_sha256=digest(directory/'source.tsv'),
             profile={'sample_count':sample_count,'feature_count':feature_count},task_id=task_id,job_id=job_id)
         (directory/'request.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -387,11 +403,19 @@ class FigureWorkbench:
                     'files':files,'path_base':'task results root; archive_path is relative to the full archive root'}
             root=self.artifacts.output_root/task_id/'figure_workbench'
             manifest={'schema_version':'1.0','task_id':task_id,'selection_sha256':state['selection_sha256'],
-                'figures':selected,'meaning':'Selected figure versions; retained historical versions are not the selected analysis.',
-                'created_at':utc_now()}
-            temporary=root/('selection-'+job_id+'.tmp')
-            temporary.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-            os.replace(temporary,root/'selected_figures.json')
+                'figures':selected,'meaning':'Selected figure versions; retained historical versions are not the selected analysis.'}
+            selection_path=root/'selected_figures.json'
+            previous_selection={}
+            if selection_path.is_file() and not selection_path.is_symlink() and selection_path.stat().st_size <= 4 * 1024 * 1024:
+                try:
+                    previous_selection=json.loads(selection_path.read_text(encoding='utf-8'))
+                except (OSError,ValueError):
+                    pass
+            if not isinstance(previous_selection,dict) or {
+                    k:v for k,v in previous_selection.items() if k!='created_at'} != manifest:
+                temporary=root/('selection-'+job_id+'.tmp')
+                temporary.write_text(json.dumps({**manifest,'created_at':utc_now()},ensure_ascii=False,indent=2),encoding='utf-8')
+                os.replace(temporary,selection_path)
             previous=self.task(task_id).get('result_archive')
             if previous:
                 previous=Path(previous)

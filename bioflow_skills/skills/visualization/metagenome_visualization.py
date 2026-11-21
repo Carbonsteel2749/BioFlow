@@ -22,6 +22,21 @@ REFERENCE_URL = (
     "https://github.com/GPTomics/bioSkills/blob/main/metagenomics/"
     "metagenome-visualization/SKILL.md"
 )
+SPECIES_COMPOSITION_RENDERER_VERSION = "1.0.0"
+
+
+def draw_species_composition(axis, displayed_abundance, *, top_n: int) -> None:
+    """Draw a Bracken fraction panel; the caller has already selected taxa and summed Other.
+
+    In contrast with a generic percentage composition chart, a row of this table
+    need not sum to one. Plot the reported fractions without rescaling them.
+    """
+    displayed_abundance.plot(kind="bar", stacked=True, ax=axis, colormap="tab20",
+                             width=.65, edgecolor="white", linewidth=.3)
+    axis.set(xlabel="Sample", ylabel="Bracken-reported relative abundance (fraction)",
+             title=f"Species composition · Top-{top_n} plus Other")
+    axis.tick_params(axis="x", labelrotation=25)
+    axis.legend(loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=7)
 
 _PROFILE_RULES: dict[str, dict[str, Any]] = {
     "metaphlan": {
@@ -163,6 +178,9 @@ class MetagenomeVisualizationSkill(BaseSkill):
             raise SkillValidationError(
                 f"unsupported profile_type '{profile_type}'; supported: {supported}"
             )
+        unit = skill_input.get("abundance_unit")
+        if profile_type == "bracken" and unit is not None and unit not in ("counts", "fraction_of_reads"):
+            raise SkillValidationError("an explicit Bracken abundance_unit must be counts or fraction_of_reads")
 
         table_role = str(skill_input.get("table_role")).strip().lower()
         if table_role not in _TABLE_RULES:
@@ -197,6 +215,13 @@ class MetagenomeVisualizationSkill(BaseSkill):
         profile_type = _normalise_profile_type(skill_input.get("profile_type"))
         table_role = str(skill_input.get("table_role")).strip().lower()
         profile_rule = _PROFILE_RULES[profile_type]
+        unit = skill_input.get("abundance_unit")
+        if profile_type == "bracken" and unit == "fraction_of_reads":
+            profile_rule = {
+                **profile_rule,
+                "measurement": "relative_abundance",
+                "warning": "These are Bracken-reported fractions, not counts. Retain their original denominator.",
+            }
         table_rule = _TABLE_RULES[table_role]
         supported_views = tuple(table_rule.get("descriptive_views", profile_rule["display_views"]))
         if not supported_views:
@@ -309,6 +334,8 @@ class MetagenomeVisualizationSkill(BaseSkill):
                 "Every figure is reproducible from retained plotting data and manifest, not only from its PNG.",
             ],
         }
+        if profile_type == "bracken" and unit is not None:
+            visualization_plan["input_contract"]["abundance_unit"] = unit
 
         artifact_contract = {
             "task_id": skill_input.get("task_id"),

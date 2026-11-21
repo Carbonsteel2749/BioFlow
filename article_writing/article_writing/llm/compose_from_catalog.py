@@ -88,6 +88,7 @@ _EMBED_LINE = re.compile(
 
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
 _CITATION = re.compile(r"\[@[^\]]+\]")
+_FIGURE_LINE = re.compile(r"^(?:!\[[^\]]*\]\([^)]+\)|\*\*(?:Figure|Table) \d+\.\*\*[^\n]*)$", re.M)
 # Fact-ledger ids such as [QC.raw_reads.max] must never reach the prose.
 _LEDGER_ID = re.compile(r"\s?\[(?:COHORT|QC|READQ|HOST|TAX|DIV|FUNC|SW|DB|PARAM|RUN)\.[^\]\s]+\]")
 
@@ -647,6 +648,8 @@ def _translate_if_needed(client: LLMClient, text: str, language: str) -> str:
         return f"CITEREF{len(markers)}"
 
     protected = _CITATION.sub(hold, prose.strip())
+    # Figure embeds and their caption lines inside the text are kept verbatim as well.
+    protected = _FIGURE_LINE.sub(hold, protected)
     translated = client.generate(
         "Translate the following paper section into Chinese. "
         "Keep every number, Figure N, and Table N unchanged. "
@@ -658,7 +661,12 @@ def _translate_if_needed(client: LLMClient, text: str, language: str) -> str:
     )
     chinese = _clean_markdown(translated).strip()
     for number in range(len(markers), 0, -1):
-        chinese = re.sub(rf"\s*CITEREF{number}(?!\d)", markers[number - 1], chinese)
+        marker = markers[number - 1]
+        # Citations attach to the sentence; figure lines stand in their own paragraph.
+        restored = marker if marker.startswith("[@") else f"\n\n{marker}\n\n"
+        chinese = re.sub(rf"\s*CITEREF{number}(?!\d)\s*" if not marker.startswith("[@")
+                         else rf"\s*CITEREF{number}(?!\d)", lambda _m, r=restored: r, chinese)
+    chinese = re.sub(r"\n{3,}", "\n\n", chinese).strip()
     if not chinese:
         return text
     combined = f"{prose.rstrip()}\n\n中文\n\n{chinese}"

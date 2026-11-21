@@ -189,6 +189,97 @@ def _citation_issues(sentence: str, paragraph: dict[str, Any], index: int) -> li
     return issues
 
 
+# Which tool produced which result in the metagenomic workflow. Diversity indices are
+# computed by the writing module from Bracken fractions, so no tool may be their agent.
+TOOL_NAMES = {"fastp": "fastp", "fastqc": "FastQC", "multiqc": "MultiQC", "bowtie2": "Bowtie2",
+              "samtools": "SAMtools", "kraken2": "Kraken2", "kraken": "Kraken2", "bracken": "Bracken",
+              "metaphlan": "MetaPhlAn", "humann": "HUMAnN"}
+TOOL = re.compile(r"\b(" + "|".join(TOOL_NAMES) + r")\d?\b", re.I)
+METRICS = (
+    ("diversity indices", re.compile(r"shannon|simpson|richness|diversity ind", re.I), set(),
+     "the Shannon and Gini-Simpson indices and richness were computed from the Bracken species fractions, "
+     "not by a profiling tool"),
+    ("read-quality metrics", re.compile(r"\bq30\b|base[- ]call quality|base quality|duplication|gc content|insert size",
+                                        re.I), {"fastp", "fastqc", "multiqc"}, "read-quality metrics come from fastp"),
+    ("host read removal", re.compile(r"\bhost\b|human (?:reads|dna)", re.I), {"bowtie2", "samtools"},
+     "host reads were identified with Bowtie2"),
+    ("taxonomic abundances", re.compile(r"species abundance|species-level|taxonomic (?:profil|classif|composition)|"
+                                        r"most abundant (?:species|taxa)|abundances? of (?:the )?species", re.I),
+     {"kraken2", "kraken", "bracken", "metaphlan"}, "species abundances come from Kraken2 and Bracken"),
+    ("functional profiles", re.compile(r"pathway|gene famil|functional profil|metacyc|kegg|uniref", re.I),
+     {"humann", "metaphlan"}, "functional profiles come from HUMAnN"),
+)
+ACTION = re.compile(r"\b(calculated|computed|estimated|generated|produced|showed|shown|revealed|yielded|reported|"
+                    r"measured|quantified|identified|determined|calculating|computing|estimating)\b", re.I)
+AGENT_AFTER = re.compile(r"^\s*(?:by|with|using)\s+(?:the\s+)?(\w+)", re.I)
+
+
+def _metric(text: str, nearest_end: bool = False):
+    """The metric mentioned closest to the verb (first after it, or last before it)."""
+
+    hits = []
+    for name, pattern, producers, rule in METRICS:
+        for match in pattern.finditer(text):
+            hits.append((match.start(), name, producers, rule))
+    if not hits:
+        return None
+    _, name, producers, rule = max(hits) if nearest_end else min(hits)
+    return name, producers, rule
+
+
+def _objects(after: str) -> str:
+    """The verb's object phrase: up to the next verb (minus its own clause) or a clause break."""
+
+    segment = after[:100]
+    following = ACTION.search(segment)
+    if following:
+        segment = segment[:following.start()]
+        comma = segment.rfind(",")
+        if comma >= 0:
+            segment = segment[:comma]
+    for stop in (";", ". ", ", while", ", whereas", ", but"):
+        cut = segment.find(stop)
+        if cut >= 0:
+            segment = segment[:cut]
+    return segment
+
+
+def _all_metrics(text: str):
+    seen = set()
+    for name, pattern, producers, rule in METRICS:
+        if pattern.search(text) and name not in seen:
+            seen.add(name)
+            yield name, producers, rule
+
+
+def _attribution_issues(sentence: str, index: int) -> list[str]:
+    """Flag "TOOL calculated METRIC" when the workflow did not produce METRIC with TOOL."""
+
+    issues = []
+    for verb in ACTION.finditer(sentence):
+        after = sentence[verb.end():]
+        agent = AGENT_AFTER.match(after)
+        if agent and TOOL.fullmatch(agent.group(1)):
+            tool = agent.group(1).lower().rstrip("0123456789") or agent.group(1).lower()
+            found = _metric(sentence[max(0, verb.start() - 80):verb.start()], nearest_end=True)
+            metrics = [found] if found else []
+        else:
+            window = sentence[max(0, verb.start() - 120):verb.start()]
+            # "post-fastp reads" or "fastp-filtered" use the tool name as a label, not as the agent.
+            before = [m for m in TOOL.finditer(window)
+                      if window[m.start() - 1:m.start()] != "-" and window[m.end():m.end() + 1] != "-"]
+            if not before:
+                continue
+            tool = before[-1].group(1).lower()
+            metrics = list(_all_metrics(_objects(after)))
+        key = tool if tool in TOOL_NAMES else tool + "2"
+        for metric, producers, rule in metrics:
+            if key not in producers and tool not in producers:
+                issues.append(f"Sentence {index + 1} attributes {metric} to {TOOL_NAMES.get(key, tool)}, but {rule}. "
+                              "Rewrite it so each result is credited to the tool or step that produced it.")
+    return list(dict.fromkeys(issues))
+
+
 def deterministic_issues(text: str, paragraph: dict[str, Any]) -> tuple[list[str], set[int]]:
     issues: list[str] = []
     bad: set[int] = set()
@@ -206,6 +297,10 @@ def deterministic_issues(text: str, paragraph: dict[str, Any]) -> tuple[list[str
                 issues.append(f"Sentence {index + 1} names the identifier {token}, which is not in the facts. "
                               "Copy identifiers exactly or leave them out.")
                 bad.add(index)
+        attribution = _attribution_issues(sentence, index)
+        if attribution:
+            issues.extend(attribution)
+            bad.add(index)
         citation_problems = _citation_issues(sentence, paragraph, index)
         if citation_problems:
             issues.extend(citation_problems)

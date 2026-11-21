@@ -87,6 +87,9 @@ def run_redraw(service,task_id,job_id):
                     'parameters':manifest['parameters'],'figure_plan':manifest['figure_plan'],
                     'sample_ids':job['request']['sample_ids'],'sample_groups':job['request']['groups'],
                     'title':name,'paper_sections':['Result'],'provenance_file':manifest['files'][-1]}
+                result['display'] = manifest.get('display', [])
+            if 'execution' in manifest:
+                    metadata['figure_execution'] = manifest['execution']
                 artifact=service.artifacts.register(task_id=task_id,producer='figure_workbench',
                     artifact_type='figure.'+metadata['category'] if path.suffix in {'.png','.svg','.pdf'} else 'figure.data',
                     path=path,media_type=media,sample_scope='cohort',cohort_id=task_id,metadata=metadata,
@@ -96,8 +99,11 @@ def run_redraw(service,task_id,job_id):
                     primary=artifact['artifact_id']
             if primary is None:
                 raise ValueError('缺少主图')
-            service._finish(task_id,job_id,'succeeded',result={'artifact_ids':artifact_ids,
-                'primary_artifact_id':primary,'figure_plan':manifest['figure_plan'],'display':manifest.get('display',[])},release_reference=False)
+            result = {'artifact_ids':artifact_ids, 'primary_artifact_id':primary,
+                      'figure_plan':manifest['figure_plan']}
+            if 'execution' in manifest:
+                result['execution'] = manifest['execution']
+            service._finish(task_id,job_id,'succeeded',result=result,release_reference=False)
     except Exception as exc:
         with service._lock:
             if service.get(task_id,job_id)['status']!='cancelled':

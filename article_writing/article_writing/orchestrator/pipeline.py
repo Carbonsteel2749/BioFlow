@@ -24,7 +24,9 @@ from article_writing.llm.compose_from_catalog import (
 )
 from article_writing.react import run_related_work_react
 from article_writing.registry import create_section
-from article_writing.skills import bio_skills, section_runner
+from article_writing import section_library
+from article_writing.skills import bio_skills, library_sections, section_runner
+from article_writing.skills import figures as figure_source
 from article_writing.skills.client import SkillClient
 from article_writing.skills.hooks import (
     POLISH_SKILL,
@@ -45,26 +47,18 @@ DEFAULT_ORDER: List[SectionId] = list(DEFAULT_SECTION_ORDER)
 def _normalize_section_order(
     section_order: Optional[Iterable[SectionId | str]],
 ) -> List[SectionId]:
-    """Return one complete, duplicate-free permutation of the manuscript sections."""
+    """Return the user's section choice: any non-empty, duplicate-free list from the section library."""
 
-    configured_order = DEFAULT_ORDER if section_order is None else section_order
+    configured_order = DEFAULT_ORDER if section_order is None else list(section_order)
     try:
         order = [item if isinstance(item, SectionId) else SectionId(item) for item in configured_order]
     except ValueError as error:
         raise ValueError(f"section_order contains an unknown section: {error}") from error
-
-    missing = [section.value for section in DEFAULT_ORDER if section not in order]
-    duplicates = [section.value for section in DEFAULT_ORDER if order.count(section) > 1]
-    if missing or duplicates or len(order) != len(DEFAULT_ORDER):
-        details: list[str] = []
-        if missing:
-            details.append(f"missing={missing}")
-        if duplicates:
-            details.append(f"duplicates={duplicates}")
-        raise ValueError(
-            "section_order must contain each manuscript section exactly once"
-            + (f" ({', '.join(details)})" if details else "")
-        )
+    if not order:
+        raise ValueError("section_order must contain at least one section")
+    duplicates = sorted({section.value for section in order if order.count(section) > 1})
+    if duplicates:
+        raise ValueError(f"section_order must not repeat a section (duplicates={duplicates})")
     return order
 
 
@@ -113,7 +107,14 @@ class WritingPipeline:
         literature_document_ids: list[str] | None = None,
         on_progress: Callable[[str, int, int], None] | None = None,
         literature_refs: list[dict] | None = None,
+        figure_ids: list[str] | None = None,
+        author_information: dict[str, str] | None = None,
     ) -> None:
+        # Chart-module figures chosen for this manuscript (project_figures ids).
+        self.figure_ids = [str(i) for i in (figure_ids or []) if str(i).strip()]
+        self.author_information = dict(author_information or {})
+        self.figures: list[dict] = []
+        self.quality_report: dict = {}
         # Papers the author chose for this manuscript: [{doi, title, authors, year}, ...]
         self.literature_refs = [dict(ref) for ref in (literature_refs or []) if isinstance(ref, dict)]
         self.reference_cards: list[dict] = []
@@ -159,8 +160,13 @@ class WritingPipeline:
             timeout=llm_timeout,
         )
         catalog = {WRITING_SKILL, POLISH_SKILL, REVIEW_SKILL, RESPONSE_SKILL}
+        from article_writing.skills.availability import selected_guidance
+        guidance, self.shared_skill_provenance = selected_guidance(selected_skills or [])
+        if guidance:
+            self.llm_instructions = guidance+'\n\n'+self.llm_instructions
         if selected_skills is not None:
-            chosen = {name for name in selected_skills if name in catalog}
+            # Retain exact shared selectors so session provenance matches what ran.
+            chosen = {name for name in selected_skills if name in catalog or name.startswith('center:')}
         elif skills_enabled:
             chosen = set(catalog)
         else:
@@ -279,13 +285,26 @@ class WritingPipeline:
                 self.core_skill_warnings.append(f"reference cards unavailable: {error}")
                 print(self.core_skill_warnings[-1], flush=True)
         self.reference_cards = reference_cards
+        # Figures go to Technical Validation in a Data Descriptor, otherwise to Results.
+        figures, figure_warnings = figure_source.resolve_figures(self.figure_ids)
+        self.figures = figures
+        if figures and ledger is not None:
+            # The package had no figures, but the author supplied chart-module figures.
+            ledger["missing"] = [m for m in ledger.get("missing", []) if m.get("id") != "figures"]
+        self.core_skill_warnings.extend(figure_warnings)
+        chosen_ids = {s.value for s in self.section_order}
+        figure_section = "technical_validation" if "technical_validation" in chosen_ids else "results"
+        if figures and figure_section not in chosen_ids:
+            self.core_skill_warnings.append("figures not placed: choose a Results or Technical Validation section")
         connected = bool(
             getattr(self.llm, "enabled", False)
             and not isinstance(self.llm, LLMDisabled)
             and catalog_items
         )
+        # Display order is the user's; writing order follows the library's write_rank
+        # (data-bearing sections first, summaries last).
         order = (
-            [section for section in WRITE_ORDER if section in self.section_order]
+            [SectionId(s) for s in section_library.writing_order(self.section_order)]
             if connected
             else list(self.section_order)
         )
@@ -296,6 +315,21 @@ class WritingPipeline:
                 f"[{index}/{len(order)}] writing {section_id.value}…",
                 flush=True,
             )
+            if section_id.value not in section_library.LEGACY_IDS:
+                draft = library_sections.write_library_section(
+                    section_library.get(section_id.value), section_id,
+                    ledger=ledger, cards=reference_cards, brief=brief,
+                    model=self.llm if connected else None, written=written,
+                    material_report=material_report,
+                    author_information=self.author_information,
+                    figures=figures if section_id.value == figure_section else [],
+                    style_rules=self.llm_instructions)
+                draft.warnings.extend(self.core_skill_warnings)
+                state.add_draft(draft)
+                written[section_id.value] = draft.markdown
+                print(f"[{index}/{len(order)}] {section_id.value} done "
+                      f"status={draft.metadata['library']['status']}", flush=True)
+                continue
             section = create_section(section_id)
             payload: dict = {}
             # Literature-informed sections receive ReAct trajectory metadata when enabled.
@@ -395,7 +429,9 @@ class WritingPipeline:
 
                 markdown, planned_meta, planned_warnings = section_runner.write_planned_section(
                     section_id, ledger, self.llm, brief, style_rules=instructions, cards=reference_cards,
+                    figures=figures if section_id.value == figure_section else [],
                     on_paragraph=paragraph_progress)
+                planned_refs = planned_meta.pop("_figure_refs", [])
                 planned_meta["style_rules_chars"] = len(instructions or "")
                 meta = dict(draft.metadata or {})
                 meta["catalog_compose"] = {"used": False, "source": "planned_paragraphs"}
@@ -403,7 +439,7 @@ class WritingPipeline:
                 draft = draft.model_copy(update={
                     "markdown": markdown,
                     "metadata": meta,
-                    "figure_refs": [],
+                    "figure_refs": list(planned_refs),
                     "warnings": [*draft.warnings, *planned_warnings],
                 })
                 written[section_id.value] = draft.markdown
@@ -465,6 +501,9 @@ class WritingPipeline:
                 flush=True,
             )
 
+        if connected and ledger is not None:
+            self._quality_gates(state, ledger)
+
         if connected and "zh" in self.llm_language.lower():
             if self.on_progress:
                 self.on_progress("translation", 0, 0)
@@ -473,6 +512,8 @@ class WritingPipeline:
                 current = state.drafts.get(section_id.value)
                 if current is None:
                     continue
+                if (current.metadata or {}).get("library", {}).get("status") in {"skill_missing", "author_input", "author_provided"}:
+                    continue  # placeholders stay as written
                 translated = translate_section_text(self.llm, current.markdown, self.llm_language)
                 if translated != current.markdown:
                     state.add_draft(current.model_copy(update={"markdown": translated}))
@@ -513,6 +554,51 @@ class WritingPipeline:
                 self.skill_outputs["_warnings"] += note + "\n"
         return state
 
+    MODEL_WRITTEN_SKILLS = frozenset({"background-summary-writer", "technical-validation-writer"})
+
+    def _quality_gates(self, state: PaperState, ledger: dict | None = None) -> None:
+        """Mock review → targeted revision on the English text, then the STORMS-informed check."""
+
+        bio_skills.ensure_skills_path()
+        drafts = {s.value: state.drafts[s.value] for s in self.section_order if s.value in state.drafts}
+        sections = {k: d.markdown for k, d in drafts.items()}
+        titles = {k: d.title for k, d in drafts.items()}
+        revisable = {k for k, d in drafts.items()
+                     if "planned" in (d.metadata or {})
+                     or (d.metadata or {}).get("library", {}).get("skill") in self.MODEL_WRITTEN_SKILLS}
+        self.quality_report = {}
+        if self.on_progress:
+            self.on_progress("review", 0, 0)
+        print("reviewing and revising…", flush=True)
+        try:
+            outcome = bio_skills._run("targeted-reviser", {"sections": sections, "titles": titles,
+                                                           "revisable": sorted(revisable), "model": self.llm,
+                                                           "ledger": ledger or {}})
+        except Exception as error:  # noqa: BLE001 — review is a quality gate, not a blocker
+            self.core_skill_warnings.append(f"review skipped: {error}")
+            outcome = None
+        if outcome:
+            for key, draft in drafts.items():
+                issues = [i for i in outcome["issues"] if i["section"] == key]
+                if not issues and outcome["sections"].get(key) == draft.markdown:
+                    continue
+                meta = dict(draft.metadata or {})
+                meta["review"] = [{k: i.get(k) for k in ("severity", "kind", "quote", "problem", "action")}
+                                  for i in issues]
+                notes = [f"review ({i['severity']}): {i['problem']}" for i in issues if i["action"] != "revised"]
+                updated = draft.model_copy(update={"markdown": outcome["sections"].get(key, draft.markdown),
+                                                   "metadata": meta, "warnings": [*draft.warnings, *notes]})
+                state.add_draft(updated)
+                drafts[key] = updated
+            self.skill_outputs["peer_review.md"] = outcome["markdown"]
+            self.quality_report["review"] = {
+                "issues": len(outcome["issues"]), "discarded": len(outcome["discarded"]),
+                "revised": sum(1 for i in outcome["issues"] if i["action"] == "revised")}
+        storms = bio_skills._run("storms-checklist", {"sections": {k: d.markdown for k, d in drafts.items()}})
+        self.skill_outputs["storms_checklist.md"] = storms["markdown"]
+        self.quality_report["storms"] = storms["counts"]
+        print(f"quality gates: {self.quality_report}", flush=True)
+
     def _attach_references(self, state: PaperState, cards: list[dict]) -> None:
         """Reference list in citation order, appended to the back matter as `[@key]: entry` lines."""
 
@@ -529,7 +615,13 @@ class WritingPipeline:
                     order.append(key)
         by_key = {card["key"]: card for card in cards}
         order = [key for key in order if key in by_key]
+        # The reference list goes to the back matter, or to the last chosen section without it.
         target = state.drafts.get(SectionId.back_matter.value)
+        if target is None:
+            for section_id in reversed(self.section_order):
+                if section_id.value in state.drafts:
+                    target = state.drafts[section_id.value]
+                    break
         if not order or target is None:
             return
         block = bio_skills.references_block(cards, order)

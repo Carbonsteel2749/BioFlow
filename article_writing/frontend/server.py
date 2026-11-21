@@ -79,12 +79,12 @@ class StartRequest(BaseModel):
     literature_document_ids: list[str] = Field(default_factory=list)
     # Papers chosen from the personal library: {doi, title, authors, year}; abstracts are fetched by DOI.
     literature_refs: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class LatexRequest(BaseModel):
-    tex: str = ""
-    language: str = "zh"
-    project_id: str = ""
+    # Section choice: an article type from the library and/or an explicit ordered section list.
+    article_type: str = ""
+    sections: list[str] = Field(default_factory=list)
+    # Chart-module figure ids (project_figures) to place in the manuscript.
+    figures: list[str] = Field(default_factory=list)
+    author_information: dict[str, str] = Field(default_factory=dict)
 
 
 class LatexRequest(BaseModel):
@@ -108,6 +108,13 @@ class ConfirmRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     use_llm: bool = True
+    # "zh" / "en": revise only that language half of a bilingual chapter (chapter-chat-reviser skill).
+    language: str = ""
+
+
+class RuntimeSkillRequest(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
+    version: str | None = None
 
 
 class LLMConfigRequest(BaseModel):
@@ -359,22 +366,84 @@ def writing_skills() -> dict[str, Any]:
         entries = [entry for entry in list_catalog() if entry.category == "writing"]
     except Exception as error:
         return {"items": [], "warning": f"Skills 模块不可用：{error}"}
-    return {"source": "bioflow_skills", "items": [
-        {"name": e.name, "description": e.description, "version": e.version,
-         "supported": e.name in WRITING_SKILL_STAGES,
-         "stage": WRITING_SKILL_STAGES.get(e.name, "尚未适配论文生成流程"),
-         "requires_comments": e.name == "nature-response"}
-        for e in entries
-    ]}
+    from article_writing.skills.availability import catalogue
+    return {"source": "bioflow_skills+published_center", "items": catalogue(entries, WRITING_SKILL_STAGES)}
+
+
+@app.post('/api/runtime-skills/{name}')
+def execute_runtime_skill(name: str, body: RuntimeSkillRequest):
+    """Server-injected model clients never travel through JSON form fields."""
+    _skills_connection()
+    from bioflow_skills import run_skill
+    from bioflow_skills.registry import get_registry
+    registry=get_registry()
+    if not registry.has(name):
+        raise HTTPException(404,'写作能力不存在，请刷新目录。')
+    try:
+        instance=registry.create(name,version=body.version)
+    except (KeyError,ValueError) as error:
+        raise HTTPException(422,'能力版本不存在，请刷新目录。') from error
+    if instance.spec.category!='writing':
+        raise HTTPException(422,'此入口只负责论文写作能力。')
+    payload=dict(body.payload)
+    payload.pop('model',None)
+    if 'model' in instance.spec.input_keys:
+        config=load_llm_config()
+        payload['model']=build_llm_client(enabled=True,provider=config['provider'],model=config['model'],
+                                         url=config['url'],timeout=float(config['timeout']))
+    result=run_skill(name,payload,version=body.version)
+    if (result.data or {}).get('execution_mode')=='agent':
+        if 'model' not in payload:
+            config=load_llm_config()
+            payload['model']=build_llm_client(enabled=True,provider=config['provider'],model=config['model'],
+                                             url=config['url'],timeout=float(config['timeout']))
+        try:
+            from article_writing.skills.model_task import execute
+            return execute(result,payload,payload['model'])
+        except ValueError as error:
+            raise HTTPException(422,str(error)) from error
+    return result.to_dict()
+
+
+def validate_sections(body: StartRequest) -> None:
+    from article_writing import section_library
+    allowed = {s.id for s in section_library.sections().values() if s.mode == 'author_input'}
+    if set(body.author_information) - allowed or any(len(v) > 6000 for v in body.author_information.values()):
+        raise HTTPException(422, '作者信息仅支持伦理、作者贡献、资助、致谢与利益冲突，每项最多 6000 字符。')
+    if not body.article_type.strip() and not body.sections:
+        return
+    try:
+        section_library.resolve_sections(body.article_type, body.sections)
+    except ValueError as error:
+        raise HTTPException(422, f"章节选择无效：{error}") from error
+
+
+@app.get("/api/section-library")
+def section_library_catalogue() -> dict[str, Any]:
+    """Section library and article types; status shows which section skills exist yet."""
+    from article_writing import section_library
+    from article_writing.skills.bio_skills import ensure_skills_path
+    ensure_skills_path()
+    try:
+        from bioflow_skills.registry import get_registry
+        names = get_registry().list_names()
+    except Exception:  # noqa: BLE001
+        names = []
+    return section_library.catalogue(names)
 
 
 def validate_writing_skills(body: StartRequest) -> None:
-    available = {e["name"] for e in writing_skills()["items"] if e["supported"]}
+    available = {e["name"] for e in writing_skills()["items"] if e.get("selectable",e["supported"]) or e.get('invocation')=='pipeline'}
     invalid = set(body.skills) - available
     if invalid:
         raise HTTPException(422, "不可用于当前写作流程的 Skills：" + ", ".join(sorted(invalid)))
     if "nature-response" in body.skills and not (body.editor_letter.strip() or body.reviewer_comments.strip()):
         raise HTTPException(422, "使用审稿回复 Skill 时，请提供审稿意见或编辑来信。")
+    try:
+        from article_writing.skills.availability import selected_guidance
+        selected_guidance(body.skills)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @app.get("/api/sessions")
@@ -404,6 +473,7 @@ def check_materials(body: StartRequest) -> dict[str, Any]:
 @app.post("/api/sessions")
 def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
     validate_writing_skills(body)
+    validate_sections(body)
     llm_config = load_llm_config()
     state = model_status(llm_config)
     if state["model_available"] is False:
@@ -432,6 +502,10 @@ def start_session(body: StartRequest, request: Request) -> dict[str, Any]:
             literature_document_ids=body.literature_document_ids,
             literature_refs=[{k: str(ref.get(k) or "")[:500] for k in ("doi", "title", "authors", "year")}
                              for ref in body.literature_refs[:50] if isinstance(ref, dict)],
+            article_type=body.article_type,
+            sections=body.sections,
+            figure_ids=[str(f)[:64] for f in body.figures[:30]],
+            author_information=body.author_information,
             llm_provider=llm_config["provider"],
             llm_model=llm_config["model"],
             llm_url=llm_config["url"],
@@ -536,6 +610,30 @@ def chat_section(session_id: str, section_id: str, body: ChatRequest) -> dict[st
         url=llm_config["url"],
         timeout=float(llm_config["timeout"]),
     )
+    language = (body.language or "").strip().lower()
+    if language in {"zh", "en"}:
+        from article_writing.skills.bio_skills import chapter_chat_note, revise_chapter
+
+        history = [m for m in section.chat[:-1] if m.get("role") in {"user", "assistant"}]
+        try:
+            result = revise_chapter(section.markdown, user_msg, language, client,
+                                    title=section.title_zh or section.title, history=history)
+        except Exception as exc:  # model unreachable, bad JSON, skill failure
+            note = f"这次修改没有完成，原文保留：{exc}"
+            section.chat.append({"role": "assistant", "content": note})
+            section.updated_at = utc_now()
+            store.save(session)
+            return {"section": section.as_dict(), "applied": False, "error": str(exc)}
+        applied = result["status"] == "revised"
+        if applied:
+            section.markdown = result["markdown"]
+            section.confirmed = False
+        section.chat.append({"role": "assistant", "content": chapter_chat_note(result, language)})
+        section.updated_at = utc_now()
+        store.save(session)
+        return {"section": section.as_dict(), "applied": applied, "status": result["status"],
+                "problems": result.get("problems", []), "changed": result.get("changed", 0)}
+
     try:
         sid = SectionId(section_id)
     except ValueError as error:
@@ -618,6 +716,8 @@ def export_manuscript(session_id: str, body: ExportRequest | None = None) -> dic
         state.add_draft(SectionDraft(section=sid, title=sec.title, markdown=sec.markdown))
 
     manuscript = build_manuscript_markdown(state, language=language)
+    from article_writing.layout.citations import number_citations
+    manuscript = number_citations(manuscript, heading="参考文献" if language == "zh" else "References")
     out_dir = Path(session.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     final_sections = out_dir / "final_sections"
@@ -778,6 +878,25 @@ def _session_asset_path(session, filename: str) -> Path | None:
         if path.is_file() and path.parent.name == "figures":
             return path.resolve()
     return None
+
+
+QUALITY_REPORTS = (("peer_review.md", "模拟审稿与定向修改"), ("storms_checklist.md", "STORMS 报告规范检查"),
+                   ("review.md", "nature-reviewer 审稿意见"), ("response.md", "审稿回复"))
+
+
+@app.get("/api/sessions/{session_id}/reports")
+def session_reports(session_id: str) -> dict[str, Any]:
+    """Quality reports written by the pipeline (review, STORMS check)."""
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    folder = Path(session.output_dir) / "pipeline"
+    items = []
+    for name, label in QUALITY_REPORTS:
+        path = folder / name
+        if path.is_file():
+            items.append({"name": name, "label": label, "markdown": path.read_text(encoding="utf-8")})
+    return {"items": items}
 
 
 @app.get("/api/sessions/{session_id}/assets/{filename}")

@@ -98,10 +98,10 @@ def write_provenance(path: Path, payload: dict) -> None:
     def generated(value):
         if isinstance(value, dict):
             if value.get("status") == "generated" and isinstance(value.get("output"), str):
-                yield value["output"]
+                yield value["output"], value.get("execution")
             for child in value.values():
                 yield from generated(child)
-    for name in sorted(set(generated(payload.get("plots", {})))):
+    for name, execution in sorted(dict(generated(payload.get("plots", {}))).items()):
         if not name.endswith(".png"):
             continue
         stem = Path(name).stem
@@ -117,6 +117,8 @@ def write_provenance(path: Path, payload: dict) -> None:
         if source.is_file():
             shutil.copyfile(source, path.parent / (stem + ".source.tsv"))
         parameters = {key: value for key, value in payload.items() if key not in {"plots", "inputs"}}
+        if execution is not None:
+            parameters["figure_execution"] = execution
         (path.parent / (stem + ".parameters.json")).write_text(json.dumps(parameters, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         caption_path = path.parent / (stem + '.caption.md')
         if not caption_path.exists():

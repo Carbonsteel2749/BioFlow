@@ -128,6 +128,10 @@ def split_bilingual(markdown: str) -> tuple[str, str, str]:
     english: list[str] = []
     chinese: list[str] = []
     shared: list[str] = []
+    # Assets are remembered with the language block they appeared in. A figure that
+    # appears in both blocks sits inline after its paragraph and stays there in each
+    # language; a figure appearing once (trailing embeds) is shared as before.
+    assets: list[tuple[str, int, str]] = []
     mode: str | None = None
     for piece in _iter_pieces(text):
         label = _language_label(piece)
@@ -135,7 +139,10 @@ def split_bilingual(markdown: str) -> tuple[str, str, str]:
             mode = label
             continue
         if _is_asset(piece):
-            shared.append(piece)
+            side = "zh" if mode == "zh" else "en"
+            target = chinese if side == "zh" else english
+            assets.append((side, len(target), piece))
+            target.append(piece)
             continue
         if _HEADING.match(piece) and "\n" not in piece:
             english.append(piece)
@@ -148,6 +155,14 @@ def split_bilingual(markdown: str) -> tuple[str, str, str]:
             chinese.append(piece)
         else:
             english.append(piece)
+    in_en = {piece for side, _, piece in assets if side == "en"}
+    in_zh = {piece for side, _, piece in assets if side == "zh"}
+    inline = in_en & in_zh
+    drop_en = {index for side, index, piece in assets if side == "en" and piece not in inline}
+    drop_zh = {index for side, index, piece in assets if side == "zh" and piece not in inline}
+    shared = [piece for _side, _index, piece in assets if piece not in inline]
+    english = [piece for index, piece in enumerate(english) if index not in drop_en]
+    chinese = [piece for index, piece in enumerate(chinese) if index not in drop_zh]
     return _join(english), _join(chinese), _join(shared)
 
 

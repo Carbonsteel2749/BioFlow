@@ -117,6 +117,41 @@ def _signature(path):
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
 
+def _archive_digest(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _verified_snapshot(path, archive):
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        with path.open('rb') as stream:
+            record = json.loads(stream.read(4 * 1024 * 1024 + 1))
+        if (record['version'] == 1 and record['info']['archive_path'] == str(archive)
+                and record['info']['contains_sensitive_raw_data'] is True
+                and re.fullmatch('[0-9a-f]{64}', record['archive_sha256'])):
+            return record
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _save_verified_snapshot(path, record):
+    fd, pending = tempfile.mkstemp(prefix='.archive-snapshot-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(_json(record))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+    finally:
+        Path(pending).unlink(missing_ok=True)
+
+
 class _HashReader:
     def __init__(self, stream):
         self.stream, self.digest = stream, hashlib.sha256()
@@ -286,6 +321,7 @@ class FullArchiveService:
                 missing_file(prefix, 'directory traversal failed: ' + type(exc).__name__)
             for parent, directories, filenames in os.walk(root, followlinks=False, onerror=walk_error):
                 parent = Path(parent)
+                directories.sort()
                 for item in list(directories):
                     path = parent / item
                     if item in {'deliverables', '.git', '__pycache__'}:
@@ -332,15 +368,42 @@ class FullArchiveService:
             else:
                 missing_file('execution/workflow', 'compiled snapshot outside approved directory')
         generated['execution/task.json'] = _json(task)
+        identity_content = dict(generated)
+        # Registration of a verified archive changes these two bookkeeping fields.
+        identity_content['execution/task.json'] = _json({
+            key: value for key, value in task.items() if key not in {'updated_at', 'result_archive'}
+        })
         if kind == 'standard':
             interpretation = InterpretationService(self.settings, self.repository).generate(task_id)
             generated['interpretation/preliminary.json'] = _json(interpretation)
             generated['interpretation/preliminary.txt'] = interpretation['text'].encode()
+            identity_content['interpretation/preliminary.json'] = _json({
+                key: value for key, value in interpretation.items() if key != 'generated_at'
+            })
         else:
             generated['interpretation/preliminary.json'] = _json({'task_id': task_id, 'status': 'not_available',
                 'reason': 'dynamic workflow interpretation is not implemented; use node results'})
         generated['interpretation/ai.json'] = _json({'status': 'not_generated',
             'reason': 'No persisted AI interpretation is available. Archiving never invents or requests model output.'})
+
+        snapshot_path = destination / '.verified-archive-snapshot.json'
+        fingerprint = hashlib.sha256(_json({
+            'files': {name: [str(path), signature] for name, (path, signature) in files.items()},
+            'generated': {name: hashlib.sha256(identity_content.get(name, data)).hexdigest()
+                          for name, data in generated.items()},
+            'missing': missing, 'excluded': excluded, 'warnings': warnings, 'raw_files': raw_map,
+        })).hexdigest()
+        marker = destination / '.sensitive-archive'
+        if stored == archive and base == archive and not legacy.exists() and marker.is_file() and not marker.is_symlink():
+            verified = _verified_snapshot(snapshot_path, archive)
+            if verified and verified['info'].get('task_id') == task_id:
+                if _archive_digest(archive) != verified['archive_sha256'] or _signature(archive) != target_signature:
+                    raise ValueError('existing verified archive integrity check failed; old file retained')
+                if verified.get('fingerprint') == fingerprint:
+                    _process_check(task_id, roots)
+                    if self._task(task_id)[1] != task or any(_signature(path) != sig for path, sig in files.values()):
+                        raise ValueError('source changed while checking archive reuse')
+                    return verified['info']
 
         # Preserve the original delivered tables/figures/report paths, including future formats.
         base_records, base_signature = [], None
@@ -427,6 +490,7 @@ class FullArchiveService:
                 sums = ''.join(f"{r['sha256']}  {r['path']}\n" for r in records).encode()
                 put('SHA256SUMS', io.BytesIO(sums), len(sums))
             self.verify(Path(temporary))
+            archive_sha256 = _archive_digest(temporary)
             if self._task(task_id)[1]['status'] != task['status']:
                 raise ValueError('task changed during archiving')
             _process_check(task_id, roots[:4])
@@ -447,6 +511,11 @@ class FullArchiveService:
             if (archive.is_symlink() or
                     (_signature(archive) if archive.exists() else None) != target_signature):
                 raise ValueError('target archive changed during compression; no file overwritten')
+            # Invalidate the previous receipt durably before publishing a new
+            # inode. A crash or receipt-write failure after publication must
+            # leave a cache miss, not a checksum for the previous package.
+            snapshot_path.unlink(missing_ok=True)
+            sync_directory(destination)
             naming.prepare_publication(task_id, archive, temporary)
             if target_signature is None:
                 # Atomic no-clobber publication for a previously absent name.
@@ -459,6 +528,12 @@ class FullArchiveService:
             # Remove only its consumed task-owned staging package, not runtime inputs.
             if base is not None and base != archive:
                 base.unlink()
+            try:
+                _save_verified_snapshot(snapshot_path, {
+                    'version': 1, 'archive_sha256': archive_sha256, 'fingerprint': fingerprint, 'info': info,
+                })
+            except OSError:
+                logging.getLogger(__name__).warning('Verified archive published without reuse receipt for %s', task_id)
             return info
         finally:
             if os.path.exists(temporary):

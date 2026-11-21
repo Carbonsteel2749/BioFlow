@@ -124,6 +124,16 @@ def _find(root: Path, pattern: str) -> list[Path]:
     return found
 
 
+def _optional_json(ledger: Ledger, path: Path) -> dict:
+    try:
+        value=json.loads(path.read_text(encoding='utf-8'))
+        if isinstance(value,dict):return value
+    except (OSError,UnicodeError,ValueError):
+        pass
+    ledger.notes.append(f'Unreadable optional JSON report {path.name}; unsupported facts omitted.')
+    return {}
+
+
 # ---------------------------------------------------------------------------
 #  sections of the ledger
 # ---------------------------------------------------------------------------
@@ -170,7 +180,14 @@ def _fastp(ledger: Ledger, root: Path) -> None:
     sequencing = ""
     for path in files:
         sample = path.name.split(".fastp.json")[0]
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            ledger.notes.append(f'Unreadable fastp JSON report for {sample}; quality facts from this report omitted.')
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get('summary', {}), dict):
+            ledger.notes.append(f'Invalid fastp report structure for {sample}; quality facts from this report omitted.')
+            continue
         summary = data.get("summary", {})
         before, after = summary.get("before_filtering", {}), summary.get("after_filtering", {})
         sequencing = summary.get("sequencing", sequencing)
@@ -212,7 +229,7 @@ def _host(ledger: Ledger, root: Path) -> None:
     files = _find(root, "*.host_depletion.metrics.json")
     if not files:
         return
-    data = json.loads(files[0].read_text(encoding="utf-8"))
+    data = _optional_json(ledger, files[0])
     prefix = str(data.get("host_index_prefix") or "")
     parts = [p for p in prefix.replace("\\", "/").split("/") if p]
     reference = ""
@@ -230,7 +247,7 @@ def _host(ledger: Ledger, root: Path) -> None:
                    source=files[0])
     rates = {}
     for path in files:
-        item = json.loads(path.read_text(encoding="utf-8"))
+        item = _optional_json(ledger, path)
         if "bowtie2_overall_alignment_rate_pct" in item:
             rates[item.get("sample_id") or path.name.split(".")[0]] = float(item["bowtie2_overall_alignment_rate_pct"]) / 100
     ledger.range_facts("HOST.alignment_rate", "host", "bowtie2 overall alignment rate to the host index",
@@ -370,7 +387,7 @@ def _provenance(ledger: Ledger, root: Path) -> None:
                            source=path)
     path = prov / "parameters.json"
     if path.is_file():
-        params = json.loads(path.read_text(encoding="utf-8"))
+        params = _optional_json(ledger, path)
         wanted = [k for k in params if k.startswith("fastp_") or k.startswith("host_")] + \
                  ["read_length", "threads", "enable_mags", "enable_reassembly"]
         for key in wanted:
@@ -381,7 +398,7 @@ def _provenance(ledger: Ledger, root: Path) -> None:
                        str(value).lower() if isinstance(value, bool) else str(value), source=path)
     path = prov / "run.json"
     if path.is_file():
-        run = json.loads(path.read_text(encoding="utf-8"))
+        run = _optional_json(ledger, path)
         if run.get("final_status"):
             ledger.add("RUN.status", "run", "workflow final status", run["final_status"], run["final_status"], source=path)
 

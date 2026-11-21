@@ -82,7 +82,7 @@ async def authorize(store,service,path,request,fetch):
         if len(parts)>3 and parts[3]!='config':
             allowed(store,'upload_session',parts[3],user)
         return
-    if method=='GET' and ((service=='analysis' and path in {'api/health','api/workflows/templates','api/workflows/registry','api/capabilities','api/methods/parameters'}) or (service=='writing' and path in {'api/health','api/llm-config'}) or (service=='literature' and path=='health')):
+    if method=='GET' and ((service=='analysis' and path in {'api/health','api/workflows/templates','api/workflows/registry','api/capabilities','api/methods/parameters'}) or (service=='writing' and path in {'api/health','api/llm-config','api/writing-skills','api/section-library'}) or (service=='literature' and path=='health')):
         return
     if method=='GET' and service=='analysis' and path.startswith('api/workflows/templates/'):
         return
