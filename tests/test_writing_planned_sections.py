@@ -21,15 +21,17 @@ def ledger_for(tmp_path):
 def test_results_plan_has_small_fact_sets_and_code_derived_readings(tmp_path):
     plan = build_plan(ledger_for(tmp_path), 'results')
     keys = [p['key'] for p in plan]
-    assert keys[:3] == ['depth', 'base_quality', 'host']
+    # Read QC is one short paragraph; the rest of Results is about the communities.
+    assert keys[0] == 'data_quality' and 'depth' not in keys and 'host' not in keys
     assert all(len(p['fact_ids']) <= 7 for p in plan)
-    host = next(p for p in plan if p['key'] == 'host')
+    quality = plan[0]
     # Fixture host share is 2.2%: above the 1% threshold, so no "little human DNA" reading.
-    assert any('Host read pairs reached' in note for note in host['notes'])
-    assert not any('very little human DNA' in note for note in host['notes'])
-    assert any('effective' in rule for rule in host['forbid'])
-    quality = next(p for p in plan if p['key'] == 'base_quality')
+    assert any('Host read pairs reached' in note for note in quality['notes'])
+    assert not any('very little human DNA' in note for note in quality['notes'])
+    assert any('effective' in rule for rule in quality['forbid'])
     assert any('high base-call quality' in note for note in quality['notes'])
+    # ... and its heading does not claim "little host DNA" either.
+    assert quality['heading'] == 'Sequencing depth, read quality and host read removal'
 
 
 def test_low_host_share_reads_as_little_human_dna_not_effectiveness(tmp_path):
@@ -37,7 +39,7 @@ def test_low_host_share_reads_as_little_human_dna_not_effectiveness(tmp_path):
     for fact in ledger['facts']:
         if fact['id'] == 'QC.host_removed_pct.max':
             fact['value'], fact['text'] = 0.000012, '0.0012% (s2)'
-    host = next(p for p in build_plan(ledger, 'results') if p['key'] == 'host')
+    host = next(p for p in build_plan(ledger, 'results') if p['key'] == 'data_quality')
     note = next(n for n in host['notes'] if 'human DNA' in n)
     assert 'at most 0.0012%' in note and 'does not measure how well host removal worked' in note
 
@@ -200,9 +202,10 @@ def test_model_judge_is_used_but_cannot_reject_whole_paragraph(tmp_path):
 
 def test_writer_prompt_carries_only_paragraph_evidence_and_style(tmp_path):
     plan = build_plan(ledger_for(tmp_path), 'results')
-    prompt = build_prompt(plan[2], section='results', title='T', style_rules='Use active voice.')
+    prompt = build_prompt(plan[0], section='results', title='T', style_rules='Use active voice.')
     assert 'Host read pairs reached' in prompt and 'Use active voice.' in prompt
-    assert 'Q30' not in prompt  # base-quality facts belong to another paragraph
+    composition = build_prompt(next(p for p in plan if p['key'] == 'composition'), section='results', title='T')
+    assert 'Q30' not in composition  # read-quality facts belong to another paragraph
     revise = build_prompt(plan[0], section='results', title='T', draft='Old text.', issues=['Sentence 1 is wrong.'])
     assert 'Old text.' in revise and 'Sentence 1 is wrong.' in revise
 

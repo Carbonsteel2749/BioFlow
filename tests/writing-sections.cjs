@@ -24,7 +24,8 @@ assert.deepStrictEqual(checked(r.box),['abstract','methods','results']);
 assert(r.box.includes('<option value="research_article" selected>'));
 // chosen order first (unknown ids dropped), unchosen after, statuses labelled and escaped
 assert.deepStrictEqual(order(r.rows),['results','abstract','methods','data_records','funding']);
-assert(r.rows.includes('待补 Skill')&&r.rows.includes('作者填写')&&r.rows.includes('files &lt;x&gt;'));
+assert(r.rows.includes('此章节尚未接通')&&r.rows.includes('需要作者提供事实')&&r.rows.includes('files &lt;x&gt;'));
+assert(r.box.includes('name="author-funding"'));
 // a saved draft restores type and order
 assert(r.saved.includes('<option value="data_descriptor" selected>'));
 assert.deepStrictEqual(checked(r.saved),['funding','abstract']);

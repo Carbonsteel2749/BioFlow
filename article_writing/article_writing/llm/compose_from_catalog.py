@@ -653,6 +653,7 @@ def _translate_if_needed(client: LLMClient, text: str, language: str) -> str:
     translated = client.generate(
         "Translate the following paper section into Chinese. "
         "Keep every number, Figure N, and Table N unchanged. "
+        "A line that starts with ### is a subsection heading: keep the ### and translate the heading after it. "
         "Keep every token of the form CITEREF followed by a number exactly as written. "
         "Do not add measurements, methods, or claims. "
         "Output Chinese prose only.\n\n"

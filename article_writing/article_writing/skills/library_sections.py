@@ -56,8 +56,13 @@ def _draft(spec, section_id: SectionId, markdown: str, status: str, warnings: li
 
 
 def write_library_section(spec, section_id: SectionId, *, ledger=None, cards=None, brief=None, model=None,
-                          written=None, material_report=None, figures=None, style_rules: str = "") -> SectionDraft:
+                          written=None, material_report=None, figures=None, style_rules: str = "",
+                          author_information=None) -> SectionDraft:
     if spec.mode == "author_input":
+        supplied = str((author_information or {}).get(spec.id) or '').strip()
+        if supplied:
+            return _draft(spec, section_id, supplied, 'author_provided',
+                          [f'{spec.id}: 作者提供，请在投稿前确认。'], {'origin':'author_input'})
         text = f"[{AUTHOR_INPUT}: {spec.title_en} — {spec.purpose}]"
         return _draft(spec, section_id, text, "author_input",
                       [f"{spec.id}: author input required ({spec.title_zh})"])

@@ -14,7 +14,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from .claim_verifier import citation_keys, deterministic_issues, drop_sentences, split_sentences, verify
+from .claim_verifier import (citation_keys, deterministic_issues, drop_sentences, split_sentences, strip_filler,
+                             verify)
 from .paragraph_writer import SYSTEM, build_prompt, clean, last_sentence
 
 MAX_REVISIONS = 2
@@ -70,6 +71,9 @@ def write_plan(plan: list[dict[str, Any]], model: Any, *, section: str, title: s
             soft = [issue for issue in check["issues"] if issue not in hard]
             if soft:
                 warnings.append(f"{section}/{paragraph['key']}: please review — " + "; ".join(soft[:3]))
+        text, filler = strip_filler(text)
+        if paragraph.get("heading") and text.strip():
+            blocks.append(f"### {paragraph['heading']}")
         if text.strip():
             blocks.append(text.strip())
             previous = last_sentence(text)
@@ -78,6 +82,7 @@ def write_plan(plan: list[dict[str, Any]], model: Any, *, section: str, title: s
             figures.append(figure)
         trace.append({"key": paragraph["key"], "fact_ids": paragraph.get("fact_ids", []), "revisions": revisions,
                       "rounds": rounds, "dropped_sentences": dropped, "final_ok": check["ok"],
+                      "filler_removed": filler, "heading": paragraph.get("heading", ""),
                       "words": len(text.split()), "citations": sorted(set(citation_keys(text))),
                       "figures": [f["number"] for f in paragraph.get("figures") or []]})
     markdown = "\n\n".join(blocks) + "\n"

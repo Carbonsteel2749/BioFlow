@@ -355,6 +355,15 @@ async def run(pid: str,name: str,body: SkillBody,request: Request,background:Bac
     if name=='file_profile' and request.state.user['role']!='developer':
         raise HTTPException(403,'服务器文件检查由开发者管理')
     from bioflow_skills import run_skill
+    from bioflow_skills.registry import get_registry
+    if get_registry().has(name) and get_registry().create(name).spec.category=='writing':
+        from .ability_management import enabled
+        if not enabled(store,'models','writing-model'):
+            raise HTTPException(409,'写作模型已停用')
+        result=await upstream('writing','/api/runtime-skills/'+name,'POST',
+                              {'payload':body.payload,'version':body.version})
+        store.event(pid,'执行写作能力',{'skill':name,'status':result.get('status')})
+        return result
     result=(await asyncio.to_thread(run_skill,name,body.payload,version=body.version)).to_dict()
     store.event(pid,'执行 Skill',result)
     return result

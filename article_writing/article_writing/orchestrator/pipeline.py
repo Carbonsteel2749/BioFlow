@@ -108,9 +108,11 @@ class WritingPipeline:
         on_progress: Callable[[str, int, int], None] | None = None,
         literature_refs: list[dict] | None = None,
         figure_ids: list[str] | None = None,
+        author_information: dict[str, str] | None = None,
     ) -> None:
         # Chart-module figures chosen for this manuscript (project_figures ids).
         self.figure_ids = [str(i) for i in (figure_ids or []) if str(i).strip()]
+        self.author_information = dict(author_information or {})
         self.figures: list[dict] = []
         self.quality_report: dict = {}
         # Papers the author chose for this manuscript: [{doi, title, authors, year}, ...]
@@ -158,8 +160,13 @@ class WritingPipeline:
             timeout=llm_timeout,
         )
         catalog = {WRITING_SKILL, POLISH_SKILL, REVIEW_SKILL, RESPONSE_SKILL}
+        from article_writing.skills.availability import selected_guidance
+        guidance, self.shared_skill_provenance = selected_guidance(selected_skills or [])
+        if guidance:
+            self.llm_instructions = guidance+'\n\n'+self.llm_instructions
         if selected_skills is not None:
-            chosen = {name for name in selected_skills if name in catalog}
+            # Retain exact shared selectors so session provenance matches what ran.
+            chosen = {name for name in selected_skills if name in catalog or name.startswith('center:')}
         elif skills_enabled:
             chosen = set(catalog)
         else:
@@ -314,6 +321,7 @@ class WritingPipeline:
                     ledger=ledger, cards=reference_cards, brief=brief,
                     model=self.llm if connected else None, written=written,
                     material_report=material_report,
+                    author_information=self.author_information,
                     figures=figures if section_id.value == figure_section else [],
                     style_rules=self.llm_instructions)
                 draft.warnings.extend(self.core_skill_warnings)
@@ -504,7 +512,7 @@ class WritingPipeline:
                 current = state.drafts.get(section_id.value)
                 if current is None:
                     continue
-                if (current.metadata or {}).get("library", {}).get("status") in {"skill_missing", "author_input"}:
+                if (current.metadata or {}).get("library", {}).get("status") in {"skill_missing", "author_input", "author_provided"}:
                     continue  # placeholders stay as written
                 translated = translate_section_text(self.llm, current.markdown, self.llm_language)
                 if translated != current.markdown:

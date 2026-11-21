@@ -162,43 +162,78 @@ def _para(key: str, purpose: str, led: _Ledger, fact_ids: list[str], *, notes=()
     }
 
 
+RESULTS_STYLE = (
+    "Report each result once, with its number; do not add a clause that only says values varied or differed "
+    "(for example 'indicating variability' or 'suggesting differences').",
+    "Do not end with a sentence that restates the paragraph (for example 'These results indicate ...').",
+)
+
+
+def results_headings(led: _Ledger) -> dict[str, str]:
+    """Subsection headings that state the result, chosen in code from the same thresholds as the notes."""
+
+    clean = ("READQ.q30_after.min" in led.by_id and led.value("READQ.q30_after.min") >= 0.90
+             and "QC.fastp_retained_pct.min" in led.by_id and led.value("QC.fastp_retained_pct.min") >= 0.85
+             and "QC.host_removed_pct.max" in led.by_id and led.value("QC.host_removed_pct.max") < 0.01)
+    dominant = led.by_id.get("TAX.dominant_summary")
+    varied = bool(dominant and isinstance(dominant["value"], dict) and len(dominant["value"]) > 1)
+    lowest = led.sample("DIV.shannon.min") if "DIV.shannon.min" in led.by_id else ""
+    top = led.by_id.get(f"TAX.top1.{lowest}") if lowest else None
+    single = bool(top and isinstance(top["value"], dict) and top["value"].get("fraction", 0) >= 0.2)
+    return {
+        "data_quality": ("Sequencing data were of high quality and contained little host DNA" if clean
+                         else "Sequencing depth, read quality and host read removal"),
+        "composition": ("The most abundant species differed between samples" if varied
+                        else "Taxonomic composition of the samples"),
+        "diversity": ("Diversity was lowest in the sample dominated by a single species" if single
+                      else "Within-sample diversity and richness"),
+        "function": "Functional profiles and the share of unassigned reads",
+    }
+
+
 def plan_results(led: _Ledger) -> list[dict[str, Any]]:
+    """Results in claim-headed subsections. Read QC is one short paragraph: details belong to Methods."""
+
     top = led.ids(*(f"TAX.cohort_top.{i}" for i in range(1, 6)))
+    q_notes, q_ids = quality_notes(led)
+    h_notes, h_ids = host_notes(led)
+    c_notes, c_ids = composition_notes(led)
     paragraphs = [
-        _para("depth", "Report sequencing depth and how many reads remained after quality filtering.", led,
-              led.ids("COHORT.sample_count", "QC.raw_reads.min", "QC.raw_reads.max", "QC.raw_reads.total",
-                      "QC.fastp_retained_pct.range", "QC.post_fastp_pairs.range")),
-        _para("base_quality", "Report base quality and duplication of the filtered reads.", led,
-              led.ids("READQ.q30_before.range", "READQ.q30_after.range", "READQ.duplication.range",
-                      "READQ.gc_after.range"),
-              notes=quality_notes(led)[0], words=(50, 100)),
-        _para("host", "Report how many read pairs were removed as host and how many remained.", led,
-              led.ids("HOST.reference", "QC.host_removed_pairs.min", "QC.host_removed_pairs.max",
-                      "QC.post_host_pairs.range"),
-              notes=host_notes(led)[0], note_ids=host_notes(led)[1], words=(50, 100),
-              forbid=("Do not say host removal was effective, successful or complete.",)),
-        _para("composition", "Describe the species that dominated the communities across and within samples.", led,
-              [*top, *led.ids("TAX.dominant_summary")],
-              notes=composition_notes(led)[0], words=(80, 140)),
-        _para("diversity", "Report within-sample diversity and richness.", led,
-              led.ids("DIV.shannon.min", "DIV.shannon.max", "DIV.simpson.range", "DIV.richness.range"),
-              notes=[n for n in composition_notes(led)[0] if "Shannon" in n],
-              note_ids=[i for i in composition_notes(led)[1] if i.startswith(("TAX.top1.", "DIV."))],
-              words=(50, 100)),
-        _para("function", "Report the functional profiles.", led,
+        _para("data_quality", "In one short paragraph, report sequencing depth, how much passed quality filtering, "
+              "base quality and the share of host read pairs. Give ranges or minimum and maximum values only; "
+              "do not list every metric.", led,
+              led.ids("COHORT.sample_count", "QC.raw_reads.range", "QC.fastp_retained_pct.min",
+                      "READQ.q30_after.min", "QC.host_removed_pct.max"),
+              notes=[*q_notes, *h_notes[:1]], note_ids=[*q_ids, *h_ids], words=(60, 110),
+              forbid=("Do not say host removal was effective, successful or complete.", *RESULTS_STYLE)),
+        _para("composition", "Describe which species dominated the communities, across samples and within "
+              "individual samples.", led, [*top, *led.ids("TAX.dominant_summary")],
+              notes=[n for n in c_notes if "Shannon" not in n],
+              note_ids=[i for i in c_ids if not i.startswith(("DIV.", "TAX.top1."))], words=(80, 140),
+              forbid=RESULTS_STYLE),
+        _para("diversity", "Report within-sample diversity and richness, and which sample had the lowest diversity.",
+              led, led.ids("DIV.shannon.min", "DIV.shannon.max", "DIV.simpson.range", "DIV.richness.range"),
+              notes=[n for n in c_notes if "Shannon" in n],
+              note_ids=[i for i in c_ids if i.startswith(("TAX.top1.", "DIV."))],
+              words=(50, 100), forbid=RESULTS_STYLE),
+        _para("function", "Report the functional profiles: how many pathways were detected and what share of the "
+              "pathway total could not be assigned.", led,
               led.ids("FUNC.pathways_detected.range", "FUNC.unmapped_share.range"),
-              notes=function_notes(led)[0], words=(40, 90)),
+              notes=function_notes(led)[0], words=(40, 90), forbid=RESULTS_STYLE),
     ]
-    return [p for p in paragraphs if p]
+    headings = results_headings(led)
+    plan = [p for p in paragraphs if p]
+    for paragraph in plan:
+        paragraph["heading"] = headings.get(paragraph["key"], "")
+    return plan
 
 
 def plan_technical_validation(led: _Ledger) -> list[dict[str, Any]]:
     """Data Descriptor: the same evidence as Results, framed as checks of data quality."""
 
     framing = {
-        "depth": "Validate sequencing depth: report reads per sample and how many passed quality filtering.",
-        "base_quality": "Validate base-call quality of the filtered reads (Q30, duplication, GC content).",
-        "host": "Validate host contamination: report how many read pairs matched the human reference.",
+        "data_quality": "Validate the sequencing data: reads per sample, the share that passed quality filtering, "
+                        "base-call quality and how many read pairs matched the human reference.",
         "composition": "Show that taxonomic profiles are plausible for human stool: which species dominated and "
                        "how consistent they were across samples.",
         "diversity": "Report within-sample diversity and richness as a check of profile complexity.",
@@ -208,6 +243,7 @@ def plan_technical_validation(led: _Ledger) -> list[dict[str, Any]]:
     for paragraph in plan:
         paragraph["purpose"] = framing.get(paragraph["key"], paragraph["purpose"])
         paragraph["forbid"] = [*paragraph["forbid"], "Do not run or report statistical hypothesis tests."]
+        paragraph.pop("heading", None)  # Technical Validation keeps its own fixed structure
     return plan
 
 
@@ -279,28 +315,42 @@ def attach_figures(plan: list[dict[str, Any]], figures: list[dict[str, Any]]) ->
     return plan
 
 
+DISCUSSION_STYLE = (
+    "Do not repeat read counts, quality metrics or other numbers already reported in Results unless the "
+    "interpretation needs one of them.",
+    "Do not write sentences that say nothing specific, such as 'provides insights into', 'highlights the "
+    "complexity of' or 'underscores the value of'.",
+)
+OUTLOOK_NOTES = (
+    "With confirmed study design and sample metadata, the same profiles could be used for planned group "
+    "comparisons with appropriate statistical tests.",
+    "Sample collection, DNA extraction and library preparation details are needed to report the study fully.",
+)
+
+
 def plan_discussion(led: _Ledger) -> list[dict[str, Any]]:
+    """Principal finding → what the profiles can and cannot show → (literature) → numbered limitations."""
+
     q_notes, q_ids = quality_notes(led)
-    h_notes, h_ids = host_notes(led)
     c_notes, c_ids = composition_notes(led)
     f_notes, f_ids = function_notes(led)
     l_notes, l_ids = limitation_notes(led)
     paragraphs = [
-        _para("data_quality", "Interpret what the quality-control results mean for using these data.", led,
-              [], notes=[*q_notes, *h_notes], note_ids=[*q_ids, *h_ids], words=(70, 130),
-              forbid=("Do not repeat the full list of read counts.",)),
-        _para("composition", "Interpret the community composition: which species dominated and how much samples differed.",
-              led, led.ids("TAX.cohort_top.1", "TAX.cohort_top.2", "TAX.cohort_top.3"),
-              notes=c_notes, note_ids=c_ids, words=(80, 140)),
-        _para("function", "Interpret what the functional profiles can and cannot show.", led, [],
-              notes=f_notes, note_ids=f_ids, words=(40, 90)),
-        _para("limitations", "State the limitations of this analysis.", led, [], notes=l_notes, note_ids=l_ids,
-              words=(70, 140)),
-        _para("outlook", "State what information would allow further analysis, without promising results.", led, [],
-              notes=["With confirmed study design and sample metadata, the same profiles could be used for planned "
-                     "group comparisons with appropriate statistical tests.",
-                     "Sample collection, DNA extraction and library preparation details are needed to report the study "
-                     "fully."], words=(40, 80)),
+        # Only the leading species and the code-derived readings: Results already listed the numbers.
+        _para("principal", "Open the Discussion with the principal finding in three or four sentences: no single "
+              "species characterised every sample, which species were shared by all samples, and what that means "
+              "for describing these communities. Use at most two numbers. Mention data quality in at most one "
+              "sentence.", led, led.ids("TAX.cohort_top.1"),
+              notes=[*c_notes, *q_notes[:1]], note_ids=[*c_ids, *q_ids[:1]], words=(70, 120),
+              forbid=(*DISCUSSION_STYLE, "Do not list species with their mean read fractions one after another.")),
+        _para("function", "Interpret what the functional profiles can and cannot show, and what the unassigned share "
+              "means for using them.", led, [], notes=f_notes, note_ids=f_ids, words=(40, 90),
+              forbid=DISCUSSION_STYLE),
+        _para("limitations", "State the limitations as a numbered sequence in prose (First, ... Second, ... "
+              "Third, ...), one limitation per sentence, and begin only the last limitation with Finally. Close "
+              "with one sentence on what information would allow further analysis, without promising results.",
+              led, [],
+              notes=[*l_notes, *OUTLOOK_NOTES], note_ids=l_ids, words=(90, 170)),
     ]
     return [p for p in paragraphs if p]
 
@@ -393,23 +443,62 @@ def plan_introduction(led: _Ledger, brief: dict[str, Any], cards: list[dict[str,
     return [p for p in paragraphs if p]
 
 
+METHOD_CLAIM = re.compile(r"\b(shotgun|16S|Kraken|Bracken|HUMAnN|MetaPhlAn|bioBakery|reference database|"
+                          r"taxonomic (?:profil|classif)\w*|functional profil\w*|sequencing depth)", re.I)
+DISEASE = re.compile(r"\b(cancer|CRC|carcinoma|tumou?r|disease|disorder|patients?|autism|ASD|IBD|colitis|Crohn|"
+                     r"diabetes|obes\w*|cirrhosis|infection|diagnos\w*)\b", re.I)
+NO_COMPARABLE = ("None of the selected references reports profiles that can be compared directly with these "
+                 "samples, so the Discussion makes no comparison with earlier studies.")
+
+
+def relevant_claims(led: _Ledger, cards: list[dict[str, Any]], limit: int = 4):
+    """Claims that touch what was observed (a shared species or genus) or how it was measured.
+
+    A paper on another disease or question is not "consistent with" a descriptive profile, so claims
+    that share neither are left out of the Discussion instead of being strung together.
+    """
+
+    species = _checks(led).get("species", [])
+    genera = {s.split()[0] for s in species if " " in s}
+    picked, links = [], []
+    for card in cards:
+        for claim in card.get("claims", []):
+            if claim.get("kind") not in {"finding", "background", "limitation"}:
+                continue
+            text = claim.get("text", "")
+            shared = [s for s in species if s.lower() in text.lower()] or \
+                     [g for g in genera if re.search(rf"\b{re.escape(g)}\b", text)]
+            # A disease study that merely used shotgun data is about the disease, not the method.
+            method = None if DISEASE.search(text) else METHOD_CLAIM.search(text)
+            if not shared and not method:
+                continue
+            picked.append((card, claim))
+            links.append(f"{', '.join(shared)} was also observed in the present samples, so the claim of "
+                         f"[@{card['key']}] about it can be set beside that observation." if shared else
+                         f"The present profiles were also produced with {method.group(0)}, so the claim of "
+                         f"[@{card['key']}] about it bears on how these data were generated.")
+            break  # one claim per paper
+        if len(picked) >= limit:
+            break
+    return picked, list(dict.fromkeys(links))
+
+
 def literature_discussion(led: _Ledger, cards: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not cards:
         return None
-    picked = _claims(cards, ("finding", "background"), 4)
-    notes = []
-    species = _checks(led).get("species", [])
-    for card in cards:
-        text = " ".join([card.get("abstract", ""), card.get("title", "")]).lower()
-        shared = [s for s in species if s.lower() in text]
-        if shared:
-            notes.append(f"[@{card['key']}] discusses {', '.join(shared)}, which was also observed in the present samples.")
-    notes.append("The present analysis package contains no diagnosis or group information, so these profiles cannot "
-                 "test or confirm the findings of the cited studies.")
-    notes += _evidence_notes(picked)
-    return _lit_para("literature", "Place the present descriptive profiles in the context of the cited studies, "
-                                   "and state what the present data can and cannot add to them.",
-                     picked, notes=notes, words=(80, 150), require=False)
+    picked, links = relevant_claims(led, cards)
+    if not picked:
+        return None
+    notes = [*links,
+             "The present analysis package contains no diagnosis or group information, so these profiles cannot "
+             "test or confirm the findings of the cited studies.", *_evidence_notes(picked)]
+    para = _lit_para("literature", "Relate the cited work to what was observed or measured here. For each cited "
+                                   "claim, first state what the cited work reported, then say in plain words how it "
+                                   "bears on the present observation or method. End with what the present data "
+                                   "cannot add.", picked, notes=notes, words=(70, 140), require=False)
+    para["forbid"] = [*para["forbid"], "Do not say the present results align with, agree with, support or confirm "
+                                       "the cited findings; the present samples have no groups.", *DISCUSSION_STYLE]
+    return para
 
 
 def plan_abstract(led: _Ledger, brief: dict[str, Any]) -> list[dict[str, Any]]:
@@ -478,9 +567,11 @@ def build_plan(ledger: dict[str, Any], section: str, brief: dict[str, Any] | Non
     elif section == "discussion":
         plan = plan_discussion(led)
         extra = literature_discussion(led, cards)
+        at = next((i for i, p in enumerate(plan) if p["key"] == "limitations"), len(plan))
         if extra:
-            at = next((i for i, p in enumerate(plan) if p["key"] == "limitations"), len(plan))
             plan.insert(at, extra)
+        elif cards and at < len(plan):
+            plan[at]["notes"].insert(0, NO_COMPARABLE)
     elif section == "abstract":
         plan = plan_abstract(led, brief or {})
     elif section == "conclusion":

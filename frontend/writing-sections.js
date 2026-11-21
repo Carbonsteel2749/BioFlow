@@ -1,6 +1,6 @@
 /* Section picker for the start-writing dialog: article type, chosen sections and their order.
    Library comes from GET /services/writing/api/section-library. */
-const WRITING_SECTION_STATUS={ready:'就绪',skill_missing:'待补 Skill',author_input:'作者填写'};
+const WRITING_SECTION_STATUS={ready:'写作功能已接通',skill_missing:'此章节尚未接通',author_input:'需要作者提供事实'};
 
 function writingSectionDefaults(lib,type){
   const kind=(lib.article_types||[]).find(t=>t.id===type)||(lib.article_types||[]).find(t=>t.id===lib.default_article_type);
@@ -25,9 +25,19 @@ function writingSectionsBox(lib){
   const types=(lib.article_types||[]).map(t=>`<option value="${esc(t.id)}"${t.id===type?' selected':''}>${esc(t.title_zh)}（${esc(t.examples||t.title_en)}）</option>`).join('');
   return `<div class="box section-picker-box"><p>文章类型与章节</p>`+
     `<label>文章类型<select name="article_type">${types}</select></label>`+
-    `<p class="caption">勾选要写的章节，用 ↑ ↓ 调整顺序；切换文章类型会恢复该类型的默认章节。写作时会先写有数据的章节，摘要等概括性章节最后写。「待补 Skill」的章节先生成占位，「作者填写」的章节需要作者补充。</p>`+
-    `<ol class="section-picker">${writingSectionRows(lib,chosen)}</ol><p class="caption section-picker-note"></p></div>`;
+    `<p class="caption">勾选章节，用 ↑ ↓ 调整顺序。系统先写结果等有证据的章节，最后写摘要。功能接通不代表材料齐全；伦理、作者贡献、资助等事实请在下方填写，系统不会替作者猜测。</p>`+
+    `<ol class="section-picker">${writingSectionRows(lib,chosen)}</ol><p class="caption section-picker-note"></p>`+
+    writingAuthorFields(lib)+`</div>`;
 }
+
+function writingAuthorFields(lib){
+  const saved=state.writingAuthorDraft||{};
+  return `<details class="box"><summary>作者事实信息：伦理、贡献、资助、致谢与利益冲突</summary><p class="caption">只填写已确认事实。留空时稿件保留补充提示；填写后按原文放入对应章节，不让模型编造批准编号、经费或贡献。</p>`+
+    (lib.sections||[]).filter(s=>s.mode==='author_input'||s.status==='author_input').map(s=>
+      `<label>${esc(s.title_zh)}<textarea name="author-${esc(s.id)}" maxlength="6000" rows="2" placeholder="填写已确认内容；也可暂时留空">${esc(saved[s.id]||'')}</textarea></label>`).join('')+`</details>`;
+}
+
+function writingAuthorInformation(form){return Object.fromEntries([...form.querySelectorAll('textarea[name^="author-"]')].filter(x=>x.value.trim()).map(x=>[x.name.slice(7),x.value.trim()]));}
 
 function writingSectionChoice(form){
   const list=form.querySelector('.section-picker');
@@ -42,7 +52,7 @@ function writingSectionNote(form){
   const rows=[...form.querySelectorAll('.section-picker li.section-row')].filter(li=>li.querySelector('input')?.checked);
   const missing=rows.filter(li=>li.querySelector('.section-status.skill_missing')).length;
   const author=rows.filter(li=>li.querySelector('.section-status.author_input')).length;
-  note.textContent=rows.length?`已选 ${rows.length} 个章节`+(missing?`，其中 ${missing} 个待补 Skill（生成占位）`:'')+(author?`，${author} 个需作者填写`:''):'请至少选择一个章节。';
+  note.textContent=rows.length?`已选 ${rows.length} 个章节`+(missing?`，其中 ${missing} 个尚未接通`:'')+(author?`，${author} 个请提供作者事实信息`:''):'请至少选择一个章节。';
 }
 
 /* Figures from the chart module: only completed, saved figures drawn from real data. */

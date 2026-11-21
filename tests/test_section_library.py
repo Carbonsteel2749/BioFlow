@@ -82,9 +82,9 @@ def test_custom_order_with_placeholders_and_author_input(tmp_path):
     assert [s.value for s in state.section_order] == order
     assert set(state.drafts) == set(order)
     pending = state.drafts['keywords']
-    assert pending.markdown.startswith('[SKILL_PENDING: keywords-writer]')
-    assert pending.metadata['library']['status'] == 'skill_missing'
-    assert any('not registered' in w for w in pending.warnings)
+    assert 'SKILL_PENDING' not in pending.markdown
+    assert pending.metadata['library']['status'] == 'written'
+    assert pending.markdown.strip()
     assert state.drafts['funding'].markdown.startswith('[AUTHOR_INPUT_NEEDED: Funding')
     assert state.drafts['methods'].metadata['catalog_compose']['source'] == 'methods-from-provenance'
     assert state.drafts['abstract'].metadata['catalog_compose']['source'] == 'planned_paragraphs'
@@ -96,7 +96,7 @@ def test_registered_section_skill_is_called_with_contract(tmp_path):
     seen = {}
 
     class DataRecords(BaseSkill):
-        spec = SkillSpec(name='highlights-writer', version='0.0.1-test', category=SkillCategory.WRITING,
+        spec = SkillSpec(name='highlights-writer', version='2.0.0-test', category=SkillCategory.WRITING,
                          description='test skill')
 
         def run(self, skill_input):
@@ -109,7 +109,7 @@ def test_registered_section_skill_is_called_with_contract(tmp_path):
     try:
         state = run(tmp_path, ['methods', 'results', 'highlights'])
     finally:
-        registry.unregister('highlights-writer', '0.0.1-test')
+        registry.unregister('highlights-writer', '2.0.0-test')
     draft = state.drafts['highlights']
     assert draft.markdown.strip() == 'Reads from 3 samples are deposited.'
     assert draft.metadata['library']['status'] == 'written' and draft.warnings == ['check']

@@ -15,6 +15,7 @@ _IMAGE = re.compile(
     re.IGNORECASE,
 )
 _BOLD = re.compile(r"\*\*([^*]+)\*\*")
+_HEADING_TEX = re.compile(r"^(?:\\#){1,6}\s+([^\n]+)$")
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$")
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".pdf"}
@@ -82,7 +83,9 @@ def _text_block_plain(body: str) -> str:
         cursor = match.end()
     pieces.append(_escape(body[cursor:]))
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", "".join(pieces)) if part.strip()]
-    return "\n\n".join(paragraphs)
+    # "### Heading" paragraphs are result/discussion subsections (escaping turns # into \#).
+    return "\n\n".join(_HEADING_TEX.sub(lambda m: "\\subsection*{" + m.group(1).strip() + "}", part)
+                       for part in paragraphs)
 
 
 def _figure(match: re.Match[str], figures: Path) -> str:
