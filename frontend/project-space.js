@@ -25,7 +25,7 @@
   async function projectTasks(pid, fresh = false) {
     return cached('tasks:'+pid, async () => {
       const results = await Promise.allSettled([
-        api(projectUrl(pid,'/research/runs')).then(data=>data.items.map(t=>({...t,name:t.plan.objective,type:'research'}))),
+        api(projectUrl(pid,'/research/runs')).then(data=>data.items.map(t=>({...t,name:t.title||t.plan.objective.slice(0,24),type:'research'}))),
         (async () => {const [ids, all] = await Promise.all([api(projectUrl(pid,'/links/task')), api('/services/analysis/api/tasks')]); const owned = new Set(ids); return items(all).filter(t=>owned.has(t.id)).map(t=>({...t, type:'analysis'}));})(),
         (async () => {let all=[],offset=0; for(;;){const data=await api(projectUrl(pid,'/analysis/workflows/runs?limit=100&offset='+offset));all.push(...data.items.map(t=>({...t,id:t.task_id,type:'workflow'})));offset+=data.items.length;if(!data.items.length||offset>=data.total)break;}return all;})()
       ]);

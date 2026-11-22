@@ -67,15 +67,20 @@ def automatic_folders(store,pid,uid,tid,items):
    if deleted:row['_automatic_folder']=deleted['parent_id'];continue
    db.execute('INSERT OR IGNORE INTO library_folders VALUES(?,?,?,?,?,?,?)',(fid,pid,uid,tid,row['kind'],name,''));row['_automatic_folder']=fid
 
-def install(app,router,get_store,check_project,files):
- with get_store().connect() as db:
+def initialize_library(store):
+ with store.connect() as db:
   db.execute('CREATE TABLE IF NOT EXISTS library_item_overrides(project_id TEXT,user_id TEXT,task_id TEXT,asset_id TEXT,name TEXT,hidden INTEGER DEFAULT 0,PRIMARY KEY(project_id,user_id,task_id,asset_id))')
   db.execute('CREATE TABLE IF NOT EXISTS library_folder_deleted(id TEXT PRIMARY KEY,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_folders(id TEXT PRIMARY KEY,project_id TEXT,user_id TEXT,task_id TEXT,kind TEXT,name TEXT,parent_id TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS library_members(project_id TEXT,user_id TEXT,task_id TEXT,asset_id TEXT,folder_id TEXT,PRIMARY KEY(project_id,user_id,task_id,asset_id))')
+
+
+def install(app,router,get_store,check_project,files):
+ initialize_library(get_store())
  def scope(pid,tid,request):
+  initialize_library(get_store())
   check_project(pid,request)
-  if tid not in project_task_ids(get_store(),pid,request.state.user['id']):raise HTTPException(404,'任务不属于当前项目')
+  if tid and tid not in project_task_ids(get_store(),pid,request.state.user['id']):raise HTTPException(404,'任务不属于当前项目')
  def folder(pid,uid,tid,kind,fid):
   if not fid:return None
   with get_store().connect() as db:r=db.execute('SELECT * FROM library_folders WHERE id=? AND project_id=? AND user_id=? AND task_id=? AND kind=?',(fid,pid,uid,tid,kind)).fetchone()
@@ -83,7 +88,7 @@ def install(app,router,get_store,check_project,files):
   return dict(r)
  async def rows(pid,tid,request):
   scope(pid,tid,request)
-  if hasattr(files,'call'):
+  if tid and hasattr(files,'call'):
    from .catalogue import sync_task_snapshot,put,task_rows
    try:
     await sync_task_snapshot(files,get_store(),pid,request.state.user['id'],tid)
@@ -92,7 +97,7 @@ def install(app,router,get_store,check_project,files):
   with get_store().connect() as db:overrides={r['asset_id']:dict(r) for r in db.execute('SELECT * FROM library_item_overrides WHERE project_id=? AND user_id=? AND task_id=?',(pid,request.state.user['id'],tid))}
   result=[]
   for r in await files.catalogue(pid,request.state.user):
-   if tid not in r.get('task_ids',[]):continue
+   if tid and tid not in r.get('task_ids',[]):continue
    override=overrides.get(r['id'],{})
    if override.get('hidden'):continue
    if override.get('name'):r={**r,'name':override['name']}

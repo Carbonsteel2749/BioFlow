@@ -11,6 +11,7 @@ class DataOptions(Strict):
     role: Literal['taxonomy','functional','metadata','results','table']
     unit: Literal['auto','fraction','percent','counts','other'] = 'auto'
     transpose: bool = False
+    sample_id_rule: Literal['none','strip_combined'] = 'none'
     sheet: str | None = None
     id_column: str | None = None
     header_row: int = Field(default=1, ge=1, le=1000)

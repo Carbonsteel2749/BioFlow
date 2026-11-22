@@ -1,5 +1,6 @@
 """Unified table data, tool contracts, versioned plans and durable runs."""
 import asyncio
+import io
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 from . import assets
+from .research_experience import short_title
 from . import research_store as rs
 from .research_contracts import DataOptions,RegisterData,PlanRequest,EditPlan,ConfirmPlan,CONTRACT_VERSION
 
@@ -96,13 +98,19 @@ def install(app,router,get_store,check_project,files):
         return await register(pid,request,body.asset_id,body.options)
 
     @router.post('/research/data/import',status_code=201)
-    async def import_data(pid:str,request:Request,file:UploadFile=File(...),options:str=Form(...)):
-        check_project(pid,request);settings=DataOptions.model_validate_json(options)
+    async def import_data(pid:str,request:Request,file:UploadFile=File(...),options:str=Form('{}')):
+        check_project(pid,request);raw_options=json.loads(options)
         if Path(file.filename or '').suffix.lower() not in {'.csv','.tsv','.txt','.xlsx','.json'}:raise HTTPException(422,'请选择表格文件')
         # Existing upload storage is also the single raw-file registry.
         if file.size is not None and file.size>100*1024**2:raise HTTPException(413,'表格导入上限为100 MB')
-        asset=await files.upload(pid,request.state.user,file,purpose='results' if settings.role=='results' else 'data')
-        return await register(pid,request,asset['id'],settings)
+        asset=await files.upload(pid,request.state.user,file,purpose='results' if raw_options.get('role')=='results' else 'data')
+        if not raw_options.get('role') or raw_options.get('role')=='auto':
+            path,name,sha=await source(pid,request.state.user['id'],asset['id'])
+            references=[s for d in rs.listing(get_store(),pid,request.state.user['id'],'dataset') for s in d.get('samples',[])]
+            raw_options.pop('role',None)
+            detected=await asyncio.to_thread(rs.invoke,{'mode':'recognize','source':str(path),'filename':name,'options':raw_options,'reference_samples':references},rs.root()/'recognition'/uuid.uuid4().hex)
+            raw_options=detected['options']
+        return await register(pid,request,asset['id'],DataOptions.model_validate(raw_options))
 
     async def validate(pid,uid,body,data):
         result=await asyncio.to_thread(rs.invoke,engine_spec(pid,data,mode='validate',study=body.study,
@@ -120,6 +128,8 @@ def install(app,router,get_store,check_project,files):
             if not body.steps:raise HTTPException(422,'请添加分析步骤')
             result=await validate(pid,uid,body,data);steps=result['plan']['steps'];questions=result.get('questions',[]);ready=result['ready'];summary=body.objective
         payload=plan_payload(pid,data,body.objective,steps,body.study);payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
+        from .research_experience import short_title
+        payload['title']=proposal.get('title') if body.mode=='ai' else short_title(payload)
         payload['fingerprint']=rs.fingerprint(payload)
         return rs.public(rs.create(get_store(),pid,uid,'plan','ready' if ready else 'needs_input',payload))
 
@@ -154,7 +164,7 @@ def install(app,router,get_store,check_project,files):
             prior=db.execute("SELECT * FROM research_records WHERE kind='run' AND project_id=? AND user_id=? AND json_extract(payload,'$.plan_id')=? ORDER BY created_at LIMIT 1",(pid,request.state.user['id'],identifier)).fetchone()
             if prior:run=rs.record(prior)
             else:
-                rid=uuid.uuid4().hex;payload={'plan_id':identifier,'plan':{k:plan[k] for k in ['objective','steps','study','dataset_ids','snapshot','fingerprint']},'step_results':[], 'progress':{'completed':0,'total':len(plan['steps'])},'attempt':1}
+                rid=uuid.uuid4().hex;payload={'title':plan.get('title') or short_title(plan),'plan_id':identifier,'plan':{k:plan[k] for k in ['objective','steps','study','dataset_ids','snapshot','fingerprint']},'step_results':[], 'progress':{'completed':0,'total':len(plan['steps'])},'attempt':1}
                 db.execute('INSERT INTO research_records(id,kind,project_id,user_id,status,payload) VALUES(?,?,?,?,?,?)',(rid,'run',pid,request.state.user['id'],'queued',rs.dump(payload)))
                 run=None
         if run is None:run=rs.get(get_store(),pid,request.state.user['id'],rid,'run');rs.event(get_store(),run,'queued')
@@ -163,7 +173,8 @@ def install(app,router,get_store,check_project,files):
     @router.get('/research/runs')
     def runs(pid:str,request:Request):
         check_project(pid,request)
-        return {'items':[rs.public(r) for r in rs.listing(get_store(),pid,request.state.user['id'],'run')]}
+        from .research_experience import short_title
+        return {'items':[{**rs.public(r),'title':r.get('title') or short_title(r['plan'])} for r in rs.listing(get_store(),pid,request.state.user['id'],'run')]}
 
     @router.get('/research/runs/{identifier}')
     def run(pid:str,identifier:str,request:Request):return rs.public(owned(pid,request,identifier,'run'))
@@ -199,6 +210,52 @@ def install(app,router,get_store,check_project,files):
         row=owned(pid,request,identifier,'artifact');path=assets.ROOT/'runtime/assets'/row['user_id']/pid/row['stored_name']
         if not path.is_file() or rs.digest(path)!=row['sha256']:raise HTTPException(409,'产物文件缺失或校验失败')
         return FileResponse(path,filename=row['filename'])
+
+
+    @router.get('/research/data/{identifier}/table')
+    async def preview_table(pid:str,identifier:str,request:Request,offset:int=0,limit:int=50):
+        row=owned(pid,request,identifier,'dataset')
+        return await asyncio.to_thread(rs.invoke,{'mode':'table_preview','directory':str(rs.verify_dataset(row)),'index_name':row['schema']['index'],'offset':max(0,offset),'limit':max(1,min(limit,100))},rs.root()/'previews'/uuid.uuid4().hex)
+
+    @router.post('/research/data/{identifier}/correction')
+    async def correction(pid:str,identifier:str,request:Request,body:dict):
+        row=owned(pid,request,identifier,'dataset');text=str(body.get('instruction','')).strip()
+        if not text or len(text)>4000:raise HTTPException(422,'请输入4000字以内的修正要求')
+        return await asyncio.to_thread(rs.invoke,{'mode':'correct_settings','directory':str(rs.verify_dataset(row)),'options':row['options'],'engine_info':row['engine_info'],'instruction':text},rs.root()/'corrections'/uuid.uuid4().hex)
+
+    @router.post('/research/data/{identifier}/edit',status_code=201)
+    async def edit_data(pid:str,identifier:str,request:Request,body:dict):
+        row=owned(pid,request,identifier,'dataset');edits=body.get('edits',[])
+        if not isinstance(edits,list) or not edits or len(edits)>2000:raise HTTPException(422,'每次提交1至2000个单元格修改')
+        for e in edits:
+            if not isinstance(e,dict) or not isinstance(e.get('row'),int) or not isinstance(e.get('column'),int) or not isinstance(e.get('value'),(str,int,float)):raise HTTPException(422,'单元格修改格式错误')
+        target=rs.root()/row['user_id']/pid/'edits'/(uuid.uuid4().hex+'.csv')
+        checked=await asyncio.to_thread(rs.invoke,{'mode':'edit_data','directory':str(rs.verify_dataset(row)),'options':row['options'],'engine_info':row['engine_info'],'edits':edits,'destination':str(target)},target.parent/'checks'/uuid.uuid4().hex)
+        try:
+            asset=await files.upload(pid,request.state.user,UploadFile(filename=Path(row['filename']).stem+'-edited.csv',file=io.BytesIO(target.read_bytes())),purpose='results' if row['role']=='results' else 'data',details={'parent_refs':[row['source_asset_id']]})
+            saved=await register(pid,request,asset['id'],DataOptions.model_validate(checked['options']))
+            if saved['id']!=identifier:
+                current=rs.get(get_store(),pid,row['user_id'],saved['id'],'dataset')
+                saved=rs.public(rs.update(get_store(),current,'ready',parent_id=identifier,revision=row['revision']+1,edit_count=len(edits)))
+            return saved
+        finally:target.unlink(missing_ok=True)
+
+    @router.get('/research/runs/{identifier}/report')
+    async def report(pid:str,identifier:str,request:Request):
+        from .research_experience import build_report
+        row=owned(pid,request,identifier,'run')
+        return row.get('report') or build_report(row,use_ai=False)
+
+    @router.post('/research/runs/{identifier}/report')
+    async def interpret_report(pid:str,identifier:str,request:Request):
+        row=owned(pid,request,identifier,'run')
+        if row['status'] in {'queued','running','cancelling'}:raise HTTPException(409,'分析仍在运行，完成后生成报告')
+        if row.get('report',{}).get('interpretation_source')=='ai_evidence_summary':return row['report']
+        generated=await asyncio.to_thread(rs.invoke,{'mode':'report','run':rs.public(row)},rs.root()/row['user_id']/pid/'reports'/identifier,120)
+        current=owned(pid,request,identifier,'run')
+        from .research_queue import save_active
+        save_active(get_store(),current,report=generated)
+        return generated
 
     from contextlib import asynccontextmanager
     original_lifespan=app.router.lifespan_context

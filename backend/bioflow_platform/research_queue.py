@@ -99,6 +99,8 @@ def process(store,row):
         save_active(store,row,step_results=results,progress={'completed':index+1,'total':len(steps)})
         rs.event(store,row,'step_completed',step_id=step['id'],status=output['status'],result_id=result['id'])
     current=save_active(store,row,step_results=results,current_step=None,progress={'completed':len(steps),'total':len(steps)})
+    from .research_experience import build_report
+    current=save_active(store,row,report=build_report(current,use_ai=False))
     intended='completed' if all(r['status']=='success' for r in results) else 'completed_with_issues'
     with store.connect() as db:
         db.execute("UPDATE research_records SET status=CASE WHEN status='cancelling' THEN 'cancelled' ELSE ? END,updated_at=CURRENT_TIMESTAMP WHERE id=?",(intended,row['id']))

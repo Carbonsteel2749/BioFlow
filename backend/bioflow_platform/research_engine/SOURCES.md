@@ -8,3 +8,7 @@ The `src/yanji` directory retains upstream module names and implementation. BioF
 Imported integration patches in agent.py normalize unambiguous nested program fields and request schema-constrained JSON from the configured local llama-server endpoint. No trial datasets, runtime database, model weights, environment files, or credentials are included.
 
 Scientific dependencies are installed separately using deploy/requirements-research.txt. The upstream checkout supplied for this integration did not include a root LICENSE file; this note records provenance and does not assign a new license to upstream code.
+
+Chinese chart font: NotoSansSC.ttf, imported with its accompanying assets/fonts/OFL.txt from the YanJi trial checkout.
+
+Chinese chart font: NotoSansSC.ttf, imported with its accompanying assets/fonts/OFL.txt from the YanJi trial checkout.

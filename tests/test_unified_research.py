@@ -139,3 +139,81 @@ def test_running_cancel_terminates_owned_step_and_can_resume(client):
     assert client.post(client.base+'/runs/'+r['id']+'/resume').status_code==200
     assert research_queue.run_one(gateway.store)
     assert client.get(client.base+'/runs/'+r['id']).json()['status']=='completed'
+
+def test_auto_recognition_preview_edit_and_project_library_without_run(client):
+    raw=b'ID,F1,F2\nk__Bacteria,100,100\nk__Bacteria|s__A,60,40\nk__Bacteria|s__B,40,60\n'
+    response=client.post(client.base+'/data/import',files={'file':('metaphlan.tsv',raw)})
+    assert response.status_code==201,response.text
+    d=response.json();assert d['role']=='taxonomy' and d['engine_info']['unit']=='fraction'
+    response=client.get('/api/projects/'+client.pid+'/library-browser',params={'task_id':'','kind':'data'})
+    assert response.status_code==200,response.text
+    assert d['source_asset_id'] in {x['id'] for x in response.json()['items']}
+    table=client.get(client.base+'/data/'+d['id']+'/table').json();assert table['columns'][0]=='ID'
+    old_hash=d['hashes']['matrix.json.gz']
+    response=client.post(client.base+'/data/'+d['id']+'/edit',json={'edits':[{'row':1,'column':1,'value':'0.5'}]})
+    assert response.status_code==201,response.text
+    edited=response.json();assert edited['parent_id']==d['id'] and edited['revision']==2
+    assert edited['hashes']['matrix.json.gz']!=old_hash
+    assert rs.digest(rs.verify_dataset(rs.get(gateway.store,client.pid,client.uid,d['id']))/'matrix.json.gz')==old_hash
+    table=client.get(client.base+'/data/'+edited['id']+'/table').json();assert float(table['rows'][1][1])==.5
+    assert client.get(client.base+'/runs').json()['items']==[]
+
+
+def test_auto_metadata_identifier_and_reject_invalid_cell(client):
+    response=client.post(client.base+'/data/import',files={'file':('metadata.csv','序号,F号,Zn分组\n1,F1,低\n2,F2,高\n'.encode())})
+    assert response.status_code==201,response.text
+    d=response.json();assert d['role']=='metadata' and d['samples']==['F1','F2']
+    assert d['engine_info']['identifier_column']=='F号'
+    response=client.post(client.base+'/data/'+d['id']+'/edit',json={'edits':[{'row':0,'column':0,'value':'F2'}]})
+    assert response.status_code==422,response.text
+
+
+def test_short_titles_and_evidence_report(client):
+    d=upload(client);p=plan(client,[d['id']]);r=confirm(client,p)
+    assert len(r['title'])<=28 and r['title']!='计算各样本 Shannon 多样性'
+    research_queue.run_one(gateway.store)
+    report=client.get(client.base+'/runs/'+r['id']+'/report');assert report.status_code==200,report.text
+    report=report.json();assert report['sections'][0]['tool_id']=='alpha_diversity'
+    assert report['sections'][0]['metrics']['samples']==4
+    assert report['input_snapshot'][0]['id']==d['id']
+    assert len(report['sections'][0]['artifacts'])>=3
+
+def test_humann_sample_suffix_mapping_is_bijective_and_recorded(client):
+    response=client.post(client.base+'/data/import',files={'file':('taxonomy.tsv',b'ID,F1,F2\nk__Bacteria,100,100\nk__Bacteria|s__A,100,100\n')})
+    assert response.status_code==201,response.text
+    raw=b'# Pathway,F1_combined,F2_combined\nPWY-A|g__A.s__A,0.2,0.3\n'
+    response=client.post(client.base+'/data/import',files={'file':('pathabundance_relab_stratified.tsv',raw)})
+    assert response.status_code==201,response.text
+    d=response.json();assert d['samples']==['F1','F2'] and d['options']['sample_id_rule']=='strip_combined'
+    assert any(t.get('mapping')=={'F1_combined':'F1','F2_combined':'F2'} for t in d['engine_info']['transformations'])
+    raw=b'# Pathway,F1_combined,F9_combined\nPWY-A|g__A.s__A,0.2,0.3\n'
+    response=client.post(client.base+'/data/import',files={'file':('pathabundance_relab_stratified.tsv',raw)})
+    assert response.status_code==201,response.text
+    assert response.json()['samples']==['F1_combined','F9_combined']
+
+def test_ai_cell_proposals_validate_existing_positions_and_explicit_values(client,tmp_path):
+    import subprocess
+    code='''
+import sys
+from pathlib import Path
+import pandas as pd
+from backend.bioflow_platform import research_engine_bridge
+from backend.bioflow_platform import research_experience as x
+folder=Path(sys.argv[1]);folder.mkdir()
+pd.DataFrame({'value':['2','3']},index=['F1','F2']).to_json(folder/'matrix.json.gz',orient='split',compression='gzip')
+proposal={'options':{'unit':'metadata'},'edits':[{'row_id':'F1','column':'value','value':'7'}],'explanation':'建议'}
+x.model_object=lambda *a,**k:proposal
+spec={'mode':'correct_settings','directory':str(folder),'options':{'role':'metadata','unit':'auto','transpose':False,'sample_id_rule':'none','sheet':None,'id_column':'F号','header_row':1,'delimiter':'auto','encoding':'auto','description':''},'instruction':'把 F1 的 value 改为7','engine_info':{'unit':'metadata'}}
+result=x.data_operation(spec)
+assert result['options']['unit']=='auto' and result['edits'][0]['before']=='2'
+proposal['edits'][0]['value']='8'
+try:x.data_operation(spec)
+except ValueError:pass
+else:raise AssertionError('invented value accepted')
+proposal['edits'][0]={'row_id':'missing','column':'value','value':'7'}
+try:x.data_operation(spec)
+except ValueError:pass
+else:raise AssertionError('unknown row accepted')
+'''
+    result=subprocess.run([str(ENGINE),'-c',code,str(tmp_path/'proposed-data')],cwd=ROOT,capture_output=True,text=True)
+    assert result.returncode==0,result.stderr

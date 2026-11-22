@@ -111,13 +111,26 @@ def execute(spec):
                 **({'plot_options_schema':DisplayParameters.model_json_schema()} if s.id.startswith('bioflow_') else {})} for s in registry.SPECS],
                 'parameters_schema':Params.model_json_schema(),'plan_schema':AnalysisPlan.model_json_schema()}
     if spec['mode']=='inspect':
-        options=dict(spec['options']);options['kind']='table' if options.pop('role')=='results' else spec['options']['role'];options.pop('description',None)
+        options=dict(spec['options']);sample_rule=options.pop('sample_id_rule','none');options['kind']='table' if options.pop('role')=='results' else spec['options']['role'];options.pop('description',None)
         frame,info=data.inspect(Path(spec['source']).read_bytes(),spec['filename'],ImportOptions.model_validate(options))
+        if sample_rule=='strip_combined':
+            if info['data_type']!='functional' or not all(str(c).endswith('_combined') for c in frame.columns):raise ValueError('当前文件不满足统一移除 _combined 后缀的条件')
+            mapping={str(c):str(c)[:-9] for c in frame.columns}
+            if len(set(mapping.values()))!=len(mapping):raise ValueError('样本编号转换会产生重复')
+            frame=frame.rename(columns=mapping);info['samples']=list(frame.columns)
+            info['transformations'].append({'operation':'sample_id_mapping','rule':'strip_combined','mapping':mapping})
+            info['warnings'].append('已移除样本编号的 _combined 后缀，并记录原始编号映射。')
         directory=Path(spec['destination']);data.write_frame(directory,frame)
         path=directory/'matrix.json.gz';sha=hashlib.sha256(path.read_bytes()).hexdigest()
         preview=frame.head(10).reset_index().astype(str)
         return {'engine_info':info,'hashes':{'matrix.json.gz':sha},'preview':{'columns':list(preview.columns),'rows':preview.values.tolist()},
                 'schema':{'index':str(frame.index.name or 'ID'),'columns':[str(c) for c in frame.columns],'rows':len(frame)},'samples':info.get('samples',[])}
+    if spec['mode'] in {'recognize','table_preview','edit_data','correct_settings'}:
+        from .research_experience import data_operation
+        return data_operation(spec)
+    if spec['mode']=='report':
+        from .research_experience import build_report
+        return build_report(spec['run'])
     snapshot=seed(spec);pid=spec['project_id']
     if spec['mode'] in {'plan','validate'}:
         from yanji import agent
@@ -127,7 +140,12 @@ def execute(spec):
             try:
                 plan=agent.create_plan(pid,ChatRequest(message=spec['objective'],dataset_ids=list(snapshot['datasets']),
                     study=spec.get('study',{}),include_report=False,mode='agent'))
-                return {'plan':{k:plan.get(k) for k in ['objective','summary','steps','questions','clarifications']},'ready':not bool(plan.get('questions'))}
+                from .research_experience import model_object,short_title
+                try:
+                    named=model_object('用中文概括研究任务标题，最多18个字。返回JSON {"title":"..."}，不输出研究指令全文。',{'objective':spec['objective'],'steps':[s['skill'] for s in plan.get('steps',[])]},120)
+                    plan['title']=str(named.get('title','')).strip()[:28]
+                except Exception:plan['title']=short_title(plan)
+                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications']},'ready':not bool(plan.get('questions'))}
             except (ValueError,agent.ModelError) as exc:
                 return {'plan':{'objective':spec['objective'],'summary':'请补充下列信息后重新生成方案。','steps':[],'questions':[str(exc)[:1500]]},'ready':False}
         proposed=json.loads(json.dumps(spec['plan']));extras={}
