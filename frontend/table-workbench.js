@@ -3,6 +3,7 @@
 'use strict';
 const R={project:'',selected:new Set(),steps:[],plan:null,legacy:false};
 const oldAnalysis=views.analysis;
+const oldNewProject=actions.newproject;actions.newproject=(...args)=>{const value=oldNewProject(...args);$('.overlay .modal')?.classList.add('project-create-dialog');return value;};
 const labels={taxonomy:'菌群丰度矩阵',functional:'功能丰度矩阵',metadata:'样本元数据',results:'已有统计结果表',table:'普通表格'};
 const statuses={queued:'排队中',running:'运行中',cancelling:'正在取消',cancelled:'已取消',interrupted:'已中断',failed:'失败',completed:'已完成',completed_with_issues:'完成，部分步骤未执行',ready:'待确认',needs_input:'待补充信息'};
 const opts=(entries,value='')=>entries.map(([v,t])=>`<option value="${esc(v)}" ${v===value?'selected':''}>${esc(t)}</option>`).join('');
