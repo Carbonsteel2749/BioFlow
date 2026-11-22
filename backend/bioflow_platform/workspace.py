@@ -38,6 +38,8 @@ def install(app,get_store,check_project,call,urls):
     install_workflows(router,get_store,check_project,call)
     from .input_datasets import install as install_input_datasets
     input_imports=install_input_datasets(router,get_store,check_project,urls)
+    from .research_api import install as install_research
+    install_research(app,router,get_store,check_project,files)
 
     async def recover_interrupted():
         await asyncio.to_thread(input_imports.recover)

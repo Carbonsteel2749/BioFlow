@@ -1,0 +1,16 @@
+# Dedicated Python 3.12 compute environment; API environment stays independent.
+flask==3.1.3
+pydantic==2.14.1
+sqlalchemy==2.1.6
+httpx==0.28.1
+python-dotenv==1.2.4
+pandas==2.3.3
+openpyxl==3.1.5
+numpy==2.5.4
+scipy==1.18.1
+statsmodels==0.15.0
+scikit-bio==0.7.4
+matplotlib==3.11.2
+python-docx==1.2.0
+reportlab==4.5.1
+pypdf==6.21.2

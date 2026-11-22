@@ -1,0 +1,17 @@
+#ai4s-prototype .rw-layout{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(400px,1.5fr);gap:22px;align-items:start}
+#ai4s-prototype .rw-layout .box{margin-bottom:20px;min-width:0}
+#ai4s-prototype .rw-layout label{margin:10px 0}
+#ai4s-prototype .rw-layout input:not([type=checkbox]),#ai4s-prototype .rw-layout select{min-width:0;max-width:100%}
+#ai4s-prototype .rw-layout textarea{border:1px solid var(--line);border-radius:8px;min-height:100px;padding:12px}
+#ai4s-prototype .rw-json{font:12px/1.5 ui-monospace,monospace!important;min-height:130px!important}
+#ai4s-prototype .rw-data,#ai4s-prototype .rw-run{padding:16px 0;border-bottom:1px solid var(--line)}
+#ai4s-prototype .rw-data p,#ai4s-prototype .rw-run p{font-size:12px;color:var(--muted)}
+#ai4s-prototype .rw-drop{border:1px dashed var(--line);padding:18px;margin:15px 0;background:var(--paper);border-radius:8px}
+#ai4s-prototype .rw-drop span{display:block;font-size:12px;color:var(--muted);margin-top:8px}
+#ai4s-prototype .rw-tool{display:flex;gap:10px;margin:16px 0}
+#ai4s-prototype .rw-tool select{flex:1}
+#ai4s-prototype .rw-plan ol,#ai4s-prototype .rw-steps{padding-left:22px}
+#ai4s-prototype .rw-plan li{padding:8px 0}
+#ai4s-prototype .rw-preview{max-height:440px;overflow:auto}
+#ai4s-prototype .rw-preview td{white-space:nowrap}
+@media(max-width:1000px){#ai4s-prototype .rw-layout{grid-template-columns:1fr}}

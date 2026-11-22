@@ -54,6 +54,8 @@ def automatic_folders(store,pid,uid,tid,items):
    if row.get('storage_root')=='analysis_outputs' and 'nodes' in path:
     i=path.index('nodes');process=path[i+1] if len(path)>i+1 else ''
     base=process.rsplit('_',1)[0];name=labels.get(base,base.removeprefix('WF_').replace('_',' '))
+   elif row.get('metadata',{}).get('research_run_id'):
+    meta=row['metadata'];process='research:'+meta['research_run_id']+':'+meta['research_step_id'];name=meta.get('process_name',meta['research_step_id'])
    elif row.get('storage_root')=='analysis_inputs':process='analysis-inputs';name='分析输入'
    elif row.get('metadata',{}).get('origin')=='plot_preparation':process='plot-inputs';name='作图输入'
    elif row.get('figure_id'):

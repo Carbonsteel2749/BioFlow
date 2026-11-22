@@ -136,6 +136,8 @@ async def catalogue(service,pid,user):
 
 
 async def sync_task_snapshot(service,store,pid,uid,tid):
+    from .provenance import research_tasks
+    if tid in research_tasks(store,pid,uid):return
     # Refresh only metadata, never hash or copy large result files while listing.
     path=assets.snapshot_path(tid)
     if path.is_file() and time.time()-path.stat().st_mtime<30 and assets.read_snapshot(tid).get('task',{}).get('_report_index_version')==1:return

@@ -6,8 +6,15 @@ from pydantic import BaseModel,Field
 from . import assets
 
 
+def research_tasks(store,pid,uid):
+    with store.connect() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_records'").fetchone():return {}
+        rows=db.execute("SELECT id,status,payload FROM research_records WHERE kind='run' AND project_id=? AND user_id=?",(pid,uid)).fetchall()
+    return {r['id']:{'id':r['id'],'name':json.loads(r['payload'])['plan']['objective'],'status':r['status'],'type':'research','parameters':{}} for r in rows}
+
+
 def project_task_ids(store,pid,uid):
-    return set().union(*(set(store.ids(pid,kind)) & store.owned_ids(kind,uid) for kind in ('task','workflow')))
+    return set().union(*(set(store.ids(pid,kind)) & store.owned_ids(kind,uid) for kind in ('task','workflow'))) | set(research_tasks(store,pid,uid))
 
 
 def task_index(store,pid,uid):
@@ -16,6 +23,7 @@ def task_index(store,pid,uid):
         task=assets.read_snapshot(tid).get('task',{})
         result[tid]={'id':tid,'name':task.get('name') or tid,'status':task.get('status','unknown'),
                      'parameters':task.get('parameters',{}),'dataset_id':task.get('dataset_id')}
+    result.update(research_tasks(store,pid,uid))
     return result
 
 
