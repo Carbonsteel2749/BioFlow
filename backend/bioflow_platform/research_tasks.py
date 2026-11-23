@@ -109,16 +109,27 @@ def describe(store,task,detail=False):
         except KeyError:pass
     status='draft'
     if runs:status=runs[-1]['status']
-    if task.get('plan_ids') and (not runs or task['plan_ids'][-1]!=runs[-1].get('plan_id')):status='ready'
+    if task.get('plan_ids') and (not runs or task['plan_ids'][-1]!=runs[-1].get('plan_id')):
+        try:
+            from .research_planning import generation_failure
+            latest=rs.get(store,task['project_id'],task['user_id'],task['plan_ids'][-1],'plan')
+            status='planning_failed' if generation_failure(latest) else latest['status']
+        except KeyError:status='draft'
     if any(r['status'] in {'queued','running','cancelling'} for r in runs):status='running'
     if task.get('planning') and time.time()-task.get('planning_at',0)<420:status='planning'
     if task.get('legacy_id') and not runs and not task.get('plan_ids'):status=task.get('legacy_status','unknown')
     result={k:task.get(k) for k in ['id','project_id','title','archived','created_at','updated_at','legacy_id']};result['status']=status
     if detail:
         result.update(rs.public(task));result['status']=status;result['runs']=[rs.public(r) for r in runs]
+        from .research_planning import data_profile
+        result['data_profile']=data_profile([rs.get(store,task['project_id'],task['user_id'],did,'dataset') for did in task.get('dataset_ids',[])])
         result['plans']=[]
         for identifier in task.get('plan_ids',[]):
-            try:result['plans'].append(rs.public(rs.get(store,task['project_id'],task['user_id'],identifier,'plan')))
+            try:
+                from .research_planning import generation_failure
+                plan=rs.public(rs.get(store,task['project_id'],task['user_id'],identifier,'plan'))
+                plan['generation_failed']=generation_failure(plan)
+                result['plans'].append(plan)
             except KeyError:pass
     return result
 

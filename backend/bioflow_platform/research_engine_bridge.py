@@ -136,18 +136,34 @@ def execute(spec):
         from yanji import agent
         agent.CATALOG=registry.CATALOG
         if spec['mode']=='plan':
-            # Unavailable scientific inputs become concrete questions, never fabricated totals.
+            from .research_planning import planning_context, data_profile, overview_plan, PlanningTrace
+            trace=None
             try:
-                plan=agent.create_plan(pid,ChatRequest(message=spec['objective'],dataset_ids=list(snapshot['datasets']),
-                    study=spec.get('study',{}),include_report=False,mode='agent'))
+                initial=overview_plan(spec['datasets'],spec['objective'])
+                if initial:
+                    from yanji.clarify import finish
+                    body=AnalysisPlan.model_validate(initial)
+                    available=data.active(pid)
+                    agent.validate_plan(body,pid,available)
+                    finish(body,agent.checks(body,pid,available,spec.get('study',{})),available,spec.get('study',{}))
+                    plan=body.model_dump();trace=PlanningTrace(data_profile(spec['datasets']));origin='data_profile'
+                else:
+                    origin='model'
+                    with planning_context(agent,spec['datasets']) as trace:
+                        plan=agent.create_plan(pid,ChatRequest(message=spec['objective'],dataset_ids=list(snapshot['datasets']),
+                            study=spec.get('study',{}),include_report=False,mode='agent'))
                 from .research_experience import model_object,short_title
                 try:
                     named=model_object('用中文概括研究任务标题，最多18个字。返回JSON {"title":"..."}，不输出研究指令全文。',{'objective':spec['objective'],'steps':[s['skill'] for s in plan.get('steps',[])]},120)
                     plan['title']=str(named.get('title','')).strip()[:28]
                 except Exception:plan['title']=short_title(plan)
-                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications']},'ready':not bool(plan.get('questions'))}
+                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications','research_design']},'ready':not bool(plan.get('questions')),'data_profile':trace.profile,'planning_diagnostics':{**trace.diagnostics(),'source':origin}}
             except (ValueError,agent.ModelError) as exc:
-                return {'plan':{'objective':spec['objective'],'summary':'请补充下列信息后重新生成方案。','steps':[],'questions':[str(exc)[:1500]]},'ready':False}
+                if trace and trace.attempts:trace.attempts[-1]['error']=str(exc)[:1500]
+                return {'plan':{'objective':spec['objective'],'summary':'方案生成未通过自动检查，暂未开始执行。请重新生成方案。','steps':[],'questions':[]},'ready':False,
+                        'failure':{'code':'plan_generation_failed','message':'AI 未生成通过检查的分析流程，请重新生成。'},
+                        'data_profile':trace.profile if trace else data_profile(spec['datasets']),
+                        'planning_diagnostics':trace.diagnostics() if trace else {'attempts':[],'error':str(exc)[:1500]}}
         proposed=json.loads(json.dumps(spec['plan']));extras={}
         from .chart_contracts import DisplayParameters
         for step in proposed['steps']:

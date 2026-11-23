@@ -151,13 +151,17 @@ def install(app,router,get_store,check_project,files):
             if not body.steps:raise HTTPException(422,'请添加分析步骤')
             result=await validate(pid,uid,body,data);steps=result['plan']['steps'];questions=result.get('questions',[]);ready=result['ready'];summary=body.objective
         payload=plan_payload(pid,data,body.objective,steps,body.study);payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
+        if result.get('planning_diagnostics',{}).get('source')=='data_profile':payload['origin']='data_profile'
+        for key in ('data_profile','planning_diagnostics','failure'):
+            if key in result:payload[key]=result[key]
+        if body.mode=='ai' and proposal.get('research_design'):payload['research_design']=proposal['research_design']
         from .research_experience import short_title
         payload['title']=proposal.get('title') if body.mode=='ai' else short_title(payload)
         if task_row:
             payload['task_id']=task_row['id'];payload['revision']=len(task_row.get('plan_ids',[]))+1
             if task_row.get('plan_ids'):payload['parent_id']=task_row['plan_ids'][-1]
         payload['fingerprint']=rs.fingerprint(payload)
-        return rs.public(rs.create(get_store(),pid,uid,'plan','ready' if ready else 'needs_input',payload))
+        return rs.public(rs.create(get_store(),pid,uid,'plan','planning_failed' if result.get('failure') else 'ready' if ready else 'needs_input',payload))
 
     @router.put('/research/plans/{identifier}')
     async def edit_plan(pid:str,identifier:str,body:EditPlan,request:Request):

@@ -328,3 +328,45 @@ def test_task_can_select_chart_json_as_reference_without_table_import(client):
     r=client.post(client.base+'/tasks/'+task['id']+'/assets',json={'source_project_id':client.pid,'asset_ids':[aid]})
     assert r.status_code==200,r.text
     assert aid in r.json()['asset_ids'] and r.json()['dataset_ids']==[]
+
+
+def test_invalid_ai_plan_is_not_a_request_for_user_data(client,monkeypatch):
+    d=upload(client);task=task_create(client)
+    client.post(client.base+'/tasks/'+task['id']+'/assets',json={'source_project_id':client.pid,'asset_ids':[d['source_asset_id']]})
+    original=rs.invoke
+    def failed(spec,directory,timeout=240):
+        if spec['mode']=='plan':
+            return {'plan':{'objective':spec['objective'],'summary':'流程生成未通过检查','steps':[],'questions':[]},'ready':False,
+                    'failure':{'code':'plan_generation_failed','message':'请重新生成'},'planning_diagnostics':{'attempts':[{'attempt':3,'error':'missing input'}]}}
+        return original(spec,directory,timeout)
+    monkeypatch.setattr(rs,'invoke',failed)
+    r=client.post(client.base+'/tasks/'+task['id']+'/messages',json={'text':'分析这些文件'})
+    assert r.status_code==201,r.text
+    detail=r.json();p=detail['plans'][-1]
+    assert detail['status']=='planning_failed' and p['status']=='planning_failed'
+    assert p['questions']==[] and p['failure']['code']=='plan_generation_failed'
+    assert detail['data_profile']['files'][0]['filename']==d['filename']
+    assert client.post(client.base+'/tasks/'+task['id']+'/plans/'+p['id']+'/confirm',json={'fingerprint':p['fingerprint']}).status_code==409
+
+
+def test_generic_three_file_plan_executes_without_fabricating_community_totals(client):
+    task=task_create(client)
+    fixtures=[('taxonomy.tsv',MATRIX,{'role':'taxonomy','unit':'counts'}),
+              ('metadata.csv',b'sample,age\nS1,10\nS2,11\nS3,12\nS4,13\n',{'role':'metadata'}),
+              ('pathways.tsv',b'# Pathway\tS1_combined\tS2_combined\nPWY-X|g__A.s__A\t0.4\t0.6\nPWY-X|g__B.s__B\t0.6\t0.4\n',{'role':'functional','unit':'fraction'})]
+    for name,raw,options in fixtures:
+        r=client.post(client.base+'/data/import',files={'file':(name,raw)},data={'task_id':task['id'],'options':json.dumps(options)})
+        assert r.status_code==201,r.text
+    r=client.post(client.base+'/tasks/'+task['id']+'/messages',json={'text':'我想对这三个文件进行分析，请帮我设计方案'})
+    assert r.status_code==201,r.text
+    p=r.json()['plans'][-1]
+    assert p['status']=='ready' and p['origin']=='data_profile',p
+    assert [s['skill'] for s in p['steps']]==['composition','metadata_overview','pathway_contribution']
+    assert p['data_profile']['files'][2]['stratified_only']
+    r=client.post(client.base+'/tasks/'+task['id']+'/plans/'+p['id']+'/confirm',json={'fingerprint':p['fingerprint']})
+    assert r.status_code==202,r.text
+    assert research_queue.run_one(gateway.store)
+    run=client.get(client.base+'/runs/'+r.json()['run_ids'][-1]).json()
+    assert run['status']=='completed',run
+    assert len(run['step_results'])==3
+    assert any('不是群落总通路丰度' in w for w in run['step_results'][2]['warnings'])
