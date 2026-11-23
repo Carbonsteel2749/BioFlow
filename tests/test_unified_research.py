@@ -315,3 +315,16 @@ def test_task_workflow_uses_edited_input_version_without_changing_previous_plan(
     assert r.json()['plans'][-1]['dataset_ids']==[new['id']]
     assert r.json()['plans'][0]['dataset_ids']==[d['id']]
     assert r.json()['plans'][0]['fingerprint']==old['fingerprint']
+
+
+def test_task_can_select_chart_json_as_reference_without_table_import(client):
+    import uuid
+    task=task_create(client)
+    aid=uuid.uuid4().hex
+    path=assets.ROOT/'runtime/assets'/client.uid/client.pid/(aid+'.json')
+    path.parent.mkdir(parents=True,exist_ok=True);content=b'{"data":[],"layout":{"title":"Existing chart"}}';path.write_bytes(content)
+    with gateway.store.connect() as db:
+        db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',(aid,client.pid,client.uid,'pcoa.chart.json','charts',str(path),len(content),hashlib.sha256(content).hexdigest(),'ready','{}'))
+    r=client.post(client.base+'/tasks/'+task['id']+'/assets',json={'source_project_id':client.pid,'asset_ids':[aid]})
+    assert r.status_code==200,r.text
+    assert aid in r.json()['asset_ids'] and r.json()['dataset_ids']==[]

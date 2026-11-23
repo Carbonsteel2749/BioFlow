@@ -249,7 +249,7 @@ def install(app,router,get_store,check_project,files,source,register,make_plan,c
                 destination_id=saved['id']
             with get_store().connect() as db:db.execute('INSERT OR IGNORE INTO asset_task_links(project_id,user_id,asset_id,task_id) VALUES(?,?,?,?)',(pid,uid,destination_id,tid))
             mutate(get_store(),pid,uid,tid,lambda p:p.update(asset_ids=list(dict.fromkeys(p.get('asset_ids',[])+[destination_id]))))
-            if Path(item['name']).suffix.lower() in {'.csv','.tsv','.txt','.xlsx','.json'}:
+            if item['kind'] in {'data','results'} and Path(item['name']).suffix.lower() in {'.csv','.tsv','.txt','.xlsx','.json'}:
                 candidates=[d for d in rs.listing(get_store(),pid,uid,'dataset') if d['source_asset_id']==destination_id]
                 if candidates:dataset=candidates[-1]
                 else:
