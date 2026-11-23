@@ -349,6 +349,78 @@ def test_invalid_ai_plan_is_not_a_request_for_user_data(client,monkeypatch):
     assert client.post(client.base+'/tasks/'+task['id']+'/plans/'+p['id']+'/confirm',json={'fingerprint':p['fingerprint']}).status_code==409
 
 
+def test_chat_persists_bound_study_and_original_goal_across_revisions(client,monkeypatch):
+    d=upload(client);task=task_create(client)
+    client.post(client.base+'/tasks/'+task['id']+'/assets',json={'source_project_id':client.pid,'asset_ids':[d['source_asset_id']]})
+    calls=[];original=rs.invoke
+    def resolved(spec,directory,timeout=240):
+        if spec['mode']!='plan':return original(spec,directory,timeout)
+        calls.append(spec)
+        study={'group_column':'Zn分组','independent':len(calls)>1}
+        return {'plan':{'objective':spec['objective'],'summary':'按已有分组比较','steps':[],
+                        'questions':['请确认样本是否独立'] if len(calls)==1 else []},
+                'study':study,'resolved_context':{'group_column':'Zn分组','group_values':['低水平组','高水平组']},
+                'ready':False}
+    monkeypatch.setattr(rs,'invoke',resolved)
+    for i in range(10):
+        text='原始研究目标：比较高低水平组' if i==0 else '确认是独立样本' if i==1 else '保持本次研究目标，修订第'+str(i)+'版'
+        r=client.post(client.base+'/tasks/'+task['id']+'/messages',json={'text':text,'skills':['tool:sankey']})
+        assert r.status_code==201,r.text
+        assert r.json()['status']=='needs_input'
+    assert calls[1]['study']['group_column']=='Zn分组'
+    assert calls[2]['study']['independent']
+    assert calls[1]['known_context']['group_values']==['低水平组','高水平组']
+    assert calls[1]['latest_instruction']=='确认是独立样本'
+    assert '原始研究目标：比较高低水平组' in calls[-1]['objective']
+    assert not any('遗漏' in q for q in r.json()['plans'][-1]['questions'])
+
+
+def test_real_engine_binds_groups_then_runs_after_independence_confirmation(client,tmp_path):
+    import subprocess
+    matrix=b'feature,S1,S2,S3,S4,S5,S6\nA,8,9,10,1,2,3\nB,1,2,3,8,9,10\nC,3,2,1,3,2,1\n'
+    taxonomy=upload(client,'taxonomy.csv',matrix)
+    meta=upload(client,'metadata.csv','sample,Zn分组\nS1,低水平组\nS2,低水平组\nS3,低水平组\nS4,高水平组\nS5,高水平组\nS6,高水平组\n'.encode(),role='metadata')
+    datasets=[rs.get(gateway.store,client.pid,client.uid,d['id'],'dataset') for d in [taxonomy,meta]]
+    spec={'mode':'plan','project_id':client.pid,'datasets':[{**d,'directory':str(rs.verify_dataset(d))} for d in datasets],
+          'objective':'按样本表中的高低水平分组比较物种差异','study':{}}
+    path=tmp_path/'binding-spec.json';path.write_text(json.dumps(spec),encoding='utf-8')
+    script=tmp_path/'binding-check.py'
+    script.write_text('''import json,os,sys
+from pathlib import Path
+from backend.bioflow_platform import research_engine_bridge as bridge
+from yanji import agent
+spec=json.loads(Path(sys.argv[1]).read_text())
+raw={'objective':spec['objective'],'summary':'比较已有高低水平组','questions':[], 'steps':[
+ {'id':'s1','skill':'prepare_cohort','parameters':{'preparation':[{'op':'quantile_group','column':'Zn分组','output':''}]}},
+ {'id':'s2','skill':'differential','parameters':{},'depends_on':['s1'],'cohort_from':'s1'}]}
+agent.model_json=lambda *args,**kwargs: json.loads(json.dumps(raw))
+first=bridge.execute(spec)
+assert not first['ready'],first
+assert first['study']['group_column']=='Zn分组'
+assert len(first['plan']['questions'])==1,first['plan']['questions']
+assert '独立' in first['plan']['questions'][0]
+spec.update(study=first['study'],known_context={**first['resolved_context'],'pending_questions':first['plan']['questions']},latest_instruction='是的')
+second=bridge.execute(spec)
+assert second['ready'],second
+assert second['study']['independent']
+raw={'objective':'绘制PCA','summary':'绘制PCA','questions':[], 'steps':[
+ {'id':'s1','skill':'bioflow_pca','parameters':{'dataset_id':spec['datasets'][0]['id']}}]}
+native=bridge.execute({**spec,'objective':'绘制PCA','latest_instruction':'绘制PCA','known_context':{}})
+assert native['ready'],native
+print(json.dumps(second,ensure_ascii=False))
+''',encoding='utf-8')
+    env={**os.environ,'PYTHONPATH':str(ROOT),'YANJI_RUNTIME':str(tmp_path/'binding-runtime')}
+    result=subprocess.run([str(ENGINE),str(script),str(path)],cwd=ROOT,env=env,text=True,capture_output=True,timeout=90)
+    assert result.returncode==0,result.stdout+result.stderr
+    checked=json.loads(result.stdout.strip().splitlines()[-1])
+    ready=plan(client,[taxonomy['id'],meta['id']],checked['plan']['steps'],checked['study'])
+    assert ready['status']=='ready',ready
+    run=confirm(client,ready)
+    assert research_queue.run_one(gateway.store)
+    done=client.get(client.base+'/runs/'+run['id']).json()
+    assert done['status']=='completed',done
+
+
 def test_generic_three_file_plan_executes_without_fabricating_community_totals(client):
     task=task_create(client)
     fixtures=[('taxonomy.tsv',MATRIX,{'role':'taxonomy','unit':'counts'}),

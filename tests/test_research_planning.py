@@ -82,3 +82,76 @@ def test_generation_failure_is_separate_from_scientific_clarification():
     assert not generation_failure({'status':'needs_input','questions':['请确认样本是否独立']})
     assert overview_plan(example_data(),'初始研究目标：我想分析这三个文件，请设计方案。后续修订要求：继续')
     assert overview_plan(example_data(),'初始研究目标：我想分析这三个文件，请设计方案。后续修订要求：仅做 Alpha 多样性') is None
+
+
+def test_preflight_internal_error_enters_repair_and_real_question_is_retained():
+    class Issue(ValueError):
+        code='other'
+        data={'steps':['s1']}
+    original_model=lambda messages: {}
+    original_validate=lambda plan,pid,datasets=None: plan
+    state={'internal':True}
+    def original_checks(*args):
+        return [Issue('派生列必须有新名称')] if state['internal'] else [Issue('请确认样本是否独立')]
+    agent=SimpleNamespace(model_json=original_model,validate_plan=original_validate,checks=original_checks)
+    plan=SimpleNamespace(questions=[],steps=[])
+    import pytest
+    with planning_context(agent,example_data(),{'study':{}}):
+        with pytest.raises(ValueError,match='派生列必须有新名称'):
+            agent.validate_plan(plan,'p',[])
+        state['internal']=False
+        agent.validate_plan(plan,'p',[])
+        assert plan.questions==['请确认样本是否独立']
+    assert agent.checks is original_checks
+    assert agent.validate_plan is original_validate
+
+
+def test_fixed_tool_review_receives_bound_context_and_tool_contracts():
+    calls=[]
+    def model(messages):
+        calls.append(messages)
+        return {'approved':True}
+    agent=SimpleNamespace(model_json=model,catalog=lambda:[{'id':'differential','requires':'groups'}])
+    with planning_context(agent,example_data(),{'study':{'group_column':'group'}}):
+        assert agent.model_json([{'role':'system','content':'custom program review'},
+          {'role':'user','content':json.dumps({'objective':'比较组间差异','plan':{'steps':[]},'inputs':{}})}])['approved']
+    review=json.loads(calls[0][1]['content'])
+    assert review['resolved_context']['study']['group_column']=='group'
+    assert review['registered_tools'][0]['id']=='differential'
+    assert '固定登记工具' in calls[0][0]['content']
+
+
+def test_optional_adjustment_is_not_added_to_basic_plan():
+    calls=[]
+    agent=SimpleNamespace(model_json=lambda messages: calls.append(messages) or {'steps':[],'questions':[]})
+    payload={'datasets':[], 'objective':'先进行物种差异和多样性分析',
+             'skills':[{'id':'differential','requires':'groups'}, {'id':'adjusted_regression','requires':'research'},
+                       {'id':'partial_correlation','requires':'research'}], 'schema':{}}
+    import sys
+    from unittest.mock import patch
+    fake=SimpleNamespace(GUIDANCE='')
+    with patch.dict(sys.modules,{'yanji':SimpleNamespace(),'yanji.skills':SimpleNamespace(),
+                                'yanji.skills.research_guidance':fake}):
+        bindings={}
+        with planning_context(agent,example_data(),bindings):
+            agent.model_json([{'role':'user','content':json.dumps(payload)}])
+        sent=json.loads(calls[-1][1]['content'])
+        assert [s['id'] for s in sent['skills']]==['differential']
+        assert not sent['default_settings']['covariate_adjustment']
+        assert bindings['defaults']
+        payload['objective']='控制协变量后做调整回归'
+        with planning_context(agent,example_data(),{}):
+            agent.model_json([{'role':'user','content':json.dumps(payload)}])
+        assert 'adjusted_regression' in [s['id'] for s in json.loads(calls[-1][1]['content'])['skills']]
+
+
+def test_taxonomy_tool_cannot_silently_read_functional_file():
+    agent=SimpleNamespace(model_json=lambda messages:{},
+        validate_plan=lambda *args:None,checks=lambda *args:[],
+        CATALOG={'differential':SimpleNamespace(requires='groups')})
+    plan=SimpleNamespace(questions=[],steps=[SimpleNamespace(id='s1',skill='differential',
+                                                         parameters=SimpleNamespace(dataset_id='fun'))])
+    import pytest
+    with planning_context(agent,example_data(),{'study':{}}):
+        with pytest.raises(ValueError,match='工具需要 taxonomy 数据'):
+            agent.validate_plan(plan,'p',[{'id':'fun','data_type':'functional'}])

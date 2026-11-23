@@ -289,7 +289,8 @@ def install(app,router,get_store,check_project,files,source,register,make_plan,c
                     p['messages'].append({'id':uuid.uuid4().hex,'role':'assistant','type':'text','text':'请添加本任务的数据文件，再继续设计分析方案。你可以从加号选择已有文件，或到数据与结果栏上传。'})
                     p['planning']=None
                 return describe(get_store(),mutate(get_store(),pid,uid,tid,no_data),True)
-            history=[m['text'] for m in row['messages'] if m['type']=='text' and m['role']=='user'][-8:]
+            all_history=[m['text'] for m in row['messages'] if m['type']=='text' and m['role']=='user']
+            history=all_history[:1]+all_history[1:][-7:]
             objective='初始研究目标：\n'+history[0][:2300]+'\n后续修订要求：\n'+'\n'.join(history[1:])[-2300:]
             if row.get('plan_ids'):
                 previous=rs.get(get_store(),pid,uid,row['plan_ids'][-1],'plan')
@@ -307,15 +308,17 @@ def install(app,router,get_store,check_project,files,source,register,make_plan,c
                 known={s['id'] for s in tools_for(rs.python(),str(rs.root()))['tools']}
                 if set(selected_tools)-known:raise HTTPException(422,'所选工具未登记')
                 objective+='\n用户选定的登记工具（必须包含）：'+', '.join(selected_tools)
-            result=await make_plan(pid,PlanRequest(objective=objective[:7950],dataset_ids=selected,mode='ai',task_id=tid),request)
-            if selected_tools and set(selected_tools)-{s['skill'] for s in result.get('steps',[])}:
+            result=await make_plan(pid,PlanRequest(objective=objective[:7950],dataset_ids=selected,mode='ai',task_id=tid,study=row.get('study',{})),request)
+            if result.get('status')=='ready' and selected_tools and set(selected_tools)-{s['skill'] for s in result.get('steps',[])}:
                 original=rs.get(get_store(),pid,uid,result['id'],'plan')
-                result=rs.public(rs.update(get_store(),original,'needs_input',questions=result.get('questions',[])+['所选工具尚未全部进入方案，请调整要求后重新生成。']))
+                result=rs.public(rs.update(get_store(),original,'planning_failed',failure={'code':'selected_tool_missing','message':'方案遗漏已选择的工具，需要重新生成。'},questions=[]))
             def finish(p):
                 if p.get('planning')!=token:return
                 p['plan_ids']=list(dict.fromkeys(p.get('plan_ids',[])+[result['id']]))
                 p['messages'].append({'id':uuid.uuid4().hex,'role':'assistant','type':'plan','plan_id':result['id']})
                 if not p.get('title_edited'):p['title']=result.get('title') or short_title(result)
+                p['study']=result.get('study',p.get('study',{}));p['resolved_context']=result.get('resolved_context',{})
+                p['resolved_context']['pending_questions']=result.get('questions',[])
                 p['planning']=None
             row=mutate(get_store(),pid,uid,tid,finish)
             get_store().event(pid,'生成任务方案',{'task_id':tid,'plan_id':result['id']})
@@ -349,7 +352,7 @@ def install(app,router,get_store,check_project,files,source,register,make_plan,c
             if row.get('plan_ids'):result=await edit_plan(pid,row['plan_ids'][-1],body,request)
             else:result=await make_plan(pid,PlanRequest(objective=body.objective,dataset_ids=row.get('dataset_ids',[]),mode='manual',steps=body.steps,study=body.study,task_id=tid),request)
             def change(p):
-                p.setdefault('plan_ids',[]).append(result['id']);p.setdefault('messages',[]).append({'id':uuid.uuid4().hex,'role':'assistant','type':'plan','plan_id':result['id']});p['planning']=None
+                p['study']=result.get('study',body.study);p.setdefault('plan_ids',[]).append(result['id']);p.setdefault('messages',[]).append({'id':uuid.uuid4().hex,'role':'assistant','type':'plan','plan_id':result['id']});p['planning']=None
             return describe(get_store(),mutate(get_store(),pid,row['user_id'],tid,change),True)
         except Exception:
             def reset(p):

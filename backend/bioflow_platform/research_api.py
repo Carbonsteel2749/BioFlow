@@ -144,16 +144,17 @@ def install(app,router,get_store,check_project,files):
             task_row=task_owned(get_store(),pid,uid,body.task_id)
             if set(body.dataset_ids)-set(task_row.get('dataset_ids',[])):raise HTTPException(422,'方案输入必须先加入本任务')
         if body.mode=='ai':
-            result=await asyncio.to_thread(rs.invoke,engine_spec(pid,data,mode='plan',objective=body.objective,study=body.study),rs.root()/uid/pid/'planning'/uuid.uuid4().hex,360)
+            result=await asyncio.to_thread(rs.invoke,engine_spec(pid,data,mode='plan',objective=body.objective,study=body.study,known_context=(task_row or {}).get('resolved_context',{}),latest_instruction=next((m['text'] for m in reversed((task_row or {}).get('messages',[])) if m.get('role')=='user' and m.get('type')=='text'),body.objective)),rs.root()/uid/pid/'planning'/uuid.uuid4().hex,360)
             proposal=result['plan'];steps=proposal.get('steps') or [];questions=proposal.get('questions') or []
             ready=result['ready'];summary=proposal.get('summary','')
         else:
             if not body.steps:raise HTTPException(422,'请添加分析步骤')
             result=await validate(pid,uid,body,data);steps=result['plan']['steps'];questions=result.get('questions',[]);ready=result['ready'];summary=body.objective
-        payload=plan_payload(pid,data,body.objective,steps,body.study);payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
+        payload=plan_payload(pid,data,body.objective,steps,result.get('study',body.study));payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
         if result.get('planning_diagnostics',{}).get('source')=='data_profile':payload['origin']='data_profile'
-        for key in ('data_profile','planning_diagnostics','failure'):
+        for key in ('data_profile','planning_diagnostics','failure','resolved_context'):
             if key in result:payload[key]=result[key]
+        if body.mode=='ai' and proposal.get('clarifications'):payload['clarifications']=proposal['clarifications']
         if body.mode=='ai' and proposal.get('research_design'):payload['research_design']=proposal['research_design']
         from .research_experience import short_title
         payload['title']=proposal.get('title') if body.mode=='ai' else short_title(payload)

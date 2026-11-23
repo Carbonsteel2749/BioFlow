@@ -131,6 +131,11 @@ def execute(spec):
     if spec['mode']=='report':
         from .research_experience import build_report
         return build_report(spec['run'])
+    bindings=None
+    if spec['mode']=='plan':
+        from .research_bindings import resolve_context
+        bindings=resolve_context(spec['datasets'],spec['objective'],spec.get('study',{}),known=spec.get('known_context',{}),latest=spec.get('latest_instruction'))
+        spec={**spec,'study':bindings['study']}
     snapshot=seed(spec);pid=spec['project_id']
     if spec['mode'] in {'plan','validate'}:
         from yanji import agent
@@ -149,7 +154,7 @@ def execute(spec):
                     plan=body.model_dump();trace=PlanningTrace(data_profile(spec['datasets']));origin='data_profile'
                 else:
                     origin='model'
-                    with planning_context(agent,spec['datasets']) as trace:
+                    with planning_context(agent,spec['datasets'],bindings) as trace:
                         plan=agent.create_plan(pid,ChatRequest(message=spec['objective'],dataset_ids=list(snapshot['datasets']),
                             study=spec.get('study',{}),include_report=False,mode='agent'))
                 from .research_experience import model_object,short_title
@@ -157,13 +162,13 @@ def execute(spec):
                     named=model_object('用中文概括研究任务标题，最多18个字。返回JSON {"title":"..."}，不输出研究指令全文。',{'objective':spec['objective'],'steps':[s['skill'] for s in plan.get('steps',[])]},120)
                     plan['title']=str(named.get('title','')).strip()[:28]
                 except Exception:plan['title']=short_title(plan)
-                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications','research_design']},'ready':not bool(plan.get('questions')),'data_profile':trace.profile,'planning_diagnostics':{**trace.diagnostics(),'source':origin}}
+                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications','research_design']},'ready':not bool(plan.get('questions')),'data_profile':trace.profile,'planning_diagnostics':{**trace.diagnostics(),'source':origin},'study':spec['study'],'resolved_context':bindings}
             except (ValueError,agent.ModelError) as exc:
                 if trace and trace.attempts:trace.attempts[-1]['error']=str(exc)[:1500]
                 return {'plan':{'objective':spec['objective'],'summary':'方案生成未通过自动检查，暂未开始执行。请重新生成方案。','steps':[],'questions':[]},'ready':False,
                         'failure':{'code':'plan_generation_failed','message':'AI 未生成通过检查的分析流程，请重新生成。'},
                         'data_profile':trace.profile if trace else data_profile(spec['datasets']),
-                        'planning_diagnostics':trace.diagnostics() if trace else {'attempts':[],'error':str(exc)[:1500]}}
+                        'planning_diagnostics':trace.diagnostics() if trace else {'attempts':[],'error':str(exc)[:1500]},'study':spec['study'],'resolved_context':bindings}
         proposed=json.loads(json.dumps(spec['plan']));extras={}
         from .chart_contracts import DisplayParameters
         for step in proposed['steps']:
