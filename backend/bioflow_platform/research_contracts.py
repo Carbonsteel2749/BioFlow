@@ -20,10 +20,12 @@ class DataOptions(Strict):
     description: str = Field(default='', max_length=4000)
 
 class RegisterData(Strict):
+    task_id: str | None = None
     asset_id: str = Field(min_length=1, max_length=100)
     options: DataOptions
 
 class PlanRequest(Strict):
+    task_id: str | None = None
     objective: str = Field(min_length=1, max_length=8000)
     dataset_ids: list[str] = Field(min_length=1, max_length=40)
     mode: Literal['manual','ai'] = 'manual'

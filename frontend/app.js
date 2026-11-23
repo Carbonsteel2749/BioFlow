@@ -43,7 +43,7 @@ async function render(){
   clearTimeout(pollTimer);const token=++generation;chrome();
   const content=$('.content');content.innerHTML='<div class="module-loading" role="status" aria-live="polite"><span>正在加载…</span><i></i><i></i><i></i></div>';
   if(!bioflowUser){content.innerHTML=guestView();return;}
-  if(!current()&&!['home','settings','models'].includes(state.page)){content.innerHTML=head('BioFlow 研究工作台','文献、分析、绘图和写作共用一个项目入口。')+'<div class="hero"><h2>建立研究项目</h2><p>项目保存任务和稿件的关联，已有结果可以导入。</p>'+button('＋ 新建项目','newproject','class="primary"')+'</div>';return;}
+  if(!current()&&!['home','settings','models','literature','personal-library','skill-center'].includes(state.page)){content.innerHTML=head('BioFlow 研究工作台','文献、分析、绘图和写作共用一个项目入口。')+'<div class="hero"><h2>建立研究项目</h2><p>项目保存任务和稿件的关联，已有结果可以导入。</p>'+button('＋ 新建项目','newproject','class="primary"')+'</div>';return;}
   try{const html=await views[state.page]();if(token===generation)content.innerHTML=html;}catch(e){if(token===generation)content.innerHTML=head(names[state.page])+`<div class="note">${esc(e.message)}</div>${button('服务设置','settings')}`;}
 }
 async function linked(kind,serviceName,path){const ids=await api(pa('/links/'+kind));const all=items(await service(serviceName,path));return all.filter(x=>ids.includes(x.id||x.session_id));}
@@ -139,7 +139,7 @@ root.addEventListener('click',async e=>{const el=e.target.closest('button');if(!
 root.addEventListener('submit',async e=>{const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();const buttons=[...f.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);try{await forms[f.dataset.form](f);}catch(err){notify(err.message);const target=f.querySelector('[id$="progress"],[id$="result"]');if(target)target.textContent=err.message;}finally{buttons.forEach(b=>b.disabled=false);}});
 root.addEventListener('input',e=>{if(e.target.matches('.search')){const term=e.target.value.toLowerCase();root.querySelectorAll('.project').forEach(p=>p.hidden=!p.textContent.toLowerCase().includes(term));}if(e.target.name==='skillSearch'){const term=e.target.value.toLowerCase();root.querySelectorAll('.skill-card').forEach(c=>c.hidden=!c.dataset.search.toLowerCase().includes(term));}});
 const startBioFlow=()=>boot().catch(e=>notify(e.message));
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startBioFlow,{once:true});else startBioFlow();
+if(document.readyState!=='complete')document.addEventListener('DOMContentLoaded',startBioFlow,{once:true});else startBioFlow();
 
 
 function writingSkillNames(){try{const names=JSON.parse(localStorage.getItem('bioflow.writingSkills')||'[]');return Array.isArray(names)?names.filter(name=>typeof name==='string'):[];}catch{return [];}}

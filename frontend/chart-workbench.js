@@ -16,7 +16,8 @@
  const select=(key,label,values,value)=>controls(label,`<select name="${key}">${opt(values,value)}</select>`);
  const check=(key,label,value)=>`<label class="cw-check"><input type="checkbox" name="${key}" ${value?'checked':''}>${label}</label>`;
  const number=(key,label,value,min=6,max=48)=>input(key,label,value,'number',`min="${min}" max="${max}" step="any"`);
- const current=()=>W.pid===state.project&&W.tid===(state.task||'');
+ const taskScope=()=>window.BioFlowTaskContext?.libraryId||state.task||'';
+ const current=()=>W.pid===state.project&&W.tid===taskScope();
  const supported=()=>W.templates.find(t=>t.id===W.chart);
  function capture(){const form=root.querySelector('[data-form="chart-workbench"]');if(!form)return;for(const el of form.querySelectorAll('[name],[data-column]')){if(el.dataset.column){W.columns[el.dataset.column]=el.value;continue;}W.params[el.name]=el.type==='checkbox'?el.checked:el.type==='number'?(el.value===''&&['legend_x','legend_y'].includes(el.name)?null:Number(el.value)):el.value;}W.params.legend_labels={...W.params.legend_labels,...Object.fromEntries([...form.querySelectorAll('[data-cw-label]')].map(e=>[e.dataset.cwLabel,e.value]))};W.params.series_colors=Object.fromEntries([...form.querySelectorAll('[data-cw-color]')].filter(e=>e.dataset.changed||W.params.series_colors?.[e.dataset.cwColor]).map(e=>[e.dataset.cwColor,e.value]));}
  names['chart-edit']='图表工作台';
@@ -28,14 +29,14 @@
  };
  actions['cw-category']=async e=>{researchState.category=e.dataset.category;await render();};
  actions['cw-use']=async e=>{
-  clearTimeout(W.autoTimer);W.edits={};W.revision++;W.chart=e.dataset.chart;W.version=null;W.params={};W.columns={};W.source='';W.groups='';W.tab='data';W.table='matrix';W.offset=0;W.pid=state.project;W.tid=state.task||'';
+  clearTimeout(W.autoTimer);W.edits={};W.revision++;W.chart=e.dataset.chart;W.version=null;W.params={};W.columns={};W.source='';W.groups='';W.tab='data';W.table='matrix';W.offset=0;W.pid=state.project;W.tid=taskScope();
   W.sources=(await api(url('/figure-sources')+taskQuery())).items;
   await navigate('chart-edit');
  };
  actions['research-chart']=e=>actions['cw-use']({dataset:{chart:e.dataset.id}});
  actions['research-version']=async e=>{
-  clearTimeout(W.autoTimer);W.edits={};W.revision++;W.pid=state.project;W.version=await api(url('/figures/'+id(e.dataset.id)));W.chart=W.version.chart;W.tid=W.version.source.task_id||state.task||'';
-  if(W.tid&&state.task&&W.tid!==state.task)throw Error('该图表属于其他任务，请先切换对应任务');
+  clearTimeout(W.autoTimer);W.edits={};W.revision++;W.pid=state.project;W.version=await api(url('/figures/'+id(e.dataset.id)));W.chart=W.version.chart;W.tid=W.version.source.task_id||taskScope();
+  if(W.tid&&taskScope()&&W.tid!==taskScope())throw Error('该图表属于其他任务，请先切换对应任务');
   W.params={...W.version.parameters};W.columns={...W.version.columns};W.source=W.version.source.id;W.groups=W.version.source.grouping?.id||'';W.tab='plot';
   if(!W.templates.length)W.templates=(await api(url('/figure-templates'))).items;
   W.sources=(await api(url('/figure-sources')+taskQuery())).items;await navigate('chart-edit');

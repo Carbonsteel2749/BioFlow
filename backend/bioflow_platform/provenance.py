@@ -10,8 +10,13 @@ from .research_experience import short_title
 def research_tasks(store,pid,uid):
     with store.connect() as db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_records'").fetchone():return {}
-        rows=db.execute("SELECT id,status,payload FROM research_records WHERE kind='run' AND project_id=? AND user_id=?",(pid,uid)).fetchall()
-    return {r['id']:{'id':r['id'],'name':json.loads(r['payload']).get('title') or short_title(json.loads(r['payload'])['plan']),'status':r['status'],'type':'research','parameters':{}} for r in rows}
+        rows=db.execute("SELECT id,status,kind,payload FROM research_records WHERE kind IN ('run','task') AND project_id=? AND user_id=?",(pid,uid)).fetchall()
+    result={}
+    for r in rows:
+        p=json.loads(r['payload'])
+        if p.get('deleted') or (r['kind']=='run' and p.get('task_id')):continue
+        result[r['id']]={'id':r['id'],'name':p.get('title') or short_title(p.get('plan',{})),'status':r['status'],'type':'research','parameters':{}}
+    return result
 
 
 def project_task_ids(store,pid,uid):

@@ -36,9 +36,12 @@ def publish(store,row,output,directory):
                  'size_bytes':target.stat().st_size,'artifact_type':artifact['artifact_type'],'output_key':artifact.get('output_key'),
                  'title':artifact.get('title',source.name),'source_dataset_ids':row['plan']['dataset_ids']}
         saved=rs.create(store,pid,uid,'artifact','ready',payload,identifier);mapping[artifact['id']]=identifier
-        metadata={'task_id':row['id'],'source':'BioFlow统一研究','research_run_id':row['id'],'research_step_id':output['step_id'],
+        metadata={'task_id':row.get('task_id') or row['id'],'source':'BioFlow统一研究','research_run_id':row['id'],'research_step_id':output['step_id'],
                   'research_artifact_id':identifier,'chart_role':'statistical_result' if kind=='results' else 'figure',
                   'parent_refs':[rs.get(store,pid,uid,d,'dataset')['source_asset_id'] for d in row['plan']['dataset_ids']],'process_name':output['skill']}
+        if row.get('task_id'):
+            task=rs.get(store,pid,uid,row['task_id'],'task')
+            if task.get('legacy_id'):metadata['task_id']=task['legacy_id']
         with store.connect() as db:
             db.execute('INSERT INTO assets(id,project_id,user_id,name,kind,path,size_bytes,sha256,status,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)',
                        (identifier,pid,uid,source.name,kind,str(target),payload['size_bytes'],payload['sha256'],'ready',rs.dump(metadata)))

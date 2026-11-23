@@ -25,7 +25,8 @@ def gateway(authorize, access, frontend, upstream="http://127.0.0.1:18120", tran
             raise HTTPException(400,"无效路径")
         if path=="entry.json":
             manifest=json.loads((frontend/".vite/manifest.json").read_text())
-            entry=manifest.get("src/main.tsx",manifest["index.html"])
+            entry=manifest.get("src/main.tsx") or manifest.get("index.html")
+            if not entry:raise HTTPException(503,"能力库前端构建缺少入口")
             return JSONResponse({"module":PREFIX+"/"+entry["file"],"css":[PREFIX+"/"+x for x in entry.get("css",[])]},headers={"Cache-Control":"no-store"})
         if path.startswith("assets/"):
             if request.method not in {"GET","HEAD"}:raise HTTPException(405,"方法不允许")

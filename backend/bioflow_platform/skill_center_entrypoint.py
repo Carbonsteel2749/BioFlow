@@ -21,5 +21,6 @@ if os.getenv("BIOFLOW_SKILL_CENTER_ENABLED")=="1":
     if not (frontend/".vite/manifest.json").is_file():raise RuntimeError("Native Skill center frontend is not built")
     access=CenterAccess(os.getenv("BIOFLOW_SKILL_CENTER_DATABASE","/home/xh/BioFLow/skill_center/storage/database/center.sqlite"),
                         os.getenv("BIOFLOW_SKILL_CENTER_OWNERSHIP",root/"runtime/skill-center-accounts.sqlite3"))
+    total_app.state.skill_center_access=access
     app=IntegratedApp(total_app,authenticated,access,frontend,os.getenv("BIOFLOW_SKILL_CENTER_URL","http://127.0.0.1:18120"))
 else:app=total_app

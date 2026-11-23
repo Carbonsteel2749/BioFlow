@@ -82,9 +82,13 @@ def install(app,router,get_store,check_project,files):
         return await asyncio.to_thread(tools_for,rs.python(),str(rs.root()))
 
     @router.get('/research/data')
-    def data_list(pid:str,request:Request):
+    def data_list(pid:str,request:Request,task_id:str=''):
         check_project(pid,request)
-        return {'items':[rs.public(d) for d in rs.listing(get_store(),pid,request.state.user['id'],'dataset')]}
+        ids=None
+        if task_id:
+            from .research_tasks import owned as task_owned
+            ids=set(task_owned(get_store(),pid,request.state.user['id'],task_id).get('dataset_ids',[]))
+        return {'items':[rs.public(d) for d in rs.listing(get_store(),pid,request.state.user['id'],'dataset') if ids is None or d['id'] in ids]}
 
     @router.get('/research/sources')
     async def sources(pid:str,request:Request):
@@ -95,22 +99,36 @@ def install(app,router,get_store,check_project,files):
     @router.post('/research/data/register',status_code=201)
     async def register_existing(pid:str,body:RegisterData,request:Request):
         check_project(pid,request)
-        return await register(pid,request,body.asset_id,body.options)
+        if body.task_id:
+            from .research_tasks import owned as task_owned
+            task_owned(get_store(),pid,request.state.user['id'],body.task_id)
+        saved=await register(pid,request,body.asset_id,body.options)
+        if body.task_id:
+            from .research_tasks import link_dataset
+            link_dataset(get_store(),pid,request.state.user['id'],body.task_id,saved)
+        return saved
 
     @router.post('/research/data/import',status_code=201)
-    async def import_data(pid:str,request:Request,file:UploadFile=File(...),options:str=Form('{}')):
+    async def import_data(pid:str,request:Request,file:UploadFile=File(...),options:str=Form('{}'),task_id:str=Form('')):
         check_project(pid,request);raw_options=json.loads(options)
+        if task_id:
+            from .research_tasks import owned as task_owned
+            task_owned(get_store(),pid,request.state.user['id'],task_id)
         if Path(file.filename or '').suffix.lower() not in {'.csv','.tsv','.txt','.xlsx','.json'}:raise HTTPException(422,'请选择表格文件')
         # Existing upload storage is also the single raw-file registry.
         if file.size is not None and file.size>100*1024**2:raise HTTPException(413,'表格导入上限为100 MB')
-        asset=await files.upload(pid,request.state.user,file,purpose='results' if raw_options.get('role')=='results' else 'data')
+        asset=await files.upload(pid,request.state.user,file,purpose='results' if raw_options.get('role')=='results' else 'data',details={'task_id':task_id} if task_id else {})
         if not raw_options.get('role') or raw_options.get('role')=='auto':
             path,name,sha=await source(pid,request.state.user['id'],asset['id'])
             references=[s for d in rs.listing(get_store(),pid,request.state.user['id'],'dataset') for s in d.get('samples',[])]
             raw_options.pop('role',None)
             detected=await asyncio.to_thread(rs.invoke,{'mode':'recognize','source':str(path),'filename':name,'options':raw_options,'reference_samples':references},rs.root()/'recognition'/uuid.uuid4().hex)
             raw_options=detected['options']
-        return await register(pid,request,asset['id'],DataOptions.model_validate(raw_options))
+        saved=await register(pid,request,asset['id'],DataOptions.model_validate(raw_options))
+        if task_id:
+            from .research_tasks import link_dataset
+            link_dataset(get_store(),pid,request.state.user['id'],task_id,saved)
+        return saved
 
     async def validate(pid,uid,body,data):
         result=await asyncio.to_thread(rs.invoke,engine_spec(pid,data,mode='validate',study=body.study,
@@ -120,6 +138,11 @@ def install(app,router,get_store,check_project,files):
     @router.post('/research/plans',status_code=201)
     async def make_plan(pid:str,body:PlanRequest,request:Request):
         check_project(pid,request);uid=request.state.user['id'];data=datasets(pid,uid,body.dataset_ids)
+        task_row=None
+        if body.task_id:
+            from .research_tasks import owned as task_owned
+            task_row=task_owned(get_store(),pid,uid,body.task_id)
+            if set(body.dataset_ids)-set(task_row.get('dataset_ids',[])):raise HTTPException(422,'方案输入必须先加入本任务')
         if body.mode=='ai':
             result=await asyncio.to_thread(rs.invoke,engine_spec(pid,data,mode='plan',objective=body.objective,study=body.study),rs.root()/uid/pid/'planning'/uuid.uuid4().hex,360)
             proposal=result['plan'];steps=proposal.get('steps') or [];questions=proposal.get('questions') or []
@@ -130,14 +153,23 @@ def install(app,router,get_store,check_project,files):
         payload=plan_payload(pid,data,body.objective,steps,body.study);payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
         from .research_experience import short_title
         payload['title']=proposal.get('title') if body.mode=='ai' else short_title(payload)
+        if task_row:
+            payload['task_id']=task_row['id'];payload['revision']=len(task_row.get('plan_ids',[]))+1
+            if task_row.get('plan_ids'):payload['parent_id']=task_row['plan_ids'][-1]
         payload['fingerprint']=rs.fingerprint(payload)
         return rs.public(rs.create(get_store(),pid,uid,'plan','ready' if ready else 'needs_input',payload))
 
     @router.put('/research/plans/{identifier}')
     async def edit_plan(pid:str,identifier:str,body:EditPlan,request:Request):
-        old=owned(pid,request,identifier,'plan');data=datasets(pid,request.state.user['id'],old['dataset_ids'])
+        old=owned(pid,request,identifier,'plan')
+        input_ids=old['dataset_ids']
+        if old.get('task_id'):
+            from .research_tasks import owned as task_owned
+            input_ids=task_owned(get_store(),pid,request.state.user['id'],old['task_id']).get('dataset_ids',[])
+        data=datasets(pid,request.state.user['id'],input_ids)
         result=await validate(pid,request.state.user['id'],body,data)
         payload=plan_payload(pid,data,body.objective,result['plan']['steps'],body.study)
+        if old.get('task_id'):payload['task_id']=old['task_id']
         payload.update(summary=body.objective,questions=result.get('questions',[]),origin='edited',revision=old['revision']+1,parent_id=identifier)
         payload['fingerprint']=rs.fingerprint(payload)
         return rs.public(rs.create(get_store(),pid,request.state.user['id'],'plan','ready' if result['ready'] else 'needs_input',payload))
@@ -164,7 +196,7 @@ def install(app,router,get_store,check_project,files):
             prior=db.execute("SELECT * FROM research_records WHERE kind='run' AND project_id=? AND user_id=? AND json_extract(payload,'$.plan_id')=? ORDER BY created_at LIMIT 1",(pid,request.state.user['id'],identifier)).fetchone()
             if prior:run=rs.record(prior)
             else:
-                rid=uuid.uuid4().hex;payload={'title':plan.get('title') or short_title(plan),'plan_id':identifier,'plan':{k:plan[k] for k in ['objective','steps','study','dataset_ids','snapshot','fingerprint']},'step_results':[], 'progress':{'completed':0,'total':len(plan['steps'])},'attempt':1}
+                rid=uuid.uuid4().hex;payload={'task_id':plan.get('task_id'),'title':plan.get('title') or short_title(plan),'plan_id':identifier,'plan':{k:plan[k] for k in ['objective','steps','study','dataset_ids','snapshot','fingerprint']},'step_results':[], 'progress':{'completed':0,'total':len(plan['steps'])},'attempt':1}
                 db.execute('INSERT INTO research_records(id,kind,project_id,user_id,status,payload) VALUES(?,?,?,?,?,?)',(rid,'run',pid,request.state.user['id'],'queued',rs.dump(payload)))
                 run=None
         if run is None:run=rs.get(get_store(),pid,request.state.user['id'],rid,'run');rs.event(get_store(),run,'queued')
@@ -226,6 +258,10 @@ def install(app,router,get_store,check_project,files):
     @router.post('/research/data/{identifier}/edit',status_code=201)
     async def edit_data(pid:str,identifier:str,request:Request,body:dict):
         row=owned(pid,request,identifier,'dataset');edits=body.get('edits',[])
+        task_id=body.get('task_id')
+        if task_id:
+            from .research_tasks import owned as task_owned
+            if identifier not in task_owned(get_store(),pid,row['user_id'],task_id).get('dataset_ids',[]):raise HTTPException(404,'数据不属于本任务')
         if not isinstance(edits,list) or not edits or len(edits)>2000:raise HTTPException(422,'每次提交1至2000个单元格修改')
         for e in edits:
             if not isinstance(e,dict) or not isinstance(e.get('row'),int) or not isinstance(e.get('column'),int) or not isinstance(e.get('value'),(str,int,float)):raise HTTPException(422,'单元格修改格式错误')
@@ -237,6 +273,9 @@ def install(app,router,get_store,check_project,files):
             if saved['id']!=identifier:
                 current=rs.get(get_store(),pid,row['user_id'],saved['id'],'dataset')
                 saved=rs.public(rs.update(get_store(),current,'ready',parent_id=identifier,revision=row['revision']+1,edit_count=len(edits)))
+            if task_id:
+                from .research_tasks import link_dataset
+                link_dataset(get_store(),pid,row['user_id'],task_id,saved,replace_id=identifier)
             return saved
         finally:target.unlink(missing_ok=True)
 
@@ -256,6 +295,9 @@ def install(app,router,get_store,check_project,files):
         from .research_queue import save_active
         save_active(get_store(),current,report=generated)
         return generated
+
+    from .research_tasks import install as install_tasks
+    install_tasks(app,router,get_store,check_project,files,source,register,make_plan,confirm,edit_plan,report,interpret_report)
 
     from contextlib import asynccontextmanager
     original_lifespan=app.router.lifespan_context

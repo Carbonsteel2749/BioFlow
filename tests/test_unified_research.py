@@ -217,3 +217,101 @@ else:raise AssertionError('unknown row accepted')
 '''
     result=subprocess.run([str(ENGINE),'-c',code,str(tmp_path/'proposed-data')],cwd=ROOT,capture_output=True,text=True)
     assert result.returncode==0,result.stderr
+
+def task_create(c,title='Task'):
+    r=c.post(c.base+'/tasks',json={'title':title});assert r.status_code==201,r.text
+    return r.json()
+
+
+def test_tasks_have_independent_inputs_workflow_versions_and_reports(client):
+    project_data=upload(client);a=task_create(client,'A');b=task_create(client,'B')
+    assert client.get(client.base+'/data',params={'task_id':a['id']}).json()['items']==[]
+    assert client.get('/api/projects/'+client.pid+'/library-browser',params={'task_id':a['id'],'kind':'data'}).json()['items']==[]
+    response=client.post(client.base+'/tasks/'+a['id']+'/assets',json={'source_project_id':client.pid,'asset_ids':[project_data['source_asset_id']]})
+    assert response.status_code==200,response.text
+    assert response.json()['dataset_ids']==[project_data['id']]
+    assert client.get(client.base+'/data',params={'task_id':b['id']}).json()['items']==[]
+    body={'objective':'Alpha','steps':[{'id':'s1','skill':'alpha_diversity','parameters':{},'depends_on':[]}],'study':{}}
+    r=client.put(client.base+'/tasks/'+a['id']+'/workflow',json=body);assert r.status_code==201,r.text
+    first=r.json()['plans'][0]
+    r=client.put(client.base+'/tasks/'+a['id']+'/workflow',json=body);assert r.status_code==201,r.text
+    detail=r.json();assert [p['revision'] for p in detail['plans']]==[1,2]
+    latest=detail['plans'][-1]
+    r=client.post(client.base+'/tasks/'+a['id']+'/plans/'+latest['id']+'/confirm',json={'fingerprint':latest['fingerprint']})
+    assert r.status_code==202,r.text
+    research_queue.run_one(gateway.store)
+    current=client.get(client.base+'/tasks/'+a['id']).json();assert current['status']=='completed',current
+    assert current['runs'][0]['plan']['fingerprint']==latest['fingerprint']
+    report=client.get(client.base+'/tasks/'+a['id']+'/report/'+current['run_ids'][0]);assert report.status_code==200,report.text
+    assert report.json()['markdown'].startswith('# ') and 'alpha_diversity.tsv' in report.json()['markdown']
+    assert client.get(client.base+'/tasks/'+b['id']+'/report/'+current['run_ids'][0]).status_code==404
+    rows=client.get('/api/projects/'+client.pid+'/library-browser',params={'task_id':a['id'],'kind':'results'}).json()
+    assert rows['counts']['results']>=1,rows
+
+
+def test_task_upload_archive_rename_delete_and_chat_without_data(client):
+    a=task_create(client)
+    r=client.post(client.base+'/tasks/'+a['id']+'/messages',json={'text':'做多样性分析'})
+    assert r.status_code==201,r.text
+    assert r.json()['messages'][-1]['role']=='assistant' and r.json()['plans']==[]
+    r=client.post(client.base+'/data/import',files={'file':('matrix.csv',MATRIX)},data={'task_id':a['id'],'options':'{"role":"taxonomy","unit":"counts"}'})
+    assert r.status_code==201,r.text
+    assert len(client.get(client.base+'/data',params={'task_id':a['id']}).json()['items'])==1
+    assert client.patch(client.base+'/tasks/'+a['id'],json={'title':'Renamed','archived':True}).status_code==200
+    tree=client.get('/api/research/tree').json();assert not tree['items'][0]['tasks']
+    tree=client.get('/api/research/tree?include_archived=true').json();assert tree['items'][0]['tasks'][0]['title']=='Renamed'
+    assert client.delete(client.base+'/tasks/'+a['id']).status_code==200
+    assert client.get(client.base+'/tasks/'+a['id']).status_code==404
+
+
+def test_legacy_run_task_migration_is_idempotent(client):
+    d=upload(client);r=confirm(client,plan(client,[d['id']]))
+    tree=client.get('/api/research/tree').json();tid=tree['items'][0]['tasks'][0]['id']
+    assert tid!=r['id']
+    assert client.get('/api/research/tree').json()['items'][0]['tasks'][0]['id']==tid
+    assert client.get(client.base+'/tasks/'+tid).json()['run_ids']==[r['id']]
+    assert client.get(client.base+'/runs/'+r['id']).status_code==200
+
+
+def test_task_boundaries_cross_project_inputs_and_paper_links(client):
+    d=upload(client)
+    first_pid=client.pid
+    second_pid=client.post('/api/projects',json={'name':'Second project'}).json()['id']
+    task=client.post('/api/projects/'+second_pid+'/research/tasks',json={'title':'Second task'}).json()
+    base='/api/projects/'+second_pid+'/research/tasks/'+task['id']
+    r=client.post(base+'/assets',json={'source_project_id':first_pid,'asset_ids':[d['source_asset_id']]})
+    assert r.status_code==200,r.text
+    copied=r.json()
+    assert len(copied['dataset_ids'])==1
+    dataset=client.get('/api/projects/'+second_pid+'/research/data',params={'task_id':task['id']}).json()['items'][0]
+    assert dataset['project_id']==second_pid and dataset['source_asset_id']!=d['source_asset_id']
+    assert client.get(client.base+'/tasks/'+task['id']).status_code==404
+    assert client.patch(base,json={'paper_ids':['unknown']}).status_code==404
+    assert client.patch(base,json={'session_ids':['unknown']}).status_code==404
+    paper=client.post('/api/library/literature/add-file',files={'file':('reference.ris',b'TY  - JOUR\nTI  - Task reference\nER  -\n')})
+    assert paper.status_code==201,paper.text
+    paper_id=paper.json()['id']
+    link=client.post('/api/projects/'+second_pid+'/research/papers/'+paper_id+'/link',json={})
+    assert link.status_code==200,link.text
+    assert link.json()['index_status']=='not_indexed'
+    assert client.post('/api/projects/'+second_pid+'/research/papers/'+paper_id+'/link',json={}).json()['already_linked']
+    assert client.patch(base,json={'paper_ids':[paper_id]}).json()['paper_ids']==[paper_id]
+    listing=client.get('/api/library/literature').json()
+    saved=next(p for p in listing['items'] if p['id']==paper_id)
+    assert any(p['id']==second_pid for p in saved['projects'])
+
+
+def test_task_workflow_uses_edited_input_version_without_changing_previous_plan(client):
+    task=task_create(client)
+    r=client.post(client.base+'/data/import',files={'file':('matrix.csv',MATRIX)},data={'task_id':task['id'],'options':'{"role":"taxonomy","unit":"counts"}'})
+    d=r.json();base=client.base+'/tasks/'+task['id']
+    body={'objective':'Alpha','steps':[{'id':'s1','skill':'alpha_diversity','parameters':{'dataset_id':d['id']},'depends_on':[]}],'study':{}}
+    old=client.put(base+'/workflow',json=body).json()['plans'][-1]
+    edited=client.post(client.base+'/data/'+d['id']+'/edit',json={'task_id':task['id'],'edits':[{'row':0,'column':1,'value':8}]})
+    assert edited.status_code==201,edited.text
+    new=edited.json();body['steps'][0]['parameters']['dataset_id']=new['id']
+    r=client.put(base+'/workflow',json=body)
+    assert r.status_code==201,r.text
+    assert r.json()['plans'][-1]['dataset_ids']==[new['id']]
+    assert r.json()['plans'][0]['dataset_ids']==[d['id']]
+    assert r.json()['plans'][0]['fingerprint']==old['fingerprint']
