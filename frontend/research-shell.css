@@ -189,3 +189,5 @@
 #ai4s-prototype .modal.v2-account-dialog p{margin:10px 0 18px}
 #ai4s-prototype .modal.v2-account-dialog .row{gap:8px;flex-wrap:wrap}
 @media(max-width:760px){#ai4s-prototype .v2-chat-composer{width:calc(100% - 12px)}#ai4s-prototype.workspace-v2 .topbar{height:0;min-height:0;padding:0}#ai4s-prototype.workspace-v2 .top-actions{right:12px;top:8px}}
+
+#ai4s-prototype .v2-module-nav button{font-size:14px;font-weight:500}
