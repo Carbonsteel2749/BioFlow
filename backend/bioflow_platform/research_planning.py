@@ -8,6 +8,7 @@ from contextlib import contextmanager
 RULES = """你是 BioFlow 数据分析规划助手。只返回符合 schema 的 JSON。
 只能使用本次 skills 列表中的已登记工具。固定工具不足以准确表达目标时，使用 custom_analysis。
 custom_analysis 的 program 必须明确已确认的方法、真实输入ID、逐项验收要求和结果表/图输出；code 留空，用户确认方案后才生成和执行代码。
+program.method必须明确保留用户指定的公式、自由度参数如ddof、样本范围、图轴标签和输出要求，不能只写笼统的“标准化分析”。
 首个程序步骤读取原始文件时，Step.inputs必须为{}，program.inputs填真实dataset_id。不能用{s1,output}引用尚不存在的上游结果。
 program.sample_alignment 默认exact，保留原样本编号。canonical是需要用户确认的主键规范化策略，不得只因后缀相似而自行采用。
 通用程序不得补造缺失数据、伪造群落总通路丰度或擅自改变分组、样本范围与统计方法。程序内部错误由执行器按确认的方法修复；改变方案必须返回用户确认。
@@ -158,6 +159,13 @@ def planning_context(agent, datasets, bindings=None):
                 except (ValueError, TypeError):
                     continue
                 if isinstance(review, dict) and all(k in review for k in ('objective', 'plan', 'inputs')):
+                    review = copy.deepcopy(review)
+                    for step in review.get('plan', {}).get('steps', []):
+                        if step.get('skill')=='custom_analysis':
+                            # These are the only common parameters used by the
+                            # custom executor. Other defaults belong to other tools.
+                            params=step.get('parameters') or {}
+                            step['parameters']={'preparation':params.get('preparation',[])}
                     review = {**review, 'resolved_context': bindings or {}, 'data_profile': trace.profile,
                               'registered_tools': [{k:v for k,v in item.items() if k != 'parameters_schema'}
                                                    for item in agent.catalog()]}
@@ -177,6 +185,13 @@ def planning_context(agent, datasets, bindings=None):
             if not available():
                 payload['skills']=[tool for tool in payload['skills'] if tool['id']!='custom_analysis']
                 payload['unavailable_tools'].append({'id':'custom_analysis','reason':'通用Python隔离执行环境尚未就绪'})
+        selected_match=re.search(r'用户选定的登记工具（必须包含）：([^\n]+)',str(payload.get('objective','')))
+        custom_only=bool(selected_match and {s.strip() for s in selected_match.group(1).split(',')}=={'custom_analysis'})
+        if custom_only:
+            payload['skills']=[tool for tool in payload['skills'] if tool['id'] in {'custom_analysis','data_check','prepare_cohort'}]
+            params_schema=payload['schema'].get('$defs',{}).get('SkillParams',{})
+            if 'properties' in params_schema:
+                params_schema['properties']={k:v for k,v in params_schema['properties'].items() if k=='preparation'}
         intent = str(payload.get('objective', '')).split('当前方案，供本次修改参考：')[0]
         explicit_adjustment = re.search(r'协变量|校正|混杂|控制|回归|偏相关|partial_correlation|adjusted_regression', intent, re.I)
         selected_adjustment = re.search(r'用户选定的登记工具（必须包含）：[^\n]*(?:partial_correlation|adjusted_regression)', str(payload.get('objective','')))
@@ -216,7 +231,10 @@ def planning_context(agent, datasets, bindings=None):
             bindings['repairs']=list(dict.fromkeys(bindings.get('repairs',[])+repairs))
         trace.previous = copy.deepcopy(result)
         trace.attempts.append({'attempt': len(trace.attempts) + 1,
-                               'steps': [{'id': s.get('id'), 'skill': s.get('skill')} for s in result.get('steps', [])]})
+                               'steps': [{'id': s.get('id'), 'skill': s.get('skill'),
+                                   **({'program':{k:v for k,v in s['program'].items() if k!='code'}}
+                                      if s.get('skill')=='custom_analysis' and isinstance(s.get('program'),dict) else {})}
+                                         for s in result.get('steps', [])]})
         return result
 
     agent.model_json = model

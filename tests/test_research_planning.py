@@ -155,3 +155,38 @@ def test_taxonomy_tool_cannot_silently_read_functional_file():
     with planning_context(agent,example_data(),{'study':{}}):
         with pytest.raises(ValueError,match='工具需要 taxonomy 数据'):
             agent.validate_plan(plan,'p',[{'id':'fun','data_type':'functional'}])
+
+
+def test_custom_review_receives_used_parameters_only():
+    calls=[]
+    agent=SimpleNamespace(model_json=lambda messages:calls.append(messages) or {'approved':True},
+                          catalog=lambda:[{'id':'custom_analysis','requires':'custom'}])
+    plan={'steps':[{'id':'s1','skill':'custom_analysis','parameters':{
+        'correlation_method':'spearman','standard_error':'HC3','adjustment':'BH','preparation':[]},
+        'program':{'method':'z=(x-mean)/std(ddof=0)','outputs':[{'name':'z'}]}}]}
+    with planning_context(agent,example_data(),{}):
+        agent.model_json([{'role':'user','content':json.dumps({'objective':'标准化','plan':plan,'inputs':{}})}])
+    reviewed=json.loads(calls[0][1]['content'])['plan']['steps'][0]
+    assert reviewed['parameters']=={'preparation':[]}
+    assert reviewed['program']==plan['steps'][0]['program']
+    assert 'correlation_method' in plan['steps'][0]['parameters']
+
+
+def test_explicit_python_selection_has_a_program_specific_schema():
+    calls=[]
+    agent=SimpleNamespace(model_json=lambda messages:calls.append(messages) or {'steps':[],'questions':[]})
+    payload={'datasets':[], 'objective':'只用Python\n用户选定的登记工具（必须包含）：custom_analysis',
+        'skills':[{'id':'custom_analysis'},{'id':'differential'},{'id':'prepare_cohort'}],
+        'schema':{'$defs':{'SkillParams':{'properties':{'preparation':{},'correlation_method':{}}},
+                          'Step':{'properties':{'program':{'type':'object'}}}}}}
+    import sys
+    from unittest.mock import patch
+    with patch.dict(sys.modules,{'yanji':SimpleNamespace(),'yanji.skills':SimpleNamespace(),
+        'yanji.skills.research_guidance':SimpleNamespace(GUIDANCE=''),
+        'yanji.adaptive':SimpleNamespace(available=lambda:True)}):
+        with planning_context(agent,example_data(),{}):
+            agent.model_json([{'role':'user','content':json.dumps(payload)}])
+    sent=json.loads(calls[0][1]['content'])
+    assert [t['id'] for t in sent['skills']]==['custom_analysis','prepare_cohort']
+    assert set(sent['schema']['$defs']['SkillParams']['properties'])=={'preparation'}
+    assert 'program' in sent['schema']['$defs']['Step']['properties']
