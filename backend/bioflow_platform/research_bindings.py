@@ -149,6 +149,16 @@ def repair_plan(body, bindings, tools, datasets, objective):
                           if value.get('step_id') not in removed}
         if step.get('cohort_from') in removed:
             step['cohort_from'] = None
+        program = step.get('program')
+        if step.get('skill') == 'custom_analysis' and isinstance(program, dict) and not seen:
+            source_ids = {d['id'] for d in datasets}
+            declared = program.get('inputs') or []
+            if len(datasets)==1 and len(set(declared))<=1:
+                program['inputs'] = [datasets[0]['id']]
+            if program.get('inputs') and set(program['inputs'])<=source_ids and not step['depends_on']:
+                if step['inputs']:
+                    step['inputs'] = {}
+                    repairs.append('首个程序步骤已绑定原始数据，移除将原始文件误写为上游结果的引用。')
         for key, value in list(step['inputs'].items()):
             parent = value.get('step_id')
             if (parent in preparations and parent in seen and value.get('output') == 'prepared_metadata'

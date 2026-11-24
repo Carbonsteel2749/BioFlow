@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from test_unified_research import client, upload, plan, confirm
+from test_unified_research import client, upload, plan, confirm, ENGINE, ROOT
 from backend.bioflow_platform import app as gateway, research_store as rs, research_queue
 
 
@@ -49,7 +49,8 @@ def model(monkeypatch):
                 state['calls'].append('plan')
                 identifier=context['datasets'][0]['id']
                 answer={'objective':context['objective'],'summary':'计算已上传数据的均值。','questions':[],
-                        'steps':[{'id':'s1','skill':'custom_analysis','program':program(identifier,"value='unexecuted planning draft'")}]}
+                        'steps':[{'id':'s1','skill':'custom_analysis','program':program(identifier,"value='unexecuted planning draft'"),
+                                  'inputs':{'data':{'step_id':'s1','output':'input'}}}]}
             elif 'plan' in context:
                 state['calls'].append('design_review');answer={'approved':True,'feedback':''}
             elif 'checks' in context:
@@ -128,18 +129,25 @@ def test_missing_declared_outputs_are_not_marked_success(client,model):
 
 
 def test_repair_cannot_change_confirmed_method():
-    from backend.bioflow_platform import research_engine_bridge
+    # The API environment deliberately does not import scientific dependencies.
+    import subprocess,os
+    code='''import json,sys
+from backend.bioflow_platform import research_engine_bridge
     from yanji.adaptive import frozen_program,PlanChangeRequired
     from yanji.contracts import AnalysisProgram
-    original=AnalysisProgram.model_validate(program('source'))
-    with pytest.raises(PlanChangeRequired) as error:
-        frozen_program(original,original.model_copy(update={'method':'改成其他统计方法'}))
-    assert error.value.diagnostic['requires_plan_confirmation']
-    for change in ({'sample_alignment':'canonical'},{'inputs':['different_source']},
-                   {'requires_independent':True}):
-        with pytest.raises(PlanChangeRequired):
+    original=AnalysisProgram.model_validate(json.loads(sys.argv[1]))
+    for change in ({'method':'改成其他统计方法'},{'sample_alignment':'canonical'},
+                   {'inputs':['different_source']},{'requires_independent':True}):
+        try:
             frozen_program(original,original.model_copy(update=change))
+        except PlanChangeRequired as error:
+            assert error.diagnostic['requires_plan_confirmation']
+        else:raise AssertionError('confirmed specification changed')
     assert frozen_program(original,original.model_copy(update={'code':'value=1'})).method==original.method
+'''.replace('\n    ','\n')
+    result=subprocess.run([str(ENGINE),'-c',code,json.dumps(program('source'))],
+        cwd=ROOT,env={**os.environ,'PYTHONPATH':str(ROOT)},capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stdout+result.stderr
 
 
 def test_plan_change_requires_new_confirmation_before_resume(client):

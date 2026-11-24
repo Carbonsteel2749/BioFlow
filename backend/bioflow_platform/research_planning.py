@@ -8,6 +8,7 @@ from contextlib import contextmanager
 RULES = """你是 BioFlow 数据分析规划助手。只返回符合 schema 的 JSON。
 只能使用本次 skills 列表中的已登记工具。固定工具不足以准确表达目标时，使用 custom_analysis。
 custom_analysis 的 program 必须明确已确认的方法、真实输入ID、逐项验收要求和结果表/图输出；code 留空，用户确认方案后才生成和执行代码。
+首个程序步骤读取原始文件时，Step.inputs必须为{}，program.inputs填真实dataset_id。不能用{s1,output}引用尚不存在的上游结果。
 program.sample_alignment 默认exact，保留原样本编号。canonical是需要用户确认的主键规范化策略，不得只因后缀相似而自行采用。
 通用程序不得补造缺失数据、伪造群落总通路丰度或擅自改变分组、样本范围与统计方法。程序内部错误由执行器按确认的方法修复；改变方案必须返回用户确认。
 本执行器不提供 report 工具，报告由平台在分析后生成。
