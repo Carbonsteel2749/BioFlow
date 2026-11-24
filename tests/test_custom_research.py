@@ -40,6 +40,7 @@ def model(monkeypatch):
             context=contexts[0] if contexts else {}
             if 'frozen_spec' in context:
                 state['calls'].append('code')
+                state['input_structure']=context['inputs']
                 if state['incomplete']:
                     code="check('r1', len(tables) > 0, '有输入'); finish('未输出约定的结果')"
                 else:
@@ -100,6 +101,9 @@ def test_ai_plan_defers_code_until_confirmation_then_repairs_and_publishes(clien
     code=client.get(client.base+'/artifacts/'+artifacts['analysis.py']['id']).text
     assert '.mean()' in code and '.mena()' not in code
     assert model['calls'].count('code')==2
+    structure=model['input_structure'][0]
+    assert structure['index_examples']==['0','1','2','3']
+    assert structure['identifier_columns']['sample']==['S1','S2','S3','S4']
 
 
 def test_custom_output_is_consumed_by_next_step_and_method_is_frozen(client,model):

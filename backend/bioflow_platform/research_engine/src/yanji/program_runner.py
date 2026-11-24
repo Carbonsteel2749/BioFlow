@@ -140,7 +140,10 @@ def finish(summary, metrics=None, warnings=None):
     if not isinstance(summary, str) or not summary.strip():
         raise ValueError("缺少实际计算的结论")
     if set(records) != set(outputs) or set(checks) != set(requirements):
-        raise ValueError("尚未输出全部约定的产物或逐项验收检查")
+        raise ValueError("尚未输出全部约定的产物或逐项验收检查：" + json.dumps({
+            "missing_outputs": sorted(set(outputs)-set(records)),
+            "missing_requirement_checks": {key: requirements[key] for key in sorted(set(requirements)-set(checks))},
+        }, ensure_ascii=False))
     if not all(c["passed"] for c in checks.values()):
         raise ValueError("存在未通过的研究要求，后续检查不能覆盖先前失败")
     completed = {
