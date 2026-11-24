@@ -153,6 +153,7 @@ class AnalysisProgram(StrictModel):
     requirements: list[ProgramRequirement] = Field(min_length=1, max_length=12)
     outputs: list[ProgramOutput] = Field(min_length=1, max_length=12)
     requires_independent: bool = False
+    sample_alignment: Literal['exact','canonical'] = 'exact'
     code: str = Field(default="", max_length=40000)
 
 

@@ -155,3 +155,18 @@ BioFlow/
 .\.venv\Scripts\python -m pip install pytest
 .\.venv\Scripts\python -m pytest tests -q
 ```
+
+## 通用 Python 分析
+
+研究方案可以包含 `custom_analysis` 步骤。确认前保存方法、输入数据版本、输出和验收要求；确认后由独立计算进程生成代码，隔离运行并逐项验收。技术错误最多修复三轮，修复保留原方法和输出约定；需要改变方案时停止执行并登记待用户确认事件。
+
+Linux 计算节点需要安装 `bubblewrap`，并允许该服务用户创建隔离命名空间。配置独立计算环境后运行自检：
+
+```bash
+sudo apt-get install bubblewrap libseccomp2
+bash deploy/check-research-python.sh
+```
+
+自检未通过时工具目录会标记通用 Python 不可用，不会退回宿主机直接执行。每步只读挂载输入，仅输出及临时目录可写；网络与宿主进程隔离。当前每次程序执行限制为 60 秒 CPU、90 秒墙钟时间，内存监测上限为 2 GiB。
+
+完成后，实际执行代码、结果表/图、逐项验收及修复记录、运行环境版本统一登记到任务成果中。程序结果表可以按输出名称供后续步骤引用；失败恢复保留已完成结果和修复记录。

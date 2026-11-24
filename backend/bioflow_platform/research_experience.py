@@ -82,6 +82,8 @@ def data_operation(spec):
         if proposed and any(settings.model_dump()[k]!=spec['options'].get(k,settings.model_dump()[k]) for k in settings.model_dump()):raise ValueError('请分两次操作：先修正读取设置，再提出数值修改')
         return {'options':settings.model_dump(),'edits':proposed,'explanation':str(answer.get('explanation','已提出数据修正建议。'))[:1500]}
     if mode=='edit_data':
+        # Edits arrive as text; re-import below validates and restores column types.
+        frame=frame.astype(object)
         columns=[str(frame.index.name or 'ID')]+list(map(str,frame.columns))
         edits=spec['edits']
         for edit in edits:

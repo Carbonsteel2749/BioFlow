@@ -74,7 +74,7 @@ def process(store,row):
         if any(not any(c['step_id']==dep and c['status']=='success' for c in completed) for dep in step.get('depends_on',[])):
             blocked={'step_id':step['id'],'status':'skipped','summary':'上游步骤未成功，未执行此步骤。','artifacts':[]}
             results.append(blocked);completed.append(blocked);rs.event(store,row,'step_blocked',step_id=step['id']);continue
-        spec={'mode':'execute','project_id':row['project_id'],'run_id':row['id'],'datasets':datasets,
+        spec={'mode':'execute','project_id':row['project_id'],'run_id':row['id'],'datasets':datasets,'objective':row['plan']['objective'],
               'step':step,'study':row['plan']['study'],'completed':completed}
         req=directory/'step.request.json';response=directory/'step.response.json';req.write_text(rs.dump(spec));response.unlink(missing_ok=True)
         rs.event(store,row,'step_started',step_id=step['id'],tool_id=step['skill']);save_active(store,row,current_step=step['id'],step_results=results,progress={'completed':index,'total':len(steps)})
@@ -95,7 +95,11 @@ def process(store,row):
             raise
         if not response.exists():raise ValueError('工具未生成结果，请检查执行日志')
         output=json.loads(response.read_text())
-        if proc.returncode or output.get('error'):raise ValueError(output.get('error','步骤执行失败'))
+        if proc.returncode or output.get('error'):
+            if output.get('requires_plan_confirmation'):
+                save_active(store,row,needs_plan_confirmation=True)
+                rs.event(store,row,'plan_change_required',step_id=step['id'],message=output.get('error',''))
+            raise ValueError(output.get('error','步骤执行失败'))
         output['step_id']=step['id'];normalized=publish(store,row,output,directory)
         result=rs.create(store,row['project_id'],row['user_id'],'result',output['status'],normalized)
         entry={**rs.public(result),'raw_engine_result':output};results.append(entry);completed.append(output)

@@ -151,7 +151,8 @@ def install(app,router,get_store,check_project,files):
             if not body.steps:raise HTTPException(422,'请添加分析步骤')
             result=await validate(pid,uid,body,data);steps=result['plan']['steps'];questions=result.get('questions',[]);ready=result['ready'];summary=body.objective
         payload=plan_payload(pid,data,body.objective,steps,result.get('study',body.study));payload.update(summary=summary,questions=questions,origin=body.mode,revision=1)
-        if result.get('planning_diagnostics',{}).get('source')=='data_profile':payload['origin']='data_profile'
+        if result.get('planning_diagnostics',{}).get('source') in {'data_profile','rule_router'}:
+            payload['origin']=result['planning_diagnostics']['source']
         for key in ('data_profile','planning_diagnostics','failure','resolved_context'):
             if key in result:payload[key]=result[key]
         if body.mode=='ai' and proposal.get('clarifications'):payload['clarifications']=proposal['clarifications']
@@ -232,6 +233,8 @@ def install(app,router,get_store,check_project,files):
     @router.post('/research/runs/{identifier}/resume')
     def resume(pid:str,identifier:str,request:Request):
         row=owned(pid,request,identifier,'run')
+        if row.get('needs_plan_confirmation'):
+            raise HTTPException(409,'本次修复需要变更分析方案，请先确认新版方案后再执行。')
         if row['status'] not in {'failed','interrupted','cancelled','completed_with_issues'}:raise HTTPException(409,'当前任务不能恢复')
         for d in datasets(pid,row['user_id'],row['plan']['dataset_ids']):rs.verify_dataset(d)
         with get_store().connect() as db:

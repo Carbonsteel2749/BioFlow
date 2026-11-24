@@ -12,6 +12,9 @@ resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
 resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024**2, 64 * 1024**2))
 resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
 resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+if sys.platform.startswith('linux'):
+    resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))
+    resource.setrlimit(resource.RLIMIT_NPROC, (512, 512))
 parent = os.getppid()
 root = Path(sys.argv[1]).resolve()
 
@@ -20,7 +23,10 @@ def watch_parent():
     while True:
         if os.getppid() != parent:
             os._exit(130)
-        if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss > 2 * 1024**3:
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if sys.platform.startswith('linux'):
+            rss *= 1024
+        if rss > 2 * 1024**3:
             os._exit(137)
         output_files = list((root / "output").iterdir())
         if (
@@ -163,6 +169,9 @@ namespace = {
     "finish": finish,
 }
 try:
+    if sys.platform.startswith('linux'):
+        import runpy
+        runpy.run_path(str(root / 'isolation.py'))['restrict_processes']()
     exec(compile(code, "analysis.py", "exec"), namespace)
     if completed is None:
         raise ValueError("计算没有调用 finish，未形成完整分析结果")

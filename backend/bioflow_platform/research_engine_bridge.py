@@ -12,7 +12,7 @@ sys.path.insert(0,str(ENGINE/'src'))
 def configure():
     from yanji.skills import registry
     from yanji.contracts import SkillParams
-    registry.SPECS=[s for s in registry.SPECS if s.id not in {'custom_analysis','report'}]
+    registry.SPECS=[s for s in registry.SPECS if s.id!='report' and s.id!='existing_effect_plot' and not s.id.startswith('bioflow_')]
     registry.SPECS.append(registry.Spec('existing_effect_plot','已有结果效应图',
         '读取已上传结果中的效应量及可选置信区间绘图，不重新计算检验。','research',outputs=('plot_data',)))
     from .charts.registry import CHARTS,VERSION
@@ -106,8 +106,10 @@ def execute(spec):
     from dataclasses import asdict
     custom={'id':'existing_effect_plot','name':'已有结果效应图','version':'1.0.0','description':'读取已上传结果中的效应量及可选置信区间绘图，不重新计算检验。','requires':'research','outputs':['plot_data']}
     if spec['mode']=='catalog':
+        from yanji.adaptive import available
         from .chart_contracts import DisplayParameters
         return {'tools':[{**asdict(s),'backend':'bioflow-chart' if s.id.startswith('bioflow_') else 'python','contract_version':'bioflow.research.v1',
+                **({'available':available(),'unavailable_reason':'' if available() else '通用 Python 隔离执行环境尚未就绪'} if s.id=='custom_analysis' else {}),
                 **({'plot_options_schema':DisplayParameters.model_json_schema()} if s.id.startswith('bioflow_') else {})} for s in registry.SPECS],
                 'parameters_schema':Params.model_json_schema(),'plan_schema':AnalysisPlan.model_json_schema()}
     if spec['mode']=='inspect':
@@ -144,25 +146,34 @@ def execute(spec):
             from .research_planning import planning_context, data_profile, overview_plan, PlanningTrace
             trace=None
             try:
-                initial=overview_plan(spec['datasets'],spec['objective'])
+                from .research_routing import compile_route
+                route=compile_route(spec['datasets'],spec['objective'],bindings,latest=spec.get('latest_instruction'))
+                initial=route['plan'] if route else overview_plan(spec['datasets'],spec['objective'])
                 if initial:
-                    from yanji.clarify import finish
+                    from yanji.clarify import finish,model_cards
                     body=AnalysisPlan.model_validate(initial)
                     available=data.active(pid)
                     agent.validate_plan(body,pid,available)
+                    if body.questions:
+                        body.clarifications=model_cards(None,list(body.questions),available)
+                        body.questions=[]
                     finish(body,agent.checks(body,pid,available,spec.get('study',{})),available,spec.get('study',{}))
-                    plan=body.model_dump();trace=PlanningTrace(data_profile(spec['datasets']));origin='data_profile'
+                    plan=body.model_dump();trace=PlanningTrace(data_profile(spec['datasets']));origin='rule_router' if route else 'data_profile'
+                    if route:
+                        plan['title']=route['title']
+                        bindings['defaults']=route['defaults']
                 else:
                     origin='model'
                     with planning_context(agent,spec['datasets'],bindings) as trace:
                         plan=agent.create_plan(pid,ChatRequest(message=spec['objective'],dataset_ids=list(snapshot['datasets']),
-                            study=spec.get('study',{}),include_report=False,mode='agent'))
+                            study=spec.get('study',{}),include_report=False,mode='agent'),defer_program_code=True)
                 from .research_experience import model_object,short_title
-                try:
-                    named=model_object('用中文概括研究任务标题，最多18个字。返回JSON {"title":"..."}，不输出研究指令全文。',{'objective':spec['objective'],'steps':[s['skill'] for s in plan.get('steps',[])]},120)
-                    plan['title']=str(named.get('title','')).strip()[:28]
-                except Exception:plan['title']=short_title(plan)
-                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications','research_design']},'ready':not bool(plan.get('questions')),'data_profile':trace.profile,'planning_diagnostics':{**trace.diagnostics(),'source':origin},'study':spec['study'],'resolved_context':bindings}
+                if not plan.get('title'):
+                    try:
+                        named=model_object('用中文概括研究任务标题，最多18个字。返回JSON {"title":"..."}，不输出研究指令全文。',{'objective':spec['objective'],'steps':[s['skill'] for s in plan.get('steps',[])]},120)
+                        plan['title']=str(named.get('title','')).strip()[:28]
+                    except Exception:plan['title']=short_title(plan)
+                return {'plan':{k:plan.get(k) for k in ['title','objective','summary','steps','questions','clarifications','research_design']},'ready':not bool(plan.get('questions')),'data_profile':trace.profile,'planning_diagnostics':{**trace.diagnostics(),'source':origin,'routing':{k:v for k,v in route.items() if k!='plan'} if route else None},'study':spec['study'],'resolved_context':bindings}
             except (ValueError,agent.ModelError) as exc:
                 if trace and trace.attempts:trace.attempts[-1]['error']=str(exc)[:1500]
                 return {'plan':{'objective':spec['objective'],'summary':'方案生成未通过自动检查，暂未开始执行。请重新生成方案。','steps':[],'questions':[]},'ready':False,
@@ -191,7 +202,7 @@ def execute(spec):
         ordinary=[s for s in body.steps if s.skill!='existing_effect_plot' and not s.skill.startswith('bioflow_')]
         if ordinary:
             check=body.model_copy(update={'steps':ordinary});agent.validate_plan(check,pid)
-            blockers=agent.checks(check,pid,study=spec.get('study',{}))
+            blockers=agent.checks(check,pid,study=spec.get('study',{}),require_program_code=False)
         else:blockers=[]
         output=body.model_dump()
         for step in output['steps']:step['parameters'].update(extras.get(step['id'],{}))
@@ -199,7 +210,10 @@ def execute(spec):
     if spec['mode']=='execute':
         step=spec['step'];parameters={k:v for k,v in step.get('parameters',{}).items() if k not in {'plot_options','plot_columns'}}
         ctx=Context(pid,spec['run_id'],step['id'],snapshot,parameters,spec.get('completed',[]),step.get('inputs',{}))
-        if step['skill'].startswith('bioflow_') and step['skill'] in registry.CATALOG:output=native_chart(ctx,step)
+        if step['skill']=='custom_analysis':
+            from yanji.adaptive import execute as execute_program
+            output=execute_program(ctx,step.get('program'),spec.get('objective',''))
+        elif step['skill'].startswith('bioflow_') and step['skill'] in registry.CATALOG:output=native_chart(ctx,step)
         elif step['skill']=='existing_effect_plot':output=result_plot(ctx)
         elif step['skill'] in registry.CATALOG:output=run_tool(ctx,step['skill'])
         else:raise ValueError('工具未接入统一执行器')
@@ -210,6 +224,10 @@ if __name__=='__main__':
     request,response=map(Path,sys.argv[1:3])
     try:
         output=execute(json.loads(request.read_text()));code=0
-    except Exception as exc:output={'error':str(exc)[:2000]};code=1
+    except Exception as exc:
+        output={'error':str(exc)[:2000]}
+        if getattr(exc,'diagnostic',{}).get('requires_plan_confirmation'):
+            output['requires_plan_confirmation']=True
+        code=1
     response.write_text(json.dumps(output,ensure_ascii=False,allow_nan=False),encoding='utf-8')
     raise SystemExit(code)

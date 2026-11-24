@@ -209,7 +209,7 @@ def validate_plan(plan, project_id, datasets=None):
     return plan
 
 
-def checks(plan, project_id, datasets=None, study=None, accepted=()):
+def checks(plan, project_id, datasets=None, study=None, accepted=(), require_program_code=True):
     """Failed preconditions of a plan, each as a Blocker that says how to resolve it."""
     from .data import load_frame
 
@@ -266,12 +266,12 @@ def checks(plan, project_id, datasets=None, study=None, accepted=()):
             from .adaptive import validate_spec
 
             try:
-                if plan.questions and step.program and not step.program.code:
+                if require_program_code and plan.questions and step.program and not step.program.code:
                     continue
                 validate_spec(
                     step.program,
                     datasets,
-                    require_code=True,
+                    require_code=require_program_code,
                     has_upstream=bool(step.inputs),
                 )
                 if step.program.requires_independent and not study.get("independent"):
@@ -597,7 +597,7 @@ def guided(request, project_id):
     )
 
 
-def create_plan(project_id, request: ChatRequest, answered=None, accepted=None, keep=None):
+def create_plan(project_id, request: ChatRequest, answered=None, accepted=None, keep=None, defer_program_code=False):
     """Design a plan, or with `keep` re-check an existing design after answers.
 
     `keep` is (plan, origin): the steps stay as they are and only the checks run
@@ -965,7 +965,7 @@ def create_plan(project_id, request: ChatRequest, answered=None, accepted=None, 
     for step in plan.steps:
         if step.skill == "custom_analysis":
             validate_spec(step.program, datasets, has_upstream=bool(step.inputs))
-            if not step.program.code and not plan.questions:
+            if not step.program.code and not plan.questions and not defer_program_code:
                 feedback = ""
                 for attempt in range(3):
                     try:
@@ -997,7 +997,8 @@ def create_plan(project_id, request: ChatRequest, answered=None, accepted=None, 
     effective = snap["study"]
     finish(
         plan,
-        checks(plan, project_id, datasets, effective, accepted),
+        checks(plan, project_id, datasets, effective, accepted, require_program_code=False)
+        if defer_program_code else checks(plan, project_id, datasets, effective, accepted),
         datasets,
         effective,
     )

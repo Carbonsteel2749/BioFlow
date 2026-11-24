@@ -8,7 +8,7 @@ from backend.bioflow_platform import app as gateway,assets,research_store as rs,
 from backend.bioflow_platform.store import Store
 
 ROOT=Path(__file__).resolve().parents[1]
-ENGINE=ROOT/'runtime/research-python/bin/python'
+ENGINE=Path(os.environ.get('BIOFLOW_TEST_RESEARCH_PYTHON',str(ROOT/'runtime/research-python/bin/python')))
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
@@ -42,7 +42,8 @@ def confirm(c,p):
 def test_real_import_plan_run_and_registered_results(client):
     d=upload(client);assert d['schema']['rows']==3 and len(d['samples'])==4
     catalog=client.get(client.base+'/tools').json();assert 'alpha_diversity' in {t['id'] for t in catalog['tools']}
-    assert 'custom_analysis' not in {t['id'] for t in catalog['tools']}
+    custom=next(t for t in catalog['tools'] if t['id']=='custom_analysis')
+    assert isinstance(custom['available'],bool)
     p=plan(client,[d['id']]);assert p['status']=='ready',p
     r=confirm(client,p);assert confirm(client,p)['id']==r['id']
     assert research_queue.run_one(gateway.store)

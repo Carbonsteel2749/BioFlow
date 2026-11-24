@@ -294,7 +294,8 @@ def install(app,router,get_store,check_project,files,source,register,make_plan,c
             objective='初始研究目标：\n'+history[0][:2300]+'\n后续修订要求：\n'+'\n'.join(history[1:])[-2300:]
             if row.get('plan_ids'):
                 previous=rs.get(get_store(),pid,uid,row['plan_ids'][-1],'plan')
-                compact=[{k:v for k,v in step.items() if k in {'id','skill','parameters','depends_on','inputs'}} for step in previous['steps']]
+                compact=[{k:({pk:pv for pk,pv in v.items() if pk!='code'} if k=='program' and isinstance(v,dict) else v)
+                          for k,v in step.items() if k in {'id','skill','parameters','depends_on','inputs','program','cohort_from'}} for step in previous['steps']]
                 objective+='\n当前方案，供本次修改参考：'+json.dumps(compact,ensure_ascii=False)[:2200]
             if any(len(s)>200 for s in row.get('skills',[])):raise HTTPException(422,'技能标识过长')
             references=[];center=getattr(app.state,'skill_center_access',None)

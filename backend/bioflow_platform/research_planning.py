@@ -6,7 +6,11 @@ from contextlib import contextmanager
 
 
 RULES = """你是 BioFlow 数据分析规划助手。只返回符合 schema 的 JSON。
-只能使用本次 skills 列表中的已登记工具。此执行器没有 custom_analysis、程序员或 report 工具，禁止规划它们或填写 program。
+只能使用本次 skills 列表中的已登记工具。固定工具不足以准确表达目标时，使用 custom_analysis。
+custom_analysis 的 program 必须明确已确认的方法、真实输入ID、逐项验收要求和结果表/图输出；code 留空，用户确认方案后才生成和执行代码。
+program.sample_alignment 默认exact，保留原样本编号。canonical是需要用户确认的主键规范化策略，不得只因后缀相似而自行采用。
+通用程序不得补造缺失数据、伪造群落总通路丰度或擅自改变分组、样本范围与统计方法。程序内部错误由执行器按确认的方法修复；改变方案必须返回用户确认。
+本执行器不提供 report 工具，报告由平台在分析后生成。
 报告在所有步骤完成后由平台读取实际结果生成，不需要增加一个综合/报告节点。
 用户仅要求分析上传文件、未指定变量关系时，先安排各文件的结构检查与描述性概览；不要自选临床结局、分组或关联网络。
 独立的数据概览可并行执行，research_design 可以省略；若填写独立问题，其 synthesis_step 必须为 null。不能为了覆盖多个文件强造综合步骤。
@@ -89,10 +93,13 @@ def planning_context(agent, datasets, bindings=None):
     original_validate = getattr(agent, 'validate_plan', None)
     original_checks = getattr(agent, 'checks', None)
 
-    def checks(plan, project_id, datasets=None, study=None, accepted=()):
+    def checks(plan, project_id, datasets=None, study=None, accepted=(), require_program_code=False):
         native = [s for s in plan.steps if s.skill.startswith('bioflow_') or s.skill == 'existing_effect_plot']
         ordinary = plan.model_copy(update={'steps':[s for s in plan.steps if s not in native]}) if native else plan
-        issues = original_checks(ordinary, project_id, datasets, study, accepted)
+        if any(s.skill=='custom_analysis' for s in ordinary.steps):
+            issues = original_checks(ordinary, project_id, datasets, study, accepted, require_program_code=False)
+        else:
+            issues = original_checks(ordinary, project_id, datasets, study, accepted)
         identifiers = {row['id'] for row in datasets or []}
         for step in native:
             if not step.inputs and step.parameters.dataset_id not in identifiers:
@@ -154,8 +161,8 @@ def planning_context(agent, datasets, bindings=None):
                               'registered_tools': [{k:v for k,v in item.items() if k != 'parameters_schema'}
                                                    for item in agent.catalog()]}
                     patched = [{'role':'system','content':
-                        '审核固定登记工具的研究方案是否忠实覆盖目标。返回JSON {"approved":true或false,"feedback":"具体原因"}。'
-                        '本平台不使用自定义程序；以plan中实际parameters、inputs和登记工具契约为准。'
+                        '审核固定登记工具与通用Python步骤是否忠实覆盖目标。返回JSON {"approved":true或false,"feedback":"具体原因"}。'
+                        '固定工具以parameters、inputs和工具契约为准；custom_analysis以program.method、inputs、requirements、outputs为准，确认前code为空是正常状态。'
                         '原始矩阵索引是样本标识，study及resolved_context提供用户已明确的研究设置；不得重复索取已存在的列和参数。'
                         '仅审查目标覆盖、方法和实际数据流。必要数据或研究条件尚未确定时由澄清流程处理；'
                         '保留工具默认值，不得要求填写无关fields/x/y或虚构连接。不得把物种贡献解释成统计关联。'},
@@ -164,6 +171,11 @@ def planning_context(agent, datasets, bindings=None):
             return original(messages, *args, **kwargs)
         payload = copy.deepcopy(payload)
         payload['skills'], payload['unavailable_tools'] = eligible_tools(payload['skills'], trace.profile)
+        if any(tool['id']=='custom_analysis' for tool in payload['skills']):
+            from yanji.adaptive import available
+            if not available():
+                payload['skills']=[tool for tool in payload['skills'] if tool['id']!='custom_analysis']
+                payload['unavailable_tools'].append({'id':'custom_analysis','reason':'通用Python隔离执行环境尚未就绪'})
         intent = str(payload.get('objective', '')).split('当前方案，供本次修改参考：')[0]
         explicit_adjustment = re.search(r'协变量|校正|混杂|控制|回归|偏相关|partial_correlation|adjusted_regression', intent, re.I)
         selected_adjustment = re.search(r'用户选定的登记工具（必须包含）：[^\n]*(?:partial_correlation|adjusted_regression)', str(payload.get('objective','')))
@@ -180,11 +192,12 @@ def planning_context(agent, datasets, bindings=None):
         payload['data_profile'] = trace.profile
         payload['resolved_context'] = bindings or {}
         step_schema = payload['schema'].get('$defs', {}).get('Step', {}).get('properties', {})
-        step_schema.pop('program', None)
+        custom_available = any(tool['id']=='custom_analysis' for tool in payload['skills'])
+        if not custom_available:
+            step_schema.pop('program', None)
         step_schema['skill'] = {'type': 'string', 'enum': [tool['id'] for tool in payload['skills']]}
         from yanji.skills.research_guidance import GUIDANCE
-        method_rules = GUIDANCE.split('先从研究目标设计可回答的问题')[0]
-        method_rules = '\n'.join(line for line in method_rules.splitlines() if '通用程序' not in line)
+        method_rules = GUIDANCE if custom_available else GUIDANCE.split('先从研究目标设计可回答的问题')[0]
         patched = [{'role': 'system', 'content': RULES + '\n工具字段约定：\n' + method_rules},
                    {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}]
         if trace.previous is not None:
@@ -193,6 +206,9 @@ def planning_context(agent, datasets, bindings=None):
             patched += [{'role': 'assistant', 'content': json.dumps(trace.previous, ensure_ascii=False)},
                         {'role': 'user', 'content': feedback + '\n请针对失败节点修正完整方案，保持原研究目标和数据口径。'}]
         result = original(patched, *args, **kwargs)
+        for step in result.get('steps', []):
+            if step.get('skill')=='custom_analysis' and isinstance(step.get('program'),dict):
+                step['program']['code']=''
         if bindings:
             from .research_bindings import repair_plan
             result, repairs = repair_plan(result,bindings,payload['skills'],datasets,str(payload.get('objective','')))
