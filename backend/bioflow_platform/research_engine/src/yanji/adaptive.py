@@ -431,6 +431,15 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
         },
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
+    if feedback:
+        try:
+            repair_context = json.loads(feedback)
+        except (TypeError, ValueError):
+            repair_context = {"error": feedback}
+        messages.append({"role": "user", "content":
+            "上一版程序执行失败。现在执行代码修复，逐项解决以下错误，保留原方案与全部验收要求。"
+            "返回实际修改后的完整JSON源码；不要重复previous_code。\n"
+            + json.dumps(repair_context, ensure_ascii=False)})
     from .agent import ModelError
 
     result = None

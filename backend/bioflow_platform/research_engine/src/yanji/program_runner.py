@@ -88,7 +88,12 @@ def emit_table(frame, name):
     if not isinstance(frame, pd.DataFrame) or len(frame) > 1000000 or len(frame.columns) > 1000:
         raise ValueError("结果必须是规模可控的 DataFrame")
     if len(frame) < output["min_rows"] or not set(output["columns"]).issubset(frame.columns):
-        raise ValueError("结果表缺少约定的列或行：" + name)
+        raise ValueError("结果表缺少约定的列或行：" + name + " " + json.dumps({
+            "missing_columns": sorted(set(output["columns"])-set(frame.columns)),
+            "actual_columns": list(map(str, frame.columns)),
+            "index_name": frame.index.name,
+            "actual_rows": len(frame), "min_rows": output["min_rows"],
+        }, ensure_ascii=False))
     filename = name + ".tsv"
     frame.to_csv(
         root / "output" / filename,

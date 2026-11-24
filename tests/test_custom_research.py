@@ -102,7 +102,7 @@ def test_ai_plan_defers_code_until_confirmation_then_repairs_and_publishes(clien
     assert '.mean()' in code and '.mena()' not in code
     assert model['calls'].count('code')==2
     structure=model['input_structure'][0]
-    assert structure['index_examples']==['0','1','2','3']
+    assert structure['index_examples']==['1','2','3','4']
     assert structure['identifier_columns']['sample']==['S1','S2','S3','S4']
 
 
