@@ -383,7 +383,7 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
             "upstream_tables": observe_frames(frames or {}),
         },
         "previous_code": failed_code if failed_code is not None else program.code,
-        "feedback": feedback[:6000],
+        "feedback": feedback,
         "upstream_preparation": [operation.model_dump() for operation in preparation],
         "check_protocol": {
             "requirement_ids": [r.id for r in program.requirements],
@@ -402,6 +402,8 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
             "可用 pd/np/plt，允许导入 numpy/pandas/scipy/matplotlib/skbio/statsmodels/math/statistics/itertools/collections/functools/re；不能安装库。"
             "只能通过 emit_table(DataFrame, 输出name)、emit_chart(matplotlib Figure, 输出name) 保存产物。"
             "emit_table 保留索引；输出的约定 columns 必须是实际列。每个输出name恰好生成一次。"
+            "索引名称用frame.index.name检查，样本编号用frame.index的实际值检查；不能把索引名称当作样本编号。"
+            "feedback非空时必须根据实际错误修复previous_code，返回修复后的完整源码，不能原样重复失败程序。"
             "对每项研究要求调用 check(真实requirement_id, 实际布尔条件, '实际检查详情')。同一ID可多次调用，所有条件按AND验收；不许用 check(id,True,...) 冒充验证；"
             "检查分组阈值、样本范围、分组独立排名、所需方法与输出等真实条件。"
             "最后 finish('基于实际结果的结论', metrics={可JSON序列化的有限数值}, warnings=[局限])，禁止 NaN/Infinity。"
