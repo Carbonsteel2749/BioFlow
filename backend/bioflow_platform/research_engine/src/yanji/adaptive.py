@@ -159,7 +159,14 @@ def schema_context(datasets):
                 "unit": d["unit"],
                 "orientation": "行是特征、列是样本"
                 if d["data_type"] in {"taxonomy", "functional"}
-                else "行是记录、索引是登记的样本标识",
+                else "行是记录；样本标识可能保留在列中，依据实际索引及标识列读取",
+                "index_name": frame.index.name,
+                "index_examples": list(map(str, frame.index[:8])),
+                "identifier_columns": {
+                    str(column): list(map(str, frame[column].head(8)))
+                    for column in frame.columns
+                    if str(column).strip().lower() in {str(name).lower() for name in SAMPLE_COLUMNS}
+                } if d["data_type"] in {"metadata", "table"} else {},
                 "rows": len(frame),
                 "feature_examples": list(map(str, frame.index[:8]))
                 if d["data_type"] in {"taxonomy", "functional"}
@@ -395,7 +402,9 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
             "role": "system",
             "content": "你是科研分析程序员。为确认的方法编写计算，不能改变研究目标、比较对象、方法和输出。"
             "仅返回 JSON {code:完整Python源码}。不写分析解释或注释，用完整的函数与计算表达确认的方法，最多220行，不得为了缩短代码省略必要分析和验收。"
-            "输入 tables[真实dataset_id] 是 pandas DataFrame；metadata/table 以登记的样本标识为索引，taxonomy/functional 行特征列样本。"
+            "输入 tables[真实dataset_id] 是 pandas DataFrame；taxonomy/functional 行特征列样本。"
+            "metadata/table 的实际索引见inputs.index_name/index_examples；标识可能在identifier_columns中，不能假定索引已经是样本编号。"
+            "需要样本索引时先验证真实标识列的唯一性，再set_index，保留原编号。"
             "若有 upstream_preparation，输入已经按上游规则筛选并添加派生列，不要重新计算分组阈值或扩大队列。"
             "数值列可能是字符串，明确 pd.to_numeric(errors='coerce') 并报告排除，不得伪造、填造观测或检验结果。"
             "上游结果在 results[alias] 中，是独立的DataFrame，不在tables里；必须引用约定alias，不能假装结果是原始数据。"
