@@ -102,7 +102,7 @@ def validate_code(code):
             and len(node.args) > 1
             and isinstance(node.args[1], ast.Constant)
         ):
-            raise ProgramFailure("验收检查不能是硬编码常量，须检验实际计算结果。")
+            raise ProgramFailure(f"第{node.lineno}行的验收条件是硬编码常量；check第二参数必须检验实际计算结果。")
         if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
             raise ProgramFailure("计算程序不能访问 Python 内部对象。")
     return code
@@ -369,7 +369,7 @@ def _source_ids(program, upstream):
     return found
 
 
-def generate(program, datasets, objective, feedback="", preparation=(), upstream=None, frames=None):
+def generate(program, datasets, objective, feedback="", preparation=(), upstream=None, frames=None, failed_code=None):
     from .agent import model_json
 
     source_ids = _source_ids(program, upstream)
@@ -382,7 +382,7 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
             "source_files": align_datasets([d for d in datasets if d["id"] in source_ids]),
             "upstream_tables": observe_frames(frames or {}),
         },
-        "previous_code": program.code,
+        "previous_code": failed_code if failed_code is not None else program.code,
         "feedback": feedback[:6000],
         "upstream_preparation": [operation.model_dump() for operation in preparation],
         "check_protocol": {
@@ -450,7 +450,11 @@ def generate(program, datasets, objective, feedback="", preparation=(), upstream
     else:
         code = result.get("code", "")
     updated = AnalysisProgram.model_validate({**program.model_dump(), "code": code})
-    validate_spec(updated, datasets, require_code=True, has_upstream=bool(upstream))
+    try:
+        validate_spec(updated, datasets, require_code=True, has_upstream=bool(upstream))
+    except ProgramFailure as error:
+        error.diagnostic={**error.diagnostic,'generated_code':code}
+        raise
     return updated
 
 
@@ -926,6 +930,7 @@ def execute(ctx, program, objective, review_results=True):
                         objective,
                         feedback,
                         ctx.params.preparation,
+                        failed_code=getattr(exc,'diagnostic',{}).get('generated_code'),
                         **(
                             {
                                 "frames": ctx.inputs,

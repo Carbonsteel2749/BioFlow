@@ -27,7 +27,7 @@ finish('完成算术均值计算', metrics={{'mean':value}})
 
 @pytest.fixture
 def model(monkeypatch):
-    state={'calls':[],'fail_first':True,'incomplete':False}
+    state={'calls':[],'fail_first':True,'incomplete':False,'constant_first':False,'previous_code_seen':False}
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_POST(self):
@@ -44,6 +44,11 @@ def model(monkeypatch):
                     code="check('r1', len(tables) > 0, '有输入'); finish('未输出约定的结果')"
                 else:
                     code=mean_code(context['frozen_spec']['inputs'][0],state['fail_first'] and not context.get('feedback'))
+                    if state['constant_first']:
+                        if not context.get('feedback'):
+                            code=code.replace('len(values) == 4 and np.isfinite(value)','True')
+                        else:
+                            state['previous_code_seen']=bool(context.get('previous_code'))
                 answer={'code':code}
             elif 'schema' in context and 'datasets' in context:
                 state['calls'].append('plan')
@@ -158,6 +163,16 @@ def test_plan_change_requires_new_confirmation_before_resume(client):
     rs.update(gateway.store,stored,'failed',needs_plan_confirmation=True)
     response=client.post(client.base+'/runs/'+run['id']+'/resume')
     assert response.status_code==409,response.text
+
+
+def test_rejected_generation_is_sent_back_for_repair(client,model):
+    model['fail_first']=False;model['constant_first']=True;d=data(client)
+    p=plan(client,[d['id']],[{'id':'s1','skill':'custom_analysis','program':program(d['id'])}])
+    run=confirm(client,p);assert research_queue.run_one(gateway.store)
+    done=client.get(client.base+'/runs/'+run['id']).json()
+    assert done['status']=='completed',done
+    assert model['previous_code_seen']
+    assert done['step_results'][0]['metrics']['mean']==2.5
 
 
 def test_scientific_library_and_chart_run_inside_linux_boundary(client,model):
